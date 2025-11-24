@@ -1,0 +1,223 @@
+/* Updated: 2025-11-23T16:23:14.729Z */
+/* Updated: 2025-11-23T15:39:32.888Z */
+/* Updated: 2025-11-23T15:35:34.108Z */
+/* Updated: 2025-11-23T12:01:41.294Z */
+/* Updated: 2025-11-23T07:47:42.463Z */
+/* Updated: 2025-11-23T07:33:32.635Z */
+/* Updated: 2025-11-21T21:54:28.525Z */
+/* Updated: 2025-11-21T21:53:00.258Z */
+/* Updated: 2025-11-21T21:49:25.863Z */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+@import "tailwindcss";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+    --color-background: var(--background);
+    --color-foreground: var(--foreground);
+    --font-sans: 'Inter', var(--font-geist-sans);
+    --font-mono: var(--font-geist-mono);
+    --color-earth-green: var(--earth-green);
+    --color-warm-yellow: var(--warm-yellow);
+    --color-soft-beige: var(--soft-beige);
+    --color-lego-primary: var(--lego-primary);
+    --color-lego-secondary: var(--lego-secondary);
+    --color-lego-accent: var(--lego-accent);
+    --color-sidebar-ring: var(--sidebar-ring);
+    --color-sidebar-border: var(--sidebar-border);
+    --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+    --color-sidebar-accent: var(--sidebar-accent);
+    --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+    --color-sidebar-primary: var(--sidebar-primary);
+    --color-sidebar-foreground: var(--sidebar-foreground);
+    --color-sidebar: var(--sidebar);
+    --color-chart-5: var(--chart-5);
+    --color-chart-4: var(--chart-4);
+    --color-chart-3: var(--chart-3);
+    --color-chart-2: var(--chart-2);
+    --color-chart-1: var(--chart-1);
+    --color-ring: var(--ring);
+    --color-input: var(--input);
+    --color-border: var(--border);
+    --color-destructive: var(--destructive);
+    --color-accent-foreground: var(--accent-foreground);
+    --color-accent: var(--accent);
+    --color-muted-foreground: var(--muted-foreground);
+    --color-muted: var(--muted);
+    --color-secondary-foreground: var(--secondary-foreground);
+    --color-secondary: var(--secondary);
+    --color-primary-foreground: var(--primary-foreground);
+    --color-primary: var(--primary);
+    --color-popover-foreground: var(--popover-foreground);
+    --color-popover: var(--popover);
+    --color-card-foreground: var(--card-foreground);
+    --color-card: var(--card);
+    --radius-sm: calc(var(--radius) - 4px);
+    --radius-md: calc(var(--radius) - 2px);
+    --radius-lg: var(--radius);
+    --radius-xl: calc(var(--radius) + 4px);
+}
+
+:root {
+    --radius: 0.625rem;
+    /* Custom LEGO Theme Colors */
+    --earth-green: #576238;
+    --warm-yellow: #FFD95D;
+    --soft-beige: #F0EADC;
+    --lego-primary: #576238;
+    --lego-secondary: #FFD95D;
+    --lego-accent: #F0EADC;
+    --background: #F0EADC;
+    --foreground: #2c2c2c;
+    --card: #ffffff;
+    --card-foreground: #2c2c2c;
+    --popover: #ffffff;
+    --popover-foreground: #2c2c2c;
+    --primary: #576238;
+    --primary-foreground: #ffffff;
+    --secondary: #FFD95D;
+    --secondary-foreground: #2c2c2c;
+    --muted: #e8e2d4;
+    --muted-foreground: #6b7280;
+    --accent: #FFD95D;
+    --accent-foreground: #2c2c2c;
+    --destructive: #ef4444;
+    --border: #d4cbb8;
+    --input: #d4cbb8;
+    --ring: #576238;
+    --chart-1: #576238;
+    --chart-2: #FFD95D;
+    --chart-3: #F0EADC;
+    --chart-4: #8b9456;
+    --chart-5: #ffe89a;
+    --sidebar: #ffffff;
+    --sidebar-foreground: #2c2c2c;
+    --sidebar-primary: #576238;
+    --sidebar-primary-foreground: #ffffff;
+    --sidebar-accent: #F0EADC;
+    --sidebar-accent-foreground: #2c2c2c;
+    --sidebar-border: #d4cbb8;
+    --sidebar-ring: #576238;
+}
+
+.dark {
+    --background: #1a1a1a;
+    --foreground: #f5f5f5;
+    --card: #262626;
+    --card-foreground: #f5f5f5;
+    --popover: #262626;
+    --popover-foreground: #f5f5f5;
+    --primary: #8b9456;
+    --primary-foreground: #ffffff;
+    --secondary: #FFD95D;
+    --secondary-foreground: #1a1a1a;
+    --muted: #2c2c2c;
+    --muted-foreground: #a3a3a3;
+    --accent: #FFD95D;
+    --accent-foreground: #1a1a1a;
+    --destructive: #ef4444;
+    --border: #3a3a3a;
+    --input: #3a3a3a;
+    --ring: #8b9456;
+    --chart-1: #8b9456;
+    --chart-2: #FFD95D;
+    --chart-3: #3a3a3a;
+    --chart-4: #a3b068;
+    --chart-5: #ffe89a;
+    --sidebar: #262626;
+    --sidebar-foreground: #f5f5f5;
+    --sidebar-primary: #8b9456;
+    --sidebar-primary-foreground: #ffffff;
+    --sidebar-accent: #2c2c2c;
+    --sidebar-accent-foreground: #f5f5f5;
+    --sidebar-border: #3a3a3a;
+    --sidebar-ring: #8b9456;
+}
+
+@layer base {
+    * {
+        @apply border-border outline-ring/50;
+    }
+
+    body {
+        @apply bg-background text-foreground;
+        font-family: 'Inter', var(--font-geist-sans);
+    }
+}
+
+/* LEGO Block Animations */
+@keyframes legoPopIn {
+    0% {
+        transform: scale(0) rotate(-180deg);
+        opacity: 0;
+    }
+
+    50% {
+        transform: scale(1.2) rotate(10deg);
+    }
+
+    100% {
+        transform: scale(1) rotate(0deg);
+        opacity: 1;
+    }
+}
+
+@keyframes legoStack {
+    0% {
+        transform: translateY(-100px);
+        opacity: 0;
+    }
+
+    70% {
+        transform: translateY(10px);
+    }
+
+    100% {
+        transform: translateY(0);
+        opacity: 1;
+    }
+}
+
+@keyframes legoPulse {
+    0%, 100% {
+        transform: scale(1);
+    }
+
+    50% {
+        transform: scale(1.05);
+    }
+}
+
+@keyframes legoShimmer {
+    0% {
+        background-position: -200% center;
+    }
+
+    100% {
+        background-position: 200% center;
+    }
+}
+
+.lego-pop-in {
+    animation: legoPopIn 0.6s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+}
+
+.lego-stack {
+    animation: legoStack 0.5s ease-out;
+}
+
+.lego-pulse {
+    animation: legoPulse 2s ease-in-out infinite;
+}
+
+.lego-shimmer {
+    background: linear-gradient(90deg, transparent, rgba(255, 217, 93, 0.3), transparent);
+    background-size: 200% 100%;
+    animation: legoShimmer 2s infinite;
+}
+
+/* Hide Next.js error overlay portal */
+nextjs-portal {
+    display: none !important;
+}

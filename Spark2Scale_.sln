@@ -1,0 +1,33 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.14.36705.20 d17.14
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{54A90642-561A-4BB1-A94E-469ADEE60C69}") = "spark2scale_.client", "spark2scale_.client\spark2scale_.client.esproj", "{25409BB7-AC62-7C4C-AF21-D61137E16653}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Spark2Scale_.Server", "Spark2Scale_.Server\Spark2Scale_.Server.csproj", "{BDC06C7D-386A-48B8-A333-8B7CBF9957B5}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{25409BB7-AC62-7C4C-AF21-D61137E16653}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{25409BB7-AC62-7C4C-AF21-D61137E16653}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{25409BB7-AC62-7C4C-AF21-D61137E16653}.Debug|Any CPU.Deploy.0 = Debug|Any CPU
+		{25409BB7-AC62-7C4C-AF21-D61137E16653}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{25409BB7-AC62-7C4C-AF21-D61137E16653}.Release|Any CPU.Build.0 = Release|Any CPU
+		{25409BB7-AC62-7C4C-AF21-D61137E16653}.Release|Any CPU.Deploy.0 = Release|Any CPU
+		{BDC06C7D-386A-48B8-A333-8B7CBF9957B5}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{BDC06C7D-386A-48B8-A333-8B7CBF9957B5}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{BDC06C7D-386A-48B8-A333-8B7CBF9957B5}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{BDC06C7D-386A-48B8-A333-8B7CBF9957B5}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {8FE3B8D9-AF94-4A98-9EC4-8D7FFD0BC8B6}
+	EndGlobalSection
+EndGlobal
