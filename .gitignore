@@ -121,3 +121,7 @@ ts-debug.log*
 # --- OS Junk ---
 .DS_Store
 Thumbs.db
+
+# ---- APIs ---
+appsettings.json
+appsettings.Development.json
