@@ -125,3 +125,5 @@ Thumbs.db
 # ---- APIs ---
 appsettings.json
 appsettings.Development.json
+
+.env
