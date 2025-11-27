@@ -4,12 +4,9 @@ using System;
 
 namespace Spark2Scale_.Server.Models
 {
-    // --- DATABASE MODEL ---
     [Table("startup_contributors")]
     public class StartupContributor : BaseModel
     {
-        // KEY FIX: explicitly define Column and PrimaryKey.
-        // The 'false' in PrimaryKey means "This is NOT auto-incrementing, I will provide the ID".
         [PrimaryKey("contributor_id", false)]
         [Column("contributor_id")]
         public Guid ContributorId { get; set; }
@@ -27,17 +24,14 @@ namespace Spark2Scale_.Server.Models
         public string? Role { get; set; }
     }
 
-    // --- DTO for INPUT ---
     public class CreateStartupContributorRequest
     {
-        // We use string here to avoid automatic 400 crashes on invalid GUIDs
         public string ContributorId { get; set; }
         public string StartupId { get; set; }
         public string? InvitedBy { get; set; }
         public string? Role { get; set; }
     }
 
-    // --- DTO for OUTPUT ---
     public class StartupContributorDto
     {
         public Guid ContributorId { get; set; }

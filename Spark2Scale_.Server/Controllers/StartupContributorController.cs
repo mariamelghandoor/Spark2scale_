@@ -18,10 +18,9 @@ namespace Spark2Scale_.Server.Controllers
             _supabase = supabase;
         }
 
-        [HttpPost("add")] // Explicitly named route
+        [HttpPost("add")] 
         public async Task<IActionResult> AddStartupContributor([FromBody] CreateStartupContributorRequest request)
         {
-            // 1. Validate Input
             if (request == null) return BadRequest("Request body is required.");
 
             if (!Guid.TryParse(request.ContributorId, out Guid contributorGuid))
@@ -47,8 +46,6 @@ namespace Spark2Scale_.Server.Controllers
             if (!startupCheck.Models.Any())
                 return BadRequest("Startup does not exist.");
 
-            // 3. Verify Contributor Exists (in 'contributors' table)
-            // Note: Use the model you defined earlier for contributors
             var contributorCheck = await _supabase.From<Contributor>()
                 .Where(c => c.user_id == contributorGuid)
                 .Get();
@@ -56,7 +53,6 @@ namespace Spark2Scale_.Server.Controllers
             if (!contributorCheck.Models.Any())
                 return BadRequest("User is not registered as a Contributor yet.");
 
-            // 4. Check for Duplicates (Is he already in this startup?)
             var existing = await _supabase.From<StartupContributor>()
                 .Where(x => x.ContributorId == contributorGuid && x.StartupId == startupGuid)
                 .Get();
@@ -64,7 +60,6 @@ namespace Spark2Scale_.Server.Controllers
             if (existing.Models.Any())
                 return Conflict("This contributor is already part of this startup.");
 
-            // 5. Create Model
             var newRecord = new StartupContributor
             {
                 ContributorId = contributorGuid,
@@ -74,7 +69,6 @@ namespace Spark2Scale_.Server.Controllers
                 InvitedAt = DateTime.UtcNow
             };
 
-            // 6. Insert
             try
             {
                 await _supabase.From<StartupContributor>().Insert(newRecord);
@@ -90,12 +84,10 @@ namespace Spark2Scale_.Server.Controllers
             }
             catch (Exception ex)
             {
-                // This catches the 23502 error if it still happens, giving us the message
                 return StatusCode(500, $"Database Error: {ex.Message}");
             }
         }
 
-        // GET method to list contributors for a startup
         [HttpGet("{startupId}")]
         public async Task<IActionResult> GetContributors(string startupId)
         {
