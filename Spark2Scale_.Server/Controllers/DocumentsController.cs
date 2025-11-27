@@ -4,11 +4,12 @@ using Spark2Scale_.Server.Models;
 using System;
 using System.Linq;
 using System.Threading.Tasks;
+using System.Collections.Generic;
 
 namespace Spark2Scale_.Server.Controllers
 {
     [ApiController]
-    [Route("api/[controller]")] 
+    [Route("api/[controller]")]
     public class DocumentsController : ControllerBase
     {
         private readonly Supabase.Client _supabase;
@@ -18,53 +19,69 @@ namespace Spark2Scale_.Server.Controllers
             _supabase = supabase;
         }
 
-        [HttpPost] 
-        public async Task<IActionResult> AddDocument([FromBody] Document document)
+        // POST: api/documents
+        [HttpPost("add")]
+        public async Task<IActionResult> AddDocument([FromBody] DocumentInsertDto input)
         {
-            if (document == null || document.StartupId == Guid.Empty)
-                return BadRequest("Invalid document or missing startup ID.");
+            // 1. Validation
+            if (input == null || input.startup_id == Guid.Empty || input.master_id == Guid.Empty)
+                return BadRequest("Invalid data. Startup ID and Master ID are required.");
 
-            if (document.Did == Guid.Empty)
-                document.Did = Guid.NewGuid();
-
-            var result = await _supabase.From<Document>().Insert(document);
-
-            var insertedDocument = result.Models.FirstOrDefault();
-            if (insertedDocument == null) return StatusCode(500, "Failed to insert document record.");
-
-            var dto = new DocumentDto
+            // 2. Map Input DTO -> Database Model
+            var newDoc = new Document
             {
-                Did = insertedDocument.Did,
-                DocumentName = insertedDocument.DocumentName,
-                Type = insertedDocument.Type,
-                StartupId = insertedDocument.StartupId,
-                CreatedAt = insertedDocument.CreatedAt
+                Did = Guid.NewGuid(), // Generate ID
+                MasterId = input.master_id,
+                StartupId = input.startup_id,
+                DocumentName = input.document_name,
+                Type = input.type,
+                Path = input.path,
+                Version = input.version,
+                CanAccess = input.canaccess,
+                CreatedAt = DateTime.UtcNow
             };
 
-            return CreatedAtAction(nameof(GetDocumentsByStartup), new { startupId = dto.StartupId }, dto);
+            // 3. Insert into Supabase
+            var result = await _supabase.From<Document>().Insert(newDoc);
+
+            var inserted = result.Models.FirstOrDefault();
+            if (inserted == null) return StatusCode(500, "Failed to insert document.");
+
+            // 4. Map Database Model -> Output DTO
+            var response = new DocumentResponseDto
+            {
+                did = inserted.Did,
+                master_id = inserted.MasterId,
+                startup_id = inserted.StartupId,
+                document_name = inserted.DocumentName,
+                type = inserted.Type,
+                path = inserted.Path,
+                version = inserted.Version,
+                canaccess = inserted.CanAccess,
+                created_at = inserted.CreatedAt
+            };
+
+            return Ok(response);
         }
 
-
-        [HttpGet("{startupId:Guid}")] 
-        public async Task<IActionResult> GetDocumentsByStartup(Guid startupId)
+        // GET: api/documents (Gets EVERYTHING)
+        [HttpGet]
+        public async Task<IActionResult> GetAllDocuments()
         {
-            if (startupId == Guid.Empty)
-                return BadRequest("Startup ID is required.");
+            // Fetch all rows from the table
+            var result = await _supabase.From<Document>().Get();
 
-            var result = await _supabase.From<Document>()
-                .Where(d => d.StartupId == startupId)
-                .Get();
-
-            if (result.Models == null || !result.Models.Any())
-                return NotFound("No documents found for this startup.");
-
-            var dtos = result.Models.Select(d => new DocumentDto
+            var dtos = result.Models.Select(d => new DocumentResponseDto
             {
-                Did = d.Did,
-                DocumentName = d.DocumentName,
-                Type = d.Type,
-                StartupId = d.StartupId,
-                CreatedAt = d.CreatedAt
+                did = d.Did,
+                master_id = d.MasterId,
+                startup_id = d.StartupId,
+                document_name = d.DocumentName,
+                type = d.Type,
+                path = d.Path,
+                version = d.Version,
+                canaccess = d.CanAccess,
+                created_at = d.CreatedAt
             }).ToList();
 
             return Ok(dtos);
