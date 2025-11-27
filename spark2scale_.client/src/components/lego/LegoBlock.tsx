@@ -7,6 +7,7 @@ interface LegoBlockProps {
     size?: "sm" | "md" | "lg";
     color?: string;
     completed?: boolean;
+    hasError?: boolean;
     delay?: number;
     className?: string;
 }
@@ -15,6 +16,7 @@ export default function LegoBlock({
     size = "md",
     color = "#576238",
     completed = false,
+    hasError = false,
     delay = 0,
     className,
 }: LegoBlockProps) {
@@ -23,6 +25,9 @@ export default function LegoBlock({
         md: "w-16 h-10",
         lg: "w-20 h-12",
     };
+
+    // Use red color for error state, otherwise use the provided color
+    const blockColor = hasError ? "#DC2626" : color;
 
     return (
         <motion.div
@@ -41,8 +46,8 @@ export default function LegoBlock({
             <div
                 className="absolute inset-0 rounded-md shadow-lg"
                 style={{
-                    backgroundColor: completed ? color : "#d1d5db",
-                    opacity: completed ? 1 : 0.4,
+                    backgroundColor: completed || hasError ? blockColor : "#d1d5db",
+                    opacity: completed || hasError ? 1 : 0.4,
                 }}
             >
                 {/* LEGO studs on top */}
@@ -50,21 +55,21 @@ export default function LegoBlock({
                     <div
                         className="w-3 h-3 rounded-full shadow-inner"
                         style={{
-                            backgroundColor: completed ? color : "#d1d5db",
+                            backgroundColor: completed || hasError ? blockColor : "#d1d5db",
                             filter: "brightness(1.2)",
                         }}
                     />
                     <div
                         className="w-3 h-3 rounded-full shadow-inner"
                         style={{
-                            backgroundColor: completed ? color : "#d1d5db",
+                            backgroundColor: completed || hasError ? blockColor : "#d1d5db",
                             filter: "brightness(1.2)",
                         }}
                     />
                 </div>
 
                 {/* Shine effect */}
-                {completed && (
+                {(completed || hasError) && (
                     <div className="absolute inset-0 rounded-md bg-gradient-to-br from-white/30 to-transparent" />
                 )}
             </div>

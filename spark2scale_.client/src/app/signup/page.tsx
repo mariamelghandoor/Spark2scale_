@@ -4,14 +4,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-    Card,
-    CardContent,
-    CardDescription,
-    CardFooter,
-    CardHeader,
-    CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import Link from "next/link";
 import LegoIllustration from "@/components/lego/LegoIllustration";
 import { motion } from "framer-motion";
@@ -26,17 +19,9 @@ export default function SignupPage() {
         userType: "founder",
     });
 
-    // Universal handler for all text inputs
-    const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const { id, value } = e.target;
-        setFormData((prev) => ({
-            ...prev,
-            [id]: value,
-        }));
-    };
-
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
+        // Handle signup logic
         console.log("Signup:", formData);
     };
 
@@ -79,14 +64,12 @@ export default function SignupPage() {
                         <CardContent>
                             <form onSubmit={handleSubmit} className="space-y-4">
                                 {/* User Type Selection */}
-                                <div className="grid grid-cols-2 gap-3">
+                                <div className="grid grid-cols-3 gap-2">
                                     <Button
                                         type="button"
                                         variant={formData.userType === "founder" ? "default" : "outline"}
                                         className="w-full"
-                                        onClick={() =>
-                                            setFormData((prev) => ({ ...prev, userType: "founder" }))
-                                        }
+                                        onClick={() => setFormData({ ...formData, userType: "founder" })}
                                     >
                                         🚀 Founder
                                     </Button>
@@ -94,27 +77,33 @@ export default function SignupPage() {
                                         type="button"
                                         variant={formData.userType === "investor" ? "default" : "outline"}
                                         className="w-full"
-                                        onClick={() =>
-                                            setFormData((prev) => ({ ...prev, userType: "investor" }))
-                                        }
+                                        onClick={() => setFormData({ ...formData, userType: "investor" })}
                                     >
                                         💼 Investor
                                     </Button>
+                                    <Button
+                                        type="button"
+                                        variant={formData.userType === "contributor" ? "default" : "outline"}
+                                        className="w-full"
+                                        onClick={() => setFormData({ ...formData, userType: "contributor" })}
+                                    >
+                                        👥 Contributor
+                                    </Button>
                                 </div>
 
-                                {/* Name */}
                                 <div className="space-y-2">
                                     <Label htmlFor="name">Full Name</Label>
                                     <Input
                                         id="name"
                                         placeholder="John Doe"
                                         value={formData.name}
-                                        onChange={handleChange}
+                                        onChange={(e) =>
+                                            setFormData({ ...formData, name: e.target.value })
+                                        }
                                         required
                                     />
                                 </div>
 
-                                {/* Email */}
                                 <div className="space-y-2">
                                     <Label htmlFor="email">Email</Label>
                                     <Input
@@ -122,12 +111,13 @@ export default function SignupPage() {
                                         type="email"
                                         placeholder="john@example.com"
                                         value={formData.email}
-                                        onChange={handleChange}
+                                        onChange={(e) =>
+                                            setFormData({ ...formData, email: e.target.value })
+                                        }
                                         required
                                     />
                                 </div>
 
-                                {/* Phone */}
                                 <div className="space-y-2">
                                     <Label htmlFor="phone">Phone Number</Label>
                                     <Input
@@ -135,12 +125,13 @@ export default function SignupPage() {
                                         type="tel"
                                         placeholder="+1 (555) 123-4567"
                                         value={formData.phone}
-                                        onChange={handleChange}
+                                        onChange={(e) =>
+                                            setFormData({ ...formData, phone: e.target.value })
+                                        }
                                         required
                                     />
                                 </div>
 
-                                {/* Password */}
                                 <div className="space-y-2">
                                     <Label htmlFor="password">Password</Label>
                                     <Input
@@ -148,12 +139,13 @@ export default function SignupPage() {
                                         type="password"
                                         placeholder="••••••••"
                                         value={formData.password}
-                                        onChange={handleChange}
+                                        onChange={(e) =>
+                                            setFormData({ ...formData, password: e.target.value })
+                                        }
                                         required
                                     />
                                 </div>
 
-                                {/* Confirm Password */}
                                 <div className="space-y-2">
                                     <Label htmlFor="confirmPassword">Confirm Password</Label>
                                     <Input
@@ -161,7 +153,9 @@ export default function SignupPage() {
                                         type="password"
                                         placeholder="••••••••"
                                         value={formData.confirmPassword}
-                                        onChange={handleChange}
+                                        onChange={(e) =>
+                                            setFormData({ ...formData, confirmPassword: e.target.value })
+                                        }
                                         required
                                     />
                                 </div>

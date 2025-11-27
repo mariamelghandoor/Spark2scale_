@@ -183,8 +183,15 @@ export default function PitchDeckPage() {
                                                 )}
 
                                                 <div className="flex gap-2 mt-4">
-                                                    <Button variant="outline" size="sm" className="flex-1">
-                                                        View Details
+                                                    <Button
+                                                        variant="outline"
+                                                        size="sm"
+                                                        className="flex-1"
+                                                        asChild
+                                                    >
+                                                        <Link href={`/founder/startup/${params.id}/pitches/pitchId/details`}>
+                                                            View Details
+                                                        </Link>
                                                     </Button>
                                                     <Button
                                                         className="flex-1 bg-[#576238] hover:bg-[#6b7c3f]"

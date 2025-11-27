@@ -6,12 +6,14 @@ import LegoBlock from "./LegoBlock";
 interface LegoProgressProps {
     totalStages: number;
     completedStages: number;
+    stageErrors?: boolean[];
     className?: string;
 }
 
 export default function LegoProgress({
     totalStages,
     completedStages,
+    stageErrors = [],
     className,
 }: LegoProgressProps) {
     const colors = [
@@ -41,6 +43,7 @@ export default function LegoProgress({
                             size="md"
                             color={colors[index % colors.length]}
                             completed={index < completedStages}
+                            hasError={stageErrors[index] || false}
                             delay={index * 0.1}
                         />
                     </motion.div>

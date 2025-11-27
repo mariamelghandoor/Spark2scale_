@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { ArrowLeft, Share2, FolderOpen, Video, Calendar as CalendarIcon, ChevronLeft, ChevronRight, Bell, User, Lightbulb, FileText, BarChart3, Target, RefreshCw, Presentation, Check } from "lucide-react";
+import { ArrowLeft, Share2, FolderOpen, Video, Calendar as CalendarIcon, ChevronLeft, ChevronRight, Bell, User, Lightbulb, FileText, BarChart3, Target, RefreshCw, Presentation, Check, AlertCircle } from "lucide-react";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import LegoProgress from "@/components/lego/LegoProgress";
@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 export default function StartupDashboard() {
     const params = useParams();
@@ -29,6 +30,7 @@ export default function StartupDashboard() {
     });
     const [inviteDialogOpen, setInviteDialogOpen] = useState(false);
     const [inviteEmail, setInviteEmail] = useState("");
+    const [inviteRole, setInviteRole] = useState("contributor");
 
     // Current month calendar state
     const [currentMonth] = useState(new Date());
@@ -42,48 +44,55 @@ export default function StartupDashboard() {
         { date: 25, title: "Team Sync", time: "3:30 PM", type: "meeting" },
     ];
 
-    // 6 workflow stages including Documents and Pitch Deck
+    // Updated workflow order: Idea Check → Market Research → Evaluation → Recommendation → Documents → Pitch Deck
     const stages = [
         {
             id: 1,
             name: "Idea Check",
             icon: Lightbulb,
             completed: true,
+            hasError: false,
             path: `/founder/startup/${params.id}/idea-check`,
         },
         {
             id: 2,
-            name: "Documents",
-            icon: FileText,
-            completed: true,
-            path: `/founder/startup/${params.id}/documents`,
-        },
-        {
-            id: 3,
             name: "Market Research",
             icon: BarChart3,
             completed: false,
+            hasError: true,
+            errorMessage: "Missing required data",
             path: `/founder/startup/${params.id}/market-research`,
         },
         {
-            id: 4,
-            name: "Evaluate",
+            id: 3,
+            name: "Evaluation",
             icon: Target,
             completed: false,
+            hasError: false,
             path: `/founder/startup/${params.id}/evaluate`,
         },
         {
-            id: 5,
-            name: "Recommendations",
+            id: 4,
+            name: "Recommendation",
             icon: RefreshCw,
             completed: false,
+            hasError: false,
             path: `/founder/startup/${params.id}/recommendations`,
+        },
+        {
+            id: 5,
+            name: "Documents",
+            icon: FileText,
+            completed: true,
+            hasError: false,
+            path: `/founder/startup/${params.id}/documents`,
         },
         {
             id: 6,
             name: "Pitch Deck",
             icon: Presentation,
             completed: false,
+            hasError: false,
             path: `/founder/startup/${params.id}/pitch-deck`,
         },
     ];
@@ -96,11 +105,9 @@ export default function StartupDashboard() {
         const daysInMonth = new Date(year, month + 1, 0).getDate();
 
         const days = [];
-        // Add empty cells for days before month starts
         for (let i = 0; i < firstDay; i++) {
             days.push(null);
         }
-        // Add actual days
         for (let i = 1; i <= daysInMonth; i++) {
             days.push(i);
         }
@@ -111,11 +118,13 @@ export default function StartupDashboard() {
     const today = new Date().getDate();
 
     const handleSendInvite = () => {
-        // Handle invite logic here
-        console.log("Inviting:", inviteEmail);
+        console.log("Inviting:", inviteEmail, "as", inviteRole);
         setInviteEmail("");
+        setInviteRole("contributor");
         setInviteDialogOpen(false);
     };
+
+    const stageErrors = stages.map(stage => stage.hasError || false);
 
     return (
         <div className="min-h-screen bg-gradient-to-br from-[#F0EADC] via-[#fff] to-[#FFD95D]/20">
@@ -169,6 +178,7 @@ export default function StartupDashboard() {
                             <LegoProgress
                                 totalStages={6}
                                 completedStages={startup.progress}
+                                stageErrors={stageErrors}
                                 className="mb-6"
                             />
                             <div className="space-y-2 text-sm">
@@ -198,23 +208,37 @@ export default function StartupDashboard() {
                                             transition={{ delay: index * 0.1 }}
                                         >
                                             <Card
-                                                className={`p-4 text-center cursor-pointer transition-all h-full flex flex-col justify-between ${stage.completed
-                                                        ? "bg-[#F0EADC] hover:bg-[#e8e2d4] border-[#d4cbb8]"
-                                                        : "bg-white hover:border-[#d4cbb8]"
+                                                className={`p-4 text-center cursor-pointer transition-all h-full flex flex-col justify-between ${stage.hasError
+                                                        ? "bg-red-50 hover:bg-red-100 border-red-400"
+                                                        : stage.completed
+                                                            ? "bg-[#F0EADC] hover:bg-[#e8e2d4] border-[#d4cbb8]"
+                                                            : "bg-white hover:border-[#d4cbb8]"
                                                     } border-2 rounded-2xl`}
                                                 onClick={() => router.push(stage.path)}
                                             >
                                                 <div className="flex flex-col items-center gap-3">
-                                                    <div className={`w-12 h-12 rounded-full flex items-center justify-center ${stage.completed ? "bg-[#576238]" : "bg-gray-200"
+                                                    <div className={`w-12 h-12 rounded-full flex items-center justify-center ${stage.hasError
+                                                            ? "bg-red-500"
+                                                            : stage.completed
+                                                                ? "bg-[#576238]"
+                                                                : "bg-gray-200"
                                                         }`}>
-                                                        <IconComponent className={`w-6 h-6 ${stage.completed ? "text-white" : "text-gray-400"
+                                                        <IconComponent className={`w-6 h-6 ${stage.hasError || stage.completed ? "text-white" : "text-gray-400"
                                                             }`} />
                                                     </div>
-                                                    <h3 className={`font-semibold text-xs leading-tight ${stage.completed ? "text-[#576238]" : "text-gray-600"
+                                                    <h3 className={`font-semibold text-xs leading-tight ${stage.hasError
+                                                            ? "text-red-700"
+                                                            : stage.completed
+                                                                ? "text-[#576238]"
+                                                                : "text-gray-600"
                                                         }`}>{stage.name}</h3>
                                                 </div>
                                                 <div className="mt-4">
-                                                    {stage.completed ? (
+                                                    {stage.hasError ? (
+                                                        <div className="w-6 h-6 mx-auto rounded-full bg-red-500 flex items-center justify-center" title={stage.errorMessage}>
+                                                            <AlertCircle className="w-4 h-4 text-white" />
+                                                        </div>
+                                                    ) : stage.completed ? (
                                                         <div className="w-6 h-6 mx-auto rounded-full bg-[#576238] flex items-center justify-center">
                                                             <Check className="w-4 h-4 text-white" />
                                                         </div>
@@ -393,7 +417,7 @@ export default function StartupDashboard() {
                     <DialogHeader>
                         <DialogTitle className="text-[#576238]">Invite Team Member</DialogTitle>
                         <DialogDescription>
-                            Send an invitation to collaborate on {startup.name}. They'll receive an email with access instructions.
+                            Send an invitation to collaborate on {startup.name}. Choose their role and access level.
                         </DialogDescription>
                     </DialogHeader>
                     <div className="grid gap-4 py-4">
@@ -410,14 +434,72 @@ export default function StartupDashboard() {
                                 className="border-[#576238]/30 focus:border-[#576238]"
                             />
                         </div>
-                        <div className="text-sm text-muted-foreground">
-                            Team members will have access to:
-                            <ul className="list-disc list-inside mt-2 space-y-1">
-                                <li>View all workflow stages and progress</li>
-                                <li>Access documents and pitch materials</li>
-                                <li>Collaborate on startup development</li>
-                                <li>View calendar and scheduled meetings</li>
-                            </ul>
+                        <div className="grid gap-2">
+                            <Label htmlFor="role" className="text-[#576238]">
+                                Role
+                            </Label>
+                            <Select value={inviteRole} onValueChange={setInviteRole}>
+                                <SelectTrigger id="role" className="border-[#576238]/30">
+                                    <SelectValue placeholder="Select role" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="contributor">
+                                        <div className="flex flex-col items-start">
+                                            <span className="font-semibold">Contributor</span>
+                                            <span className="text-xs text-muted-foreground">Read-only access to resources</span>
+                                        </div>
+                                    </SelectItem>
+                                    <SelectItem value="team-member">
+                                        <div className="flex flex-col items-start">
+                                            <span className="font-semibold">Team Member</span>
+                                            <span className="text-xs text-muted-foreground">Full access to collaborate</span>
+                                        </div>
+                                    </SelectItem>
+                                </SelectContent>
+                            </Select>
+                        </div>
+                        <div className="text-sm text-muted-foreground border-t pt-4">
+                            {inviteRole === "contributor" ? (
+                                <>
+                                    <p className="font-semibold mb-2">Contributor Access:</p>
+                                    <ul className="space-y-1">
+                                        <li className="flex items-start gap-2">
+                                            <span className="text-green-600">✓</span>
+                                            <span>View and download documents and pitches</span>
+                                        </li>
+                                        <li className="flex items-start gap-2">
+                                            <span className="text-green-600">✓</span>
+                                            <span>Access meeting schedules</span>
+                                        </li>
+                                        <li className="flex items-start gap-2">
+                                            <span className="text-red-600">✗</span>
+                                            <span>Cannot view workflow stages or progress</span>
+                                        </li>
+                                        <li className="flex items-start gap-2">
+                                            <span className="text-red-600">✗</span>
+                                            <span>Cannot edit or upload documents</span>
+                                        </li>
+                                    </ul>
+                                </>
+                            ) : (
+                                <>
+                                    <p className="font-semibold mb-2">Team Member Access:</p>
+                                    <ul className="space-y-1">
+                                        <li className="flex items-start gap-2">
+                                            <span className="text-green-600">✓</span>
+                                            <span>View all workflow stages and progress</span>
+                                        </li>
+                                        <li className="flex items-start gap-2">
+                                            <span className="text-green-600">✓</span>
+                                            <span>Edit and upload documents</span>
+                                        </li>
+                                        <li className="flex items-start gap-2">
+                                            <span className="text-green-600">✓</span>
+                                            <span>Full collaboration access</span>
+                                        </li>
+                                    </ul>
+                                </>
+                            )}
                         </div>
                     </div>
                     <DialogFooter>
@@ -429,7 +511,7 @@ export default function StartupDashboard() {
                         </Button>
                         <Button
                             onClick={handleSendInvite}
-                            disabled={!inviteEmail}
+                            disabled={!inviteEmail || !inviteRole}
                             className="bg-[#576238] hover:bg-[#6b7c3f] text-white"
                         >
                             <Share2 className="mr-2 h-4 w-4" />

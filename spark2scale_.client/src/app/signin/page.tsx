@@ -26,8 +26,10 @@ export default function SigninPage() {
         // Redirect based on user type
         if (formData.userType === "founder") {
             router.push("/founder/dashboard");
-        } else {
+        } else if (formData.userType === "investor") {
             router.push("/investor/feed");
+        } else {
+            router.push("/contributor/dashboard");
         }
     };
 
@@ -70,7 +72,7 @@ export default function SigninPage() {
                         <CardContent>
                             <form onSubmit={handleSubmit} className="space-y-4">
                                 {/* User Type Selection */}
-                                <div className="grid grid-cols-2 gap-3">
+                                <div className="grid grid-cols-3 gap-2">
                                     <Button
                                         type="button"
                                         variant={formData.userType === "founder" ? "default" : "outline"}
@@ -86,6 +88,14 @@ export default function SigninPage() {
                                         onClick={() => setFormData({ ...formData, userType: "investor" })}
                                     >
                                         💼 Investor
+                                    </Button>
+                                    <Button
+                                        type="button"
+                                        variant={formData.userType === "contributor" ? "default" : "outline"}
+                                        className="w-full"
+                                        onClick={() => setFormData({ ...formData, userType: "contributor" })}
+                                    >
+                                        👥 Contributor
                                     </Button>
                                 </div>
 

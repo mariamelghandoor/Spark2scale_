@@ -3,14 +3,25 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { ArrowLeft, Play, Upload, Plus, Eye, Download } from "lucide-react";
+import { ArrowLeft, Play, Upload, Plus, Eye, Download, Edit2 } from "lucide-react";
 import Link from "next/link";
 import { motion } from "framer-motion";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
 export default function PitchesPage() {
     const params = useParams();
-    const [pitches] = useState([
+    const router = useRouter();
+    const [pitches, setPitches] = useState([
         {
             id: 1,
             title: "Investor Pitch - Series A",
@@ -66,6 +77,35 @@ export default function PitchesPage() {
             type: "slides",
         },
     ]);
+
+    const [renameDialog, setRenameDialog] = useState(false);
+    const [selectedPitchId, setSelectedPitchId] = useState<number | null>(null);
+    const [newPitchName, setNewPitchName] = useState("");
+
+    const handleRename = (pitchId: number, currentName: string) => {
+        setSelectedPitchId(pitchId);
+        setNewPitchName(currentName);
+        setRenameDialog(true);
+    };
+
+    const handleSaveRename = () => {
+        if (selectedPitchId !== null && newPitchName.trim()) {
+            setPitches(
+                pitches.map((pitch) =>
+                    pitch.id === selectedPitchId
+                        ? { ...pitch, title: newPitchName }
+                        : pitch
+                )
+            );
+            setRenameDialog(false);
+            setSelectedPitchId(null);
+            setNewPitchName("");
+        }
+    };
+
+    const handleViewDetails = (pitchId: number) => {
+        router.push(`/founder/startup/${params.id}/pitches/${pitchId}/details`);
+    };
 
     return (
         <div className="min-h-screen bg-gradient-to-br from-[#F0EADC] via-[#fff] to-[#FFD95D]/20">
@@ -157,22 +197,34 @@ export default function PitchesPage() {
                                     </div>
 
                                     {/* Actions */}
-                                    <div className="flex gap-2 mt-4">
+                                    <div className="flex flex-col gap-2 mt-4">
+                                        <div className="flex gap-2">
+                                            <Button
+                                                variant="outline"
+                                                size="sm"
+                                                className="flex-1"
+                                                onClick={() => handleViewDetails(pitch.id)}
+                                            >
+                                                <Eye className="h-3 w-3 mr-1" />
+                                                View Details
+                                            </Button>
+                                            <Button
+                                                variant="default"
+                                                size="sm"
+                                                className="flex-1 bg-[#576238] hover:bg-[#6b7c3f] text-white"
+                                            >
+                                                <Download className="h-3 w-3 mr-1" />
+                                                Share
+                                            </Button>
+                                        </div>
                                         <Button
-                                            variant="outline"
+                                            variant="ghost"
                                             size="sm"
-                                            className="flex-1"
+                                            className="w-full"
+                                            onClick={() => handleRename(pitch.id, pitch.title)}
                                         >
-                                            <Eye className="h-3 w-3 mr-1" />
-                                            View
-                                        </Button>
-                                        <Button
-                                            variant="default"
-                                            size="sm"
-                                            className="flex-1 bg-[#576238] hover:bg-[#6b7c3f] text-white"
-                                        >
-                                            <Download className="h-3 w-3 mr-1" />
-                                            Share
+                                            <Edit2 className="h-3 w-3 mr-1" />
+                                            Rename
                                         </Button>
                                     </div>
                                 </div>
@@ -230,6 +282,47 @@ export default function PitchesPage() {
                     </div>
                 </div>
             </main>
+
+            {/* Rename Dialog */}
+            <Dialog open={renameDialog} onOpenChange={setRenameDialog}>
+                <DialogContent className="sm:max-w-[500px]">
+                    <DialogHeader>
+                        <DialogTitle className="text-[#576238]">Rename Pitch</DialogTitle>
+                        <DialogDescription>
+                            Enter a new name for your pitch presentation
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="grid gap-4 py-4">
+                        <div className="grid gap-2">
+                            <Label htmlFor="pitch-name" className="text-[#576238]">
+                                Pitch Name
+                            </Label>
+                            <Input
+                                id="pitch-name"
+                                value={newPitchName}
+                                onChange={(e) => setNewPitchName(e.target.value)}
+                                placeholder="Enter pitch name..."
+                                className="border-[#576238]/30 focus:border-[#576238]"
+                            />
+                        </div>
+                    </div>
+                    <DialogFooter>
+                        <Button
+                            variant="outline"
+                            onClick={() => setRenameDialog(false)}
+                        >
+                            Cancel
+                        </Button>
+                        <Button
+                            onClick={handleSaveRename}
+                            disabled={!newPitchName.trim()}
+                            className="bg-[#576238] hover:bg-[#6b7c3f] text-white"
+                        >
+                            Save Changes
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div>
     );
 }
