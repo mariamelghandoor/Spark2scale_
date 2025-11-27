@@ -62,8 +62,6 @@ export default function InvestorFeed() {
         }
     };
 
-    const currentStartup = startups[currentIndex];
-
     return (
         <div className="min-h-screen bg-gradient-to-br from-[#F0EADC] via-[#fff] to-[#FFD95D]/20">
             {/* Top Navigation Bar */}
@@ -233,7 +231,8 @@ export default function InvestorFeed() {
                                 size="lg"
                                 variant="outline"
                                 className="rounded-full w-16 h-16 border-2 border-red-500 text-red-500 hover:bg-red-50"
-S                                <X className="h-6 w-6" />
+                            >
+                                <X className="h-6 w-6" />
                             </Button>
                             <Button
                                 onClick={() => handleSwipe("right")}
