@@ -3,9 +3,10 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Bell, Calendar, User, FolderOpen, Video } from "lucide-react";
+import { Calendar, User, FolderOpen, Video } from "lucide-react";
 import Link from "next/link";
 import { motion } from "framer-motion";
+import NotificationsDropdown from "@/components/shared/NotificationsDropdown";
 
 export default function ContributorDashboard() {
     const [userName] = useState("Sarah");
@@ -35,7 +36,7 @@ export default function ContributorDashboard() {
                 <div className="container mx-auto px-4 py-4 flex justify-between items-center">
                     <div>
                         <h1 className="text-2xl font-bold text-[#576238]">
-                            Hello {userName}
+                            Hello {userName} ??
                         </h1>
                         <p className="text-sm text-muted-foreground">Contributor Dashboard</p>
                     </div>
@@ -45,9 +46,7 @@ export default function ContributorDashboard() {
                                 <Calendar className="h-5 w-5" />
                             </Button>
                         </Link>
-                        <Button variant="ghost" size="icon">
-                            <Bell className="h-5 w-5" />
-                        </Button>
+                        <NotificationsDropdown />
                         <Link href="/profile">
                             <Button variant="ghost" size="icon">
                                 <User className="h-5 w-5" />
@@ -65,7 +64,7 @@ export default function ContributorDashboard() {
                             My Startups
                         </h2>
                         <p className="text-muted-foreground mt-1">
-                            Startups you have been invited to contribute to
+                            Startups you've been invited to contribute to
                         </p>
                     </div>
                 </div>
@@ -88,7 +87,7 @@ export default function ContributorDashboard() {
                                                     {startup.name}
                                                 </CardTitle>
                                                 <CardDescription>
-                                                    {startup.field} - {startup.region}
+                                                    {startup.field} • {startup.region}
                                                 </CardDescription>
                                             </div>
                                             <span className="text-xs px-2 py-1 rounded-full bg-[#FFD95D] text-[#576238] font-semibold">
@@ -127,7 +126,7 @@ export default function ContributorDashboard() {
                                                 size="sm"
                                                 className="w-full bg-[#576238] hover:bg-[#6b7c3f] text-white"
                                             >
-                                                View Resources
+                                                View Resources ?
                                             </Button>
                                         </div>
                                     </CardContent>
