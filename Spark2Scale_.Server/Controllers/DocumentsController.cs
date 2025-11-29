@@ -86,5 +86,40 @@ namespace Spark2Scale_.Server.Controllers
 
             return Ok(dtos);
         }
+
+        // GET: api/documents/recommendations/{startupId}
+        [HttpGet("recommendations/{startupId}")]
+        public async Task<IActionResult> GetRecommendations(string startupId)
+        {
+            if (!Guid.TryParse(startupId, out Guid sId))
+                return BadRequest("Invalid Startup ID.");
+
+            try
+            {
+                var result = await _supabase.From<Document>()
+                    .Where(x => x.StartupId == sId && x.Type == "recommendation") // Filter by ID and Type
+                    .Order("version", Supabase.Postgrest.Constants.Ordering.Descending) // Sort Version High -> Low
+                    .Get();
+
+                var dtos = result.Models.Select(d => new DocumentResponseDto
+                {
+                    did = d.Did,
+                    master_id = d.MasterId,
+                    startup_id = d.StartupId,
+                    document_name = d.DocumentName,
+                    type = d.Type,
+                    path = d.Path,
+                    version = d.Version,
+                    canaccess = d.CanAccess,
+                    created_at = d.CreatedAt
+                }).ToList();
+
+                return Ok(dtos);
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, $"Error loading recommendations: {ex.Message}");
+            }
+        }
     }
 }
