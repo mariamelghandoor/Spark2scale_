@@ -15,7 +15,7 @@ export default function FounderDashboard() {
     const [userName] = useState("Alex");
     const [startups, setStartups] = useState([
         {
-            id: 1,
+            id: "8636e054-890c-4d0b-ac7e-635719692e06",
             name: "EcoTech Solutions",
             region: "North America",
             field: "Green Technology",

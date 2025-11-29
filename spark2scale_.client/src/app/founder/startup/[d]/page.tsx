@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { ArrowLeft, Share2, FolderOpen, Video, Calendar as CalendarIcon, ChevronLeft, ChevronRight, Bell, User, Lightbulb, FileText, BarChart3, Target, RefreshCw, Presentation, Check, AlertCircle } from "lucide-react";
@@ -20,14 +20,27 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
+// 1. Define the interface for the data coming from .NET
+interface WorkflowData {
+    startupId: string;
+    ideaCheck: boolean;
+    marketResearch: boolean;
+    evaluation: boolean;
+    recommendation: boolean;
+    documents: boolean;
+    pitchDeck: boolean;
+}
+
 export default function StartupDashboard() {
     const params = useParams();
     const router = useRouter();
     const [userName] = useState("Alex");
-    const [startup] = useState({
-        name: "EcoTech Solutions",
-        progress: 2,
-    });
+    const [startupName] = useState("EcoTech Solutions"); // Name isn't in the workflow API, so keeping as state for now
+
+    // 2. State for API Data
+    const [workflowData, setWorkflowData] = useState<WorkflowData | null>(null);
+    const [isLoading, setIsLoading] = useState(true);
+
     const [inviteDialogOpen, setInviteDialogOpen] = useState(false);
     const [inviteEmail, setInviteEmail] = useState("");
     const [inviteRole, setInviteRole] = useState("contributor");
@@ -35,6 +48,43 @@ export default function StartupDashboard() {
     // Current month calendar state
     const [currentMonth] = useState(new Date());
     const monthName = currentMonth.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+
+    // 3. Fetch Data from .NET Backend
+    useEffect(() => {
+        const fetchWorkflow = async () => {
+            // DEBUGGING: Check what ID the page sees
+            console.log("Page Params:", params);
+
+            // Safety check: If no ID, stop loading and exit
+            if (!params || !params.d) {
+                console.warn("No startup ID found in URL parameters.");
+                setIsLoading(false);
+                return;
+            }
+
+            try {
+                console.log(`Fetching URL: https://localhost:7155/api/StartupWorkflow/${params.d}`);
+
+                // Ensure the port matches your running .NET API
+                const response = await fetch(`https://localhost:7155/api/StartupWorkflow/${params.d}`);
+
+                if (response.ok) {
+                    const data = await response.json();
+                    console.log("API Data Success:", data); // Check this in Browser Console (F12)
+                    setWorkflowData(data);
+                } else {
+                    console.error("API Error Status:", response.status);
+                }
+            } catch (error) {
+                console.error("Connection Error:", error);
+            } finally {
+                // ALWAYS turn off loading, even if it fails
+                setIsLoading(false);
+            }
+        };
+
+        fetchWorkflow();
+    }, [params]);
 
     // Sample calendar events
     const events = [
@@ -44,13 +94,23 @@ export default function StartupDashboard() {
         { date: 25, title: "Team Sync", time: "3:30 PM", type: "meeting" },
     ];
 
-    // Updated workflow order: Idea Check → Market Research → Evaluation → Recommendation → Documents → Pitch Deck
+    // 4. Map API data to Stages
+    // If data is null (loading), default to false
+    const currentData = workflowData || {
+        ideaCheck: false,
+        marketResearch: false,
+        evaluation: false,
+        recommendation: false,
+        documents: false,
+        pitchDeck: false
+    };
+
     const stages = [
         {
             id: 1,
             name: "Idea Check",
             icon: Lightbulb,
-            completed: true,
+            completed: currentData.ideaCheck,
             hasError: false,
             path: `/founder/startup/${params.id}/idea-check`,
         },
@@ -58,8 +118,8 @@ export default function StartupDashboard() {
             id: 2,
             name: "Market Research",
             icon: BarChart3,
-            completed: false,
-            hasError: true,
+            completed: currentData.marketResearch,
+            hasError: false, // You can add logic here if needed based on API
             errorMessage: "Missing required data",
             path: `/founder/startup/${params.id}/market-research`,
         },
@@ -67,7 +127,7 @@ export default function StartupDashboard() {
             id: 3,
             name: "Evaluation",
             icon: Target,
-            completed: false,
+            completed: currentData.evaluation,
             hasError: false,
             path: `/founder/startup/${params.id}/evaluate`,
         },
@@ -75,7 +135,7 @@ export default function StartupDashboard() {
             id: 4,
             name: "Recommendation",
             icon: RefreshCw,
-            completed: false,
+            completed: currentData.recommendation,
             hasError: false,
             path: `/founder/startup/${params.id}/recommendations`,
         },
@@ -83,7 +143,7 @@ export default function StartupDashboard() {
             id: 5,
             name: "Documents",
             icon: FileText,
-            completed: true,
+            completed: currentData.documents,
             hasError: false,
             path: `/founder/startup/${params.id}/documents`,
         },
@@ -91,11 +151,14 @@ export default function StartupDashboard() {
             id: 6,
             name: "Pitch Deck",
             icon: Presentation,
-            completed: false,
+            completed: currentData.pitchDeck,
             hasError: false,
             path: `/founder/startup/${params.id}/pitch-deck`,
         },
     ];
+
+    // 5. Calculate Progress dynamically based on how many stages are true
+    const completedCount = stages.filter(stage => stage.completed).length;
 
     // Generate calendar days
     const generateCalendarDays = () => {
@@ -141,7 +204,7 @@ export default function StartupDashboard() {
                             <h1 className="text-xl font-bold text-[#576238]">
                                 Hello {userName} 👋
                             </h1>
-                            <p className="text-sm text-muted-foreground">{startup.name}</p>
+                            <p className="text-sm text-muted-foreground">{startupName}</p>
                         </div>
                     </div>
                     <div className="flex items-center gap-2">
@@ -175,15 +238,16 @@ export default function StartupDashboard() {
                             <h3 className="text-lg font-bold text-[#576238] mb-4 text-center">
                                 Your Progress
                             </h3>
+                            {/* 6. Pass the dynamic completedCount here */}
                             <LegoProgress
                                 totalStages={6}
-                                completedStages={startup.progress}
+                                completedStages={completedCount}
                                 stageErrors={stageErrors}
                                 className="mb-6"
                             />
                             <div className="space-y-2 text-sm">
                                 <p className="text-center text-muted-foreground text-xs">
-                                    Keep building to unlock investor visibility!
+                                    {isLoading ? "Loading progress..." : "Keep building to unlock investor visibility!"}
                                 </p>
                             </div>
                         </Card>
@@ -209,28 +273,28 @@ export default function StartupDashboard() {
                                         >
                                             <Card
                                                 className={`p-4 text-center cursor-pointer transition-all h-full flex flex-col justify-between ${stage.hasError
-                                                        ? "bg-red-50 hover:bg-red-100 border-red-400"
-                                                        : stage.completed
-                                                            ? "bg-[#F0EADC] hover:bg-[#e8e2d4] border-[#d4cbb8]"
-                                                            : "bg-white hover:border-[#d4cbb8]"
+                                                    ? "bg-red-50 hover:bg-red-100 border-red-400"
+                                                    : stage.completed
+                                                        ? "bg-[#F0EADC] hover:bg-[#e8e2d4] border-[#d4cbb8]"
+                                                        : "bg-white hover:border-[#d4cbb8]"
                                                     } border-2 rounded-2xl`}
                                                 onClick={() => router.push(stage.path)}
                                             >
                                                 <div className="flex flex-col items-center gap-3">
                                                     <div className={`w-12 h-12 rounded-full flex items-center justify-center ${stage.hasError
-                                                            ? "bg-red-500"
-                                                            : stage.completed
-                                                                ? "bg-[#576238]"
-                                                                : "bg-gray-200"
+                                                        ? "bg-red-500"
+                                                        : stage.completed
+                                                            ? "bg-[#576238]"
+                                                            : "bg-gray-200"
                                                         }`}>
                                                         <IconComponent className={`w-6 h-6 ${stage.hasError || stage.completed ? "text-white" : "text-gray-400"
                                                             }`} />
                                                     </div>
                                                     <h3 className={`font-semibold text-xs leading-tight ${stage.hasError
-                                                            ? "text-red-700"
-                                                            : stage.completed
-                                                                ? "text-[#576238]"
-                                                                : "text-gray-600"
+                                                        ? "text-red-700"
+                                                        : stage.completed
+                                                            ? "text-[#576238]"
+                                                            : "text-gray-600"
                                                         }`}>{stage.name}</h3>
                                                 </div>
                                                 <div className="mt-4">
@@ -349,12 +413,12 @@ export default function StartupDashboard() {
                                             <div
                                                 key={index}
                                                 className={`aspect-square flex items-center justify-center text-sm rounded-lg cursor-pointer transition-all relative ${!day
-                                                        ? "bg-transparent"
-                                                        : isToday
-                                                            ? "bg-[#576238] text-white font-bold"
-                                                            : hasEvent
-                                                                ? "bg-[#FFD95D]/30 hover:bg-[#FFD95D]/50 font-semibold"
-                                                                : "hover:bg-[#F0EADC]"
+                                                    ? "bg-transparent"
+                                                    : isToday
+                                                        ? "bg-[#576238] text-white font-bold"
+                                                        : hasEvent
+                                                            ? "bg-[#FFD95D]/30 hover:bg-[#FFD95D]/50 font-semibold"
+                                                            : "hover:bg-[#F0EADC]"
                                                     }`}
                                             >
                                                 {day}
@@ -393,10 +457,10 @@ export default function StartupDashboard() {
                                                 </div>
                                                 <span
                                                     className={`text-xs px-2 py-1 rounded-full ${event.type === "meeting"
-                                                            ? "bg-[#576238] text-white"
-                                                            : event.type === "deadline"
-                                                                ? "bg-red-500 text-white"
-                                                                : "bg-[#FFD95D] text-[#576238]"
+                                                        ? "bg-[#576238] text-white"
+                                                        : event.type === "deadline"
+                                                            ? "bg-red-500 text-white"
+                                                            : "bg-[#FFD95D] text-[#576238]"
                                                         }`}
                                                 >
                                                     {event.type}
@@ -417,7 +481,7 @@ export default function StartupDashboard() {
                     <DialogHeader>
                         <DialogTitle className="text-[#576238]">Invite Team Member</DialogTitle>
                         <DialogDescription>
-                            Send an invitation to collaborate on {startup.name}. Choose their role and access level.
+                            Send an invitation to collaborate on {startupName}. Choose their role and access level.
                         </DialogDescription>
                     </DialogHeader>
                     <div className="grid gap-4 py-4">
