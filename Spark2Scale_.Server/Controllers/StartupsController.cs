@@ -73,5 +73,63 @@ namespace Spark2Scale_.Server.Controllers
 
             return Ok(dtos);
         }
+
+        [HttpGet("{id}")]
+        public async Task<IActionResult> GetStartupById(string id)
+        {
+            if (!Guid.TryParse(id, out Guid sId))
+                return BadRequest("Invalid ID format");
+
+            try
+            {
+                var result = await _supabase.From<Startup>()
+                    .Where(s => s.Sid == sId)
+                    .Get();
+
+                var startup = result.Models.FirstOrDefault();
+
+                if (startup == null)
+                    return NotFound("Startup not found");
+
+                var response = new StartupResponseDto
+                {
+                    sid = startup.Sid,
+                    startupname = startup.StartupName,
+                    field = startup.Field,
+                    idea_description = startup.IdeaDescription,
+                    founder_id = startup.FounderId,
+                    created_at = startup.CreatedAt
+                };
+
+                return Ok(response);
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, $"Error: {ex.Message}");
+            }
+        }
+        [HttpPut("update-idea/{id}")]
+        public async Task<IActionResult> UpdateIdea(string id, [FromBody] IdeaUpdateDto input)
+        {
+            if (!Guid.TryParse(id, out Guid sId)) return BadRequest("Invalid ID format");
+
+            try
+            {
+                var updateResult = await _supabase.From<Startup>()
+                                          .Where(x => x.Sid == sId)
+                                          .Set(x => x.IdeaDescription, input.IdeaDescription)
+                                          .Update();
+
+                var updatedModel = updateResult.Models.FirstOrDefault();
+
+                if (updatedModel == null) return NotFound("Startup not found or update failed");
+
+                return Ok(new { message = "Idea updated successfully", idea = updatedModel.IdeaDescription });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, $"Error updating idea: {ex.Message}");
+            }
+        }
     }
 }

@@ -1,53 +1,210 @@
 ﻿"use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { ArrowLeft, Edit3, Send } from "lucide-react";
+import { ArrowLeft, Edit3, Save, Send, Loader2 } from "lucide-react"; // Added Loader2 and Save icon
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { useParams } from "next/navigation";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { useRouter } from "next/navigation";
 
 export default function IdeaCheckPage() {
     const params = useParams();
-    const [idea, setIdea] = useState(
-        "A sustainable tech platform that helps businesses reduce their carbon footprint through AI-powered analytics and recommendations."
-    );
+
+    // 1. State for Data
+    const [startupName, setStartupName] = useState("Loading...");
+    const [idea, setIdea] = useState("");
+    const [isLoading, setIsLoading] = useState(true);
+    const [isSaving, setIsSaving] = useState(false); // State for saving process
+
     const [isEditing, setIsEditing] = useState(false);
     const [messages, setMessages] = useState([
         {
             role: "assistant",
-            content:
-                "Hello! I'm your AI startup advisor. Let's review and validate your idea. What's your startup concept?",
-        },
-        {
-            role: "user",
-            content: idea,
-        },
-        {
-            role: "assistant",
-            content:
-                "Great concept! This addresses the growing demand for sustainability solutions. Let me analyze a few key aspects:\n\n✅ Market Need: High - Carbon reduction is a priority for businesses\n✅ Scalability: Strong - AI-powered solutions can scale globally\n⚠️ Competition: Moderate - Several players in the space\n\nWould you like me to dive deeper into any specific area?",
+            content: "Hello! I'm your AI startup advisor. Let's review and validate your idea. What's your startup concept?",
         },
     ]);
     const [newMessage, setNewMessage] = useState("");
+
+    // 2. Fetch Data
+    useEffect(() => {
+        const fetchStartupInfo = async () => {
+            if (!params || !params.d) return;
+
+            const rawId = Array.isArray(params.d) ? params.d[0] : params.d;
+            const cleanId = decodeURIComponent(rawId).replace(/\s/g, '');
+
+            try {
+                // Ensure this port matches your running backend
+                const response = await fetch(`https://localhost:7155/api/startups/${cleanId}`);
+
+                if (response.ok) {
+                    const data = await response.json();
+                    setStartupName(data.startupname);
+                    setIdea(data.idea_description);
+
+                    setMessages(prev => [
+                        ...prev,
+                        { role: "user", content: data.idea_description },
+                        {
+                            role: "assistant",
+                            content: "Great concept! This addresses the growing demand for sustainability solutions. Let me analyze a few key aspects:\n\n✅ Market Need: High\n✅ Scalability: Strong\n⚠️ Competition: Moderate\n\nWould you like me to dive deeper into any specific area?"
+                        }
+                    ]);
+                } else {
+                    console.error("Failed to fetch startup info");
+                    setStartupName("Error loading name");
+                }
+            } catch (error) {
+                console.error("Connection error:", error);
+            } finally {
+                setIsLoading(false);
+            }
+        };
+
+        fetchStartupInfo();
+    }, [params]);
+
+    // 3. Handle Save Logic
+    const handleToggleEdit = async () => {
+        // If we are currently editing, the user clicked "Save"
+        if (isEditing) {
+            setIsSaving(true);
+
+            if (!params || !params.d) return;
+            const rawId = Array.isArray(params.d) ? params.d[0] : params.d;
+            const cleanId = decodeURIComponent(rawId).replace(/\s/g, '');
+
+            try {
+                // --- STEP 1: Update the Idea Description ---
+                const response = await fetch(`https://localhost:7155/api/startups/update-idea/${cleanId}`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ ideaDescription: idea }),
+                });
+
+                if (response.ok) {
+
+                    // --- STEP 2: Reset Startup Workflow (New Code) ---
+                    try {
+                        // We define the DTO object exactly as the C# controller expects it
+                        const workflowResetData = {
+                            StartupId: cleanId, // Needs to be a string GUID
+                            IdeaCheck: false,   // Setting all to false as requested
+                            MarketResearch: false,
+                            Evaluation: false,
+                            Recommendation: false,
+                            Documents: false,
+                            PitchDeck: false
+                        };
+
+                        const workflowResponse = await fetch(`https://localhost:7155/api/StartupWorkflow/update`, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                            },
+                            body: JSON.stringify(workflowResetData),
+                        });
+
+                        if (!workflowResponse.ok) {
+                            console.warn("Idea saved, but failed to reset workflow status.");
+                        } else {
+                            console.log("Workflow status reset to false.");
+                        }
+
+                    } catch (workflowError) {
+                        console.error("Error resetting workflow:", workflowError);
+                    }
+                    // --------------------------------------------------
+
+                    setIsEditing(false); // Exit edit mode
+                    console.log("Idea updated successfully");
+                } else {
+                    alert("Failed to save changes. Please try again.");
+                }
+            } catch (error) {
+                console.error("Error updating idea:", error);
+                alert("Connection error while saving.");
+            } finally {
+                setIsSaving(false);
+            }
+        } else {
+            // If we are NOT editing, the user clicked "Edit"
+            setIsEditing(true);
+        }
+    };
+
+    const router = useRouter(); // Initialize router
+    const [isMarkingComplete, setIsMarkingComplete] = useState(false);
+
+    const handleMarkComplete = async () => {
+        setIsMarkingComplete(true);
+        if (!params || !params.d) return;
+
+        const rawId = Array.isArray(params.d) ? params.d[0] : params.d;
+        const cleanId = decodeURIComponent(rawId).replace(/\s/g, '');
+
+        try {
+            // STEP 1: Fetch current status first (so we don't lose progress on other steps)
+            const getResponse = await fetch(`https://localhost:7155/api/StartupWorkflow/${cleanId}`);
+            let currentData = {
+                marketResearch: false,
+                evaluation: false,
+                recommendation: false,
+                documents: false,
+                pitchDeck: false
+            };
+
+            if (getResponse.ok) {
+                currentData = await getResponse.json();
+            }
+
+            // STEP 2: Prepare the update with IdeaCheck = true
+            // We preserve the other values found in currentData
+            const updatePayload = {
+                StartupId: cleanId,
+                IdeaCheck: true, // <--- THIS IS THE KEY CHANGE
+                MarketResearch: currentData.marketResearch,
+                Evaluation: currentData.evaluation,
+                Recommendation: currentData.recommendation,
+                Documents: currentData.documents,
+                PitchDeck: currentData.pitchDeck
+            };
+
+            // STEP 3: Send the update
+            const updateResponse = await fetch(`https://localhost:7155/api/StartupWorkflow/update`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(updatePayload),
+            });
+
+            if (updateResponse.ok) {
+                // STEP 4: Navigate after success
+                router.push(`/founder/startup/${params.d}`);
+            } else {
+                console.error("Failed to update workflow");
+                alert("Could not mark as complete. Please try again.");
+            }
+
+        } catch (error) {
+            console.error("Error marking complete:", error);
+        } finally {
+            setIsMarkingComplete(false);
+        }
+    };
 
     const handleSendMessage = () => {
         if (!newMessage.trim()) return;
 
         setMessages([
             ...messages,
-            {
-                role: "user",
-                content: newMessage,
-            },
-            {
-                role: "assistant",
-                content:
-                    "That's an interesting point! Let me provide some insights on that aspect...",
-            },
+            { role: "user", content: newMessage },
+            { role: "assistant", content: "That's an interesting point! Let me provide some insights on that aspect..." },
         ]);
         setNewMessage("");
     };
@@ -58,7 +215,7 @@ export default function IdeaCheckPage() {
             <div className="border-b bg-white/80 backdrop-blur-lg">
                 <div className="container mx-auto px-4 py-4 flex justify-between items-center">
                     <div className="flex items-center gap-4">
-                        <Link href={`/founder/startup/${params.id}`}>
+                        <Link href={`/founder/startup/${params.d}`}>
                             <Button variant="ghost" size="icon">
                                 <ArrowLeft className="h-5 w-5" />
                             </Button>
@@ -68,7 +225,7 @@ export default function IdeaCheckPage() {
                                 💡 Idea Check
                             </h1>
                             <p className="text-sm text-muted-foreground">
-                                Stage 1 of 6 - Validate your concept
+                                {startupName}
                             </p>
                         </div>
                     </div>
@@ -88,22 +245,41 @@ export default function IdeaCheckPage() {
                                     Your Startup Idea
                                 </h2>
                                 <Button
-                                    variant="outline"
+                                    variant={isEditing ? "default" : "outline"}
                                     size="sm"
-                                    onClick={() => setIsEditing(!isEditing)}
+                                    onClick={handleToggleEdit}
+                                    disabled={isSaving}
+                                    className={isEditing ? "bg-[#576238] hover:bg-[#464f2d] text-white" : ""}
                                 >
-                                    <Edit3 className="h-4 w-4 mr-2" />
-                                    {isEditing ? "Save" : "Edit"}
+                                    {isSaving ? (
+                                        <>
+                                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                            Saving...
+                                        </>
+                                    ) : isEditing ? (
+                                        <>
+                                            <Save className="h-4 w-4 mr-2" />
+                                            Save Changes
+                                        </>
+                                    ) : (
+                                        <>
+                                            <Edit3 className="h-4 w-4 mr-2" />
+                                            Edit Idea
+                                        </>
+                                    )}
                                 </Button>
                             </div>
-                            {isEditing ? (
+                            {isLoading ? (
+                                <p className="text-muted-foreground">Loading idea...</p>
+                            ) : isEditing ? (
                                 <textarea
-                                    className="w-full p-3 border rounded-lg min-h-[100px]"
+                                    className="w-full p-3 border rounded-lg min-h-[100px] focus:ring-2 focus:ring-[#576238] focus:border-transparent outline-none"
                                     value={idea}
                                     onChange={(e) => setIdea(e.target.value)}
+                                    placeholder="Describe your startup idea..."
                                 />
                             ) : (
-                                <p className="text-muted-foreground">{idea}</p>
+                                <p className="text-muted-foreground whitespace-pre-wrap">{idea}</p>
                             )}
                         </Card>
                     </motion.div>
@@ -130,13 +306,12 @@ export default function IdeaCheckPage() {
                                             initial={{ opacity: 0, y: 10 }}
                                             animate={{ opacity: 1, y: 0 }}
                                             transition={{ delay: index * 0.1 }}
-                                            className={`flex ${message.role === "user" ? "justify-end" : "justify-start"
-                                                }`}
+                                            className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}
                                         >
                                             <div
                                                 className={`max-w-[80%] rounded-lg p-4 ${message.role === "user"
-                                                        ? "bg-[#576238] text-white"
-                                                        : "bg-white border-2"
+                                                    ? "bg-[#576238] text-white"
+                                                    : "bg-white border-2"
                                                     }`}
                                             >
                                                 <p className="text-sm whitespace-pre-line">
@@ -176,11 +351,17 @@ export default function IdeaCheckPage() {
                         <Button
                             size="lg"
                             className="bg-[#FFD95D] hover:bg-[#ffe89a] text-black font-semibold"
-                            asChild
+                            onClick={handleMarkComplete}
+                            disabled={isMarkingComplete}
                         >
-                            <Link href={`/founder/startup/${params.id}`}>
-                                Mark as Complete & Continue
-                            </Link>
+                            {isMarkingComplete ? (
+                                <>
+                                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                    Updating...
+                                </>
+                            ) : (
+                                "Mark as Complete & Continue"
+                            )}
                         </Button>
                     </motion.div>
                 </div>

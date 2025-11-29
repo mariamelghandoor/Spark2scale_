@@ -20,7 +20,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
-// 1. Define the interface for the data coming from .NET
 interface WorkflowData {
     startupId: string;
     ideaCheck: boolean;
@@ -35,9 +34,10 @@ export default function StartupDashboard() {
     const params = useParams();
     const router = useRouter();
     const [userName] = useState("Alex");
-    const [startupName] = useState("EcoTech Solutions"); // Name isn't in the workflow API, so keeping as state for now
 
-    // 2. State for API Data
+    // 1. Allow startupName to be updated
+    const [startupName, setStartupName] = useState("Loading...");
+
     const [workflowData, setWorkflowData] = useState<WorkflowData | null>(null);
     const [isLoading, setIsLoading] = useState(true);
 
@@ -45,45 +45,52 @@ export default function StartupDashboard() {
     const [inviteEmail, setInviteEmail] = useState("");
     const [inviteRole, setInviteRole] = useState("contributor");
 
-    // Current month calendar state
     const [currentMonth] = useState(new Date());
     const monthName = currentMonth.toLocaleDateString("en-US", { month: "long", year: "numeric" });
 
-    // 3. Fetch Data from .NET Backend
+    // 2. Updated useEffect to fetch BOTH Workflow and Name
     useEffect(() => {
-        const fetchWorkflow = async () => {
-            // DEBUGGING: Check what ID the page sees
-            console.log("Page Params:", params);
+        const fetchDashboardData = async () => {
+            // Validate ID (Folder is named [d], so we check params.d)
+            if (!params || !params.d) return;
 
-            // Safety check: If no ID, stop loading and exit
-            if (!params || !params.d) {
-                console.warn("No startup ID found in URL parameters.");
-                setIsLoading(false);
-                return;
-            }
+            // Clean the ID
+            const rawId = Array.isArray(params.d) ? params.d[0] : params.d;
+            const cleanId = decodeURIComponent(rawId).replace(/\s/g, '');
 
             try {
-                console.log(`Fetching URL: https://localhost:7155/api/StartupWorkflow/${params.d}`);
+                // CHANGE PORT HERE IF NEEDED (e.g., 5000 or 7123)
+                const baseUrl = "https://localhost:7155/api";
 
-                // Ensure the port matches your running .NET API
-                const response = await fetch(`https://localhost:7155/api/StartupWorkflow/${params.d}`);
+                // Run both requests in parallel for speed
+                const [workflowRes, startupRes] = await Promise.all([
+                    fetch(`${baseUrl}/StartupWorkflow/${cleanId}`),
+                    fetch(`${baseUrl}/startups/${cleanId}`)
+                ]);
 
-                if (response.ok) {
-                    const data = await response.json();
-                    console.log("API Data Success:", data); // Check this in Browser Console (F12)
-                    setWorkflowData(data);
-                } else {
-                    console.error("API Error Status:", response.status);
+                // Handle Workflow Data
+                if (workflowRes.ok) {
+                    const workflowData = await workflowRes.json();
+                    setWorkflowData(workflowData);
                 }
+
+                // Handle Startup Name Data
+                if (startupRes.ok) {
+                    const startupData = await startupRes.json();
+                    setStartupName(startupData.startupname); // Set the real name
+                } else {
+                    setStartupName("Unknown Startup");
+                }
+
             } catch (error) {
-                console.error("Connection Error:", error);
+                console.error("Error connecting to backend:", error);
+                setStartupName("Error Loading Data");
             } finally {
-                // ALWAYS turn off loading, even if it fails
                 setIsLoading(false);
             }
         };
 
-        fetchWorkflow();
+        fetchDashboardData();
     }, [params]);
 
     // Sample calendar events
@@ -104,6 +111,7 @@ export default function StartupDashboard() {
         documents: false,
         pitchDeck: false
     };
+    const startupId = params?.d ? String(params.d) : "";
 
     const stages = [
         {
@@ -112,7 +120,7 @@ export default function StartupDashboard() {
             icon: Lightbulb,
             completed: currentData.ideaCheck,
             hasError: false,
-            path: `/founder/startup/${params.id}/idea-check`,
+            path: `/founder/startup/${startupId}/idea-check`,
         },
         {
             id: 2,
@@ -121,7 +129,7 @@ export default function StartupDashboard() {
             completed: currentData.marketResearch,
             hasError: false, // You can add logic here if needed based on API
             errorMessage: "Missing required data",
-            path: `/founder/startup/${params.id}/market-research`,
+            path: `/founder/startup/${startupId}/market-research`,
         },
         {
             id: 3,
@@ -129,7 +137,7 @@ export default function StartupDashboard() {
             icon: Target,
             completed: currentData.evaluation,
             hasError: false,
-            path: `/founder/startup/${params.id}/evaluate`,
+            path: `/founder/startup/${startupId}/evaluate`,
         },
         {
             id: 4,
@@ -137,7 +145,7 @@ export default function StartupDashboard() {
             icon: RefreshCw,
             completed: currentData.recommendation,
             hasError: false,
-            path: `/founder/startup/${params.id}/recommendations`,
+            path: `/founder/startup/${startupId}/recommendations`,
         },
         {
             id: 5,
@@ -145,7 +153,7 @@ export default function StartupDashboard() {
             icon: FileText,
             completed: currentData.documents,
             hasError: false,
-            path: `/founder/startup/${params.id}/documents`,
+            path: `/founder/startup/${startupId}/documents`,
         },
         {
             id: 6,
@@ -153,7 +161,7 @@ export default function StartupDashboard() {
             icon: Presentation,
             completed: currentData.pitchDeck,
             hasError: false,
-            path: `/founder/startup/${params.id}/pitch-deck`,
+            path: `/founder/startup/${startupId}/pitch-deck`,
         },
     ];
 
