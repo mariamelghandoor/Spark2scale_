@@ -3,13 +3,14 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Bell, Calendar, Plus, User } from "lucide-react";
+import { Calendar, Plus, User } from "lucide-react";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import NotificationsDropdown from "@/components/shared/NotificationsDropdown";
 
 export default function FounderDashboard() {
     const [userName] = useState("Alex");
@@ -67,9 +68,7 @@ export default function FounderDashboard() {
                                 <Calendar className="h-5 w-5" />
                             </Button>
                         </Link>
-                        <Button variant="ghost" size="icon">
-                            <Bell className="h-5 w-5" />
-                        </Button>
+                        <NotificationsDropdown />
                         <Link href="/profile">
                             <Button variant="ghost" size="icon">
                                 <User className="h-5 w-5" />

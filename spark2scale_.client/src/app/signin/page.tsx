@@ -122,7 +122,7 @@ export default function SigninPage() {
                                     <div className="flex items-center justify-between">
                                         <Label htmlFor="password">Password</Label>
                                         <Link
-                                            href="/reset-password"
+                                            href="/forgot-password"
                                             className="text-sm text-[#576238] hover:text-[#6b7c3f] hover:underline"
                                         >
                                             Forgot password?
