@@ -3,172 +3,224 @@
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { ArrowLeft, Edit3, Save, Send, Loader2 } from "lucide-react"; // Added Loader2 and Save icon
+import { ArrowLeft, Edit3, Save, Send, Loader2, MessageSquare, Plus, History } from "lucide-react";
 import Link from "next/link";
 import { motion } from "framer-motion";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { useRouter } from "next/navigation";
+
+// --- Types ---
+interface SessionSummary {
+    sessionId: string;
+    sessionName: string;
+    createdAt: string;
+}
+
+interface ChatMessage {
+    role: string;
+    content: string;
+    timestamp?: string;
+}
 
 export default function IdeaCheckPage() {
     const params = useParams();
+    const router = useRouter();
 
-    // 1. State for Data
+    // --- State: General Data ---
     const [startupName, setStartupName] = useState("Loading...");
     const [idea, setIdea] = useState("");
+
+    // --- State: Status Flags ---
     const [isLoading, setIsLoading] = useState(true);
-    const [isSaving, setIsSaving] = useState(false); // State for saving process
-
+    const [isSaving, setIsSaving] = useState(false);
     const [isEditing, setIsEditing] = useState(false);
-    const [messages, setMessages] = useState([
-        {
-            role: "assistant",
-            content: "Hello! I'm your AI startup advisor. Let's review and validate your idea. What's your startup concept?",
-        },
-    ]);
+    const [isMarkingComplete, setIsMarkingComplete] = useState(false);
+    const [isStageCompleted, setIsStageCompleted] = useState(false);
+
+    // --- State: Chat & Sessions ---
+    const [sessions, setSessions] = useState<SessionSummary[]>([]);
+    const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
+    const [messages, setMessages] = useState<ChatMessage[]>([]);
     const [newMessage, setNewMessage] = useState("");
+    const [isChatLoading, setIsChatLoading] = useState(false);
 
-    // 2. Fetch Data
+    // --- FIX: Robust ID Getter ---
+    const getCleanId = () => {
+        // Check for 'd' (your original folder name) OR 'id' (standard convention)
+        const rawParam = params?.d || params?.id;
+
+        if (!rawParam) return null;
+
+        const rawId = Array.isArray(rawParam) ? rawParam[0] : rawParam;
+        return decodeURIComponent(rawId).replace(/\s/g, '');
+    };
+
+    const cleanId = getCleanId();
+
+    // ---------------------------------------------------------
+    // 1. INITIAL FETCH
+    // ---------------------------------------------------------
     useEffect(() => {
-        const fetchStartupInfo = async () => {
-            if (!params || !params.d) return;
-
-            const rawId = Array.isArray(params.d) ? params.d[0] : params.d;
-            const cleanId = decodeURIComponent(rawId).replace(/\s/g, '');
+        const initPage = async () => {
+            if (!cleanId) return;
 
             try {
-                // Ensure this port matches your running backend
-                const response = await fetch(`https://localhost:7155/api/startups/${cleanId}`);
-
-                if (response.ok) {
-                    const data = await response.json();
+                // A. Fetch Basic Startup Info
+                const startupRes = await fetch(`https://localhost:7155/api/startups/${cleanId}`);
+                if (startupRes.ok) {
+                    const data = await startupRes.json();
                     setStartupName(data.startupname);
                     setIdea(data.idea_description);
-
-                    setMessages(prev => [
-                        ...prev,
-                        { role: "user", content: data.idea_description },
-                        {
-                            role: "assistant",
-                            content: "Great concept! This addresses the growing demand for sustainability solutions. Let me analyze a few key aspects:\n\n✅ Market Need: High\n✅ Scalability: Strong\n⚠️ Competition: Moderate\n\nWould you like me to dive deeper into any specific area?"
-                        }
-                    ]);
-                } else {
-                    console.error("Failed to fetch startup info");
-                    setStartupName("Error loading name");
                 }
+
+                // B. Fetch Workflow Status
+                const wfRes = await fetch(`https://localhost:7155/api/StartupWorkflow/${cleanId}`);
+                let isLocked = false;
+                if (wfRes.ok) {
+                    const wfData = await wfRes.json();
+                    isLocked = wfData.ideaCheck || wfData.IdeaCheck || false;
+                    setIsStageCompleted(isLocked);
+                }
+
+                // C. Fetch Chat Sessions
+                const sessionRes = await fetch(`https://localhost:7155/api/Chat/sessions/${cleanId}/idea_check`);
+                if (sessionRes.ok) {
+                    const sessionList: SessionSummary[] = await sessionRes.json();
+                    setSessions(sessionList);
+
+                    if (sessionList.length > 0) {
+                        loadSessionMessages(sessionList[0].sessionId);
+                    } else if (!isLocked) {
+                        await handleNewSession(cleanId);
+                    }
+                }
+
             } catch (error) {
-                console.error("Connection error:", error);
+                console.error("Initialization error:", error);
             } finally {
                 setIsLoading(false);
             }
         };
 
-        fetchStartupInfo();
-    }, [params]);
+        initPage();
+    }, [cleanId]);
 
-    // 3. Handle Save Logic
+    // ---------------------------------------------------------
+    // 2. Chat Logic
+    // ---------------------------------------------------------
+    const loadSessionMessages = async (sessionId: string) => {
+        setIsChatLoading(true);
+        setCurrentSessionId(sessionId);
+        try {
+            const res = await fetch(`https://localhost:7155/api/Chat/messages/${sessionId}`);
+            if (res.ok) {
+                const msgs = await res.json();
+                setMessages(msgs);
+            }
+        } catch (err) {
+            console.error("Error loading messages:", err);
+        } finally {
+            setIsChatLoading(false);
+        }
+    };
+
+    const handleNewSession = async (startupId: string) => {
+        if (isStageCompleted) return;
+
+        try {
+            const res = await fetch(`https://localhost:7155/api/Chat/start-new`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    StartupId: startupId,
+                    FeatureType: 'idea_check'
+                })
+            });
+
+            if (res.ok) {
+                const newSess = await res.json();
+                const newSummary: SessionSummary = {
+                    sessionId: newSess.sessionId,
+                    sessionName: newSess.sessionName,
+                    createdAt: new Date().toISOString()
+                };
+
+                setSessions(prev => [newSummary, ...prev]);
+                setCurrentSessionId(newSess.sessionId);
+                setMessages([]);
+            }
+        } catch (err) {
+            console.error("Error creating session:", err);
+        }
+    };
+
+    const handleSendMessage = async () => {
+        if (!newMessage.trim() || !currentSessionId || isStageCompleted) return;
+
+        const msgContent = newMessage;
+        setNewMessage("");
+
+        setMessages(prev => [...prev, { role: "user", content: msgContent }]);
+
+        try {
+            await fetch(`https://localhost:7155/api/Chat/send`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    SessionId: currentSessionId,
+                    Role: "user",
+                    Content: msgContent
+                })
+            });
+            // Simulate AI response logic would go here
+        } catch (err) {
+            console.error("Error sending message:", err);
+        }
+    };
+
+    // ---------------------------------------------------------
+    // 3. Idea & Workflow Logic
+    // ---------------------------------------------------------
     const handleToggleEdit = async () => {
-        // If we are currently editing, the user clicked "Save"
+        if (isStageCompleted) return;
+
         if (isEditing) {
             setIsSaving(true);
-
-            if (!params || !params.d) return;
-            const rawId = Array.isArray(params.d) ? params.d[0] : params.d;
-            const cleanId = decodeURIComponent(rawId).replace(/\s/g, '');
-
             try {
-                // --- STEP 1: Update the Idea Description ---
                 const response = await fetch(`https://localhost:7155/api/startups/update-idea/${cleanId}`, {
                     method: 'PUT',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
+                    headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ ideaDescription: idea }),
                 });
 
                 if (response.ok) {
-
-                    // --- STEP 2: Reset Startup Workflow (New Code) ---
-                    try {
-                        // We define the DTO object exactly as the C# controller expects it
-                        const workflowResetData = {
-                            StartupId: cleanId, // Needs to be a string GUID
-                            IdeaCheck: false,   // Setting all to false as requested
-                            MarketResearch: false,
-                            Evaluation: false,
-                            Recommendation: false,
-                            Documents: false,
-                            PitchDeck: false
-                        };
-
-                        const workflowResponse = await fetch(`https://localhost:7155/api/StartupWorkflow/update`, {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json',
-                            },
-                            body: JSON.stringify(workflowResetData),
-                        });
-
-                        if (!workflowResponse.ok) {
-                            console.warn("Idea saved, but failed to reset workflow status.");
-                        } else {
-                            console.log("Workflow status reset to false.");
-                        }
-
-                    } catch (workflowError) {
-                        console.error("Error resetting workflow:", workflowError);
-                    }
-                    // --------------------------------------------------
-
-                    setIsEditing(false); // Exit edit mode
-                    console.log("Idea updated successfully");
+                    setIsEditing(false);
                 } else {
-                    alert("Failed to save changes. Please try again.");
+                    alert("Failed to save changes.");
                 }
             } catch (error) {
                 console.error("Error updating idea:", error);
-                alert("Connection error while saving.");
             } finally {
                 setIsSaving(false);
             }
         } else {
-            // If we are NOT editing, the user clicked "Edit"
             setIsEditing(true);
         }
     };
 
-    const router = useRouter(); // Initialize router
-    const [isMarkingComplete, setIsMarkingComplete] = useState(false);
-
     const handleMarkComplete = async () => {
         setIsMarkingComplete(true);
-        if (!params || !params.d) return;
-
-        const rawId = Array.isArray(params.d) ? params.d[0] : params.d;
-        const cleanId = decodeURIComponent(rawId).replace(/\s/g, '');
+        if (!cleanId) return;
 
         try {
-            // STEP 1: Fetch current status first (so we don't lose progress on other steps)
-            const getResponse = await fetch(`https://localhost:7155/api/StartupWorkflow/${cleanId}`);
-            let currentData = {
-                marketResearch: false,
-                evaluation: false,
-                recommendation: false,
-                documents: false,
-                pitchDeck: false
-            };
+            const getRes = await fetch(`https://localhost:7155/api/StartupWorkflow/${cleanId}`);
+            let currentData = { marketResearch: false, evaluation: false, recommendation: false, documents: false, pitchDeck: false };
+            if (getRes.ok) currentData = await getRes.json();
 
-            if (getResponse.ok) {
-                currentData = await getResponse.json();
-            }
-
-            // STEP 2: Prepare the update with IdeaCheck = true
-            // We preserve the other values found in currentData
             const updatePayload = {
                 StartupId: cleanId,
-                IdeaCheck: true, // <--- THIS IS THE KEY CHANGE
+                IdeaCheck: true,
                 MarketResearch: currentData.marketResearch,
                 Evaluation: currentData.evaluation,
                 Recommendation: currentData.recommendation,
@@ -176,21 +228,16 @@ export default function IdeaCheckPage() {
                 PitchDeck: currentData.pitchDeck
             };
 
-            // STEP 3: Send the update
-            const updateResponse = await fetch(`https://localhost:7155/api/StartupWorkflow/update`, {
+            const updateRes = await fetch(`https://localhost:7155/api/StartupWorkflow/update`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(updatePayload),
             });
 
-            if (updateResponse.ok) {
-                // STEP 4: Navigate after success
-                router.push(`/founder/startup/${params.d}`);
-            } else {
-                console.error("Failed to update workflow");
-                alert("Could not mark as complete. Please try again.");
+            if (updateRes.ok) {
+                // FIX: Use cleanId here instead of params.d
+                router.push(`/founder/startup/${cleanId}`);
             }
-
         } catch (error) {
             console.error("Error marking complete:", error);
         } finally {
@@ -198,79 +245,115 @@ export default function IdeaCheckPage() {
         }
     };
 
-    const handleSendMessage = () => {
-        if (!newMessage.trim()) return;
-
-        setMessages([
-            ...messages,
-            { role: "user", content: newMessage },
-            { role: "assistant", content: "That's an interesting point! Let me provide some insights on that aspect..." },
-        ]);
-        setNewMessage("");
-    };
-
     return (
-        <div className="min-h-screen bg-gradient-to-br from-[#F0EADC] via-[#fff] to-[#FFD95D]/20">
+        <div className="min-h-screen bg-gradient-to-br from-[#F0EADC] via-[#fff] to-[#FFD95D]/20 flex flex-col">
             {/* Top Navigation Bar */}
-            <div className="border-b bg-white/80 backdrop-blur-lg">
+            <div className="border-b bg-white/80 backdrop-blur-lg sticky top-0 z-10">
                 <div className="container mx-auto px-4 py-4 flex justify-between items-center">
                     <div className="flex items-center gap-4">
-                        <Link href={`/founder/startup/${params.d}`}>
+
+                        {/* --- FIX: Use cleanId in the Link --- */}
+                        <Link href={`/founder/startup/${cleanId}`}>
                             <Button variant="ghost" size="icon">
                                 <ArrowLeft className="h-5 w-5" />
                             </Button>
                         </Link>
+
                         <div>
-                            <h1 className="text-xl font-bold text-[#576238]">
-                                💡 Idea Check
-                            </h1>
-                            <p className="text-sm text-muted-foreground">
-                                {startupName}
-                            </p>
+                            <h1 className="text-xl font-bold text-[#576238]">💡 Idea Check</h1>
+                            <p className="text-sm text-muted-foreground">{startupName}</p>
                         </div>
                     </div>
+                    {isStageCompleted && (
+                        <div className="px-3 py-1 bg-green-100 text-green-700 rounded-full text-sm font-medium border border-green-200">
+                            ✓ Verified & Completed
+                        </div>
+                    )}
                 </div>
             </div>
 
-            <main className="container mx-auto px-4 py-8">
-                <div className="max-w-4xl mx-auto">
-                    {/* Idea Display/Edit */}
-                    <motion.div
-                        initial={{ opacity: 0, y: 20 }}
-                        animate={{ opacity: 1, y: 0 }}
-                    >
-                        <Card className="p-6 mb-6 border-2">
-                            <div className="flex justify-between items-start mb-4">
-                                <h2 className="text-xl font-bold text-[#576238]">
-                                    Your Startup Idea
-                                </h2>
-                                <Button
-                                    variant={isEditing ? "default" : "outline"}
-                                    size="sm"
-                                    onClick={handleToggleEdit}
-                                    disabled={isSaving}
-                                    className={isEditing ? "bg-[#576238] hover:bg-[#464f2d] text-white" : ""}
+            <main className="flex-1 container mx-auto px-4 py-8 flex gap-6">
+
+                {/* LEFT SIDEBAR: Session History */}
+                <Card className="w-64 flex-shrink-0 h-[calc(100vh-150px)] border-2 flex flex-col bg-white/50 backdrop-blur-sm">
+                    <div className="p-4 border-b">
+                        <Button
+                            className="w-full bg-[#576238] hover:bg-[#464f2d]"
+                            onClick={() => cleanId && handleNewSession(cleanId)}
+                            disabled={isStageCompleted}
+                        >
+                            <Plus className="h-4 w-4 mr-2" />
+                            New Chat
+                        </Button>
+                    </div>
+                    <ScrollArea className="flex-1 p-3">
+                        <div className="space-y-2">
+                            {sessions.length === 0 && (
+                                <p className="text-xs text-center text-muted-foreground mt-4">No history yet</p>
+                            )}
+                            {sessions.map((sess) => (
+                                <button
+                                    key={sess.sessionId}
+                                    onClick={() => loadSessionMessages(sess.sessionId)}
+                                    className={`w-full text-left p-3 rounded-lg text-sm transition-colors flex items-center gap-2
+                                        ${currentSessionId === sess.sessionId
+                                            ? "bg-[#FFD95D]/30 border border-[#FFD95D] font-medium text-[#576238]"
+                                            : "hover:bg-gray-100 text-gray-600"
+                                        }`}
                                 >
-                                    {isSaving ? (
-                                        <>
-                                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                                            Saving...
-                                        </>
-                                    ) : isEditing ? (
-                                        <>
-                                            <Save className="h-4 w-4 mr-2" />
-                                            Save Changes
-                                        </>
-                                    ) : (
-                                        <>
-                                            <Edit3 className="h-4 w-4 mr-2" />
-                                            Edit Idea
-                                        </>
-                                    )}
-                                </Button>
+                                    <MessageSquare className="h-4 w-4 opacity-70" />
+                                    <div className="truncate">
+                                        <div>{sess.sessionName}</div>
+                                        <div className="text-[10px] text-gray-400">
+                                            {new Date(sess.createdAt).toLocaleDateString()}
+                                        </div>
+                                    </div>
+                                </button>
+                            ))}
+                        </div>
+                    </ScrollArea>
+                    <div className="p-3 border-t text-center text-xs text-muted-foreground">
+                        <History className="h-3 w-3 inline mr-1" /> History
+                    </div>
+                </Card>
+
+                {/* MAIN CONTENT AREA */}
+                <div className="flex-1 max-w-4xl space-y-6">
+
+                    {/* 1. Idea Description Card */}
+                    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
+                        <Card className="p-6 border-2 relative overflow-hidden">
+                            {isStageCompleted && (
+                                <div className="absolute top-0 right-0 p-2 bg-gray-100 rounded-bl-lg border-b border-l text-xs text-gray-500">
+                                    Read Only
+                                </div>
+                            )}
+                            <div className="flex justify-between items-start mb-4">
+                                <h2 className="text-xl font-bold text-[#576238]">Your Startup Idea</h2>
+                                {!isStageCompleted && (
+                                    <Button
+                                        variant={isEditing ? "default" : "outline"}
+                                        size="sm"
+                                        onClick={handleToggleEdit}
+                                        disabled={isSaving}
+                                        className={isEditing ? "bg-[#576238] hover:bg-[#464f2d] text-white" : ""}
+                                    >
+                                        {isSaving ? (
+                                            <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Saving...</>
+                                        ) : isEditing ? (
+                                            <><Save className="h-4 w-4 mr-2" /> Save Changes</>
+                                        ) : (
+                                            <><Edit3 className="h-4 w-4 mr-2" /> Edit Idea</>
+                                        )}
+                                    </Button>
+                                )}
                             </div>
+
                             {isLoading ? (
-                                <p className="text-muted-foreground">Loading idea...</p>
+                                <div className="space-y-2">
+                                    <div className="h-4 bg-gray-200 rounded w-3/4 animate-pulse"></div>
+                                    <div className="h-4 bg-gray-200 rounded w-1/2 animate-pulse"></div>
+                                </div>
                             ) : isEditing ? (
                                 <textarea
                                     className="w-full p-3 border rounded-lg min-h-[100px] focus:ring-2 focus:ring-[#576238] focus:border-transparent outline-none"
@@ -284,86 +367,104 @@ export default function IdeaCheckPage() {
                         </Card>
                     </motion.div>
 
-                    {/* AI Chat Interface */}
-                    <motion.div
-                        initial={{ opacity: 0, y: 20 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ delay: 0.2 }}
-                    >
-                        <Card className="border-2">
-                            <div className="p-6 border-b bg-[#576238] text-white">
-                                <h2 className="text-xl font-bold">AI Advisor Chat</h2>
-                                <p className="text-sm text-white/80">
-                                    Get real-time feedback and validation
-                                </p>
+                    {/* 2. Chat Interface */}
+                    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
+                        <Card className="border-2 h-[500px] flex flex-col">
+                            <div className="p-4 border-b bg-[#576238] text-white flex justify-between items-center">
+                                <div>
+                                    <h2 className="font-bold">AI Advisor Chat</h2>
+                                    <p className="text-xs text-white/80">Validation & Feedback</p>
+                                </div>
+                                <div className="text-xs px-2 py-1 bg-white/20 rounded">
+                                    {sessions.find(s => s.sessionId === currentSessionId)?.sessionName || "Session"}
+                                </div>
                             </div>
 
-                            <ScrollArea className="h-[400px] p-6">
-                                <div className="space-y-4">
-                                    {messages.map((message, index) => (
-                                        <motion.div
-                                            key={index}
-                                            initial={{ opacity: 0, y: 10 }}
-                                            animate={{ opacity: 1, y: 0 }}
-                                            transition={{ delay: index * 0.1 }}
-                                            className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}
-                                        >
-                                            <div
-                                                className={`max-w-[80%] rounded-lg p-4 ${message.role === "user"
-                                                    ? "bg-[#576238] text-white"
-                                                    : "bg-white border-2"
-                                                    }`}
+                            <ScrollArea className="flex-1 p-6">
+                                {isChatLoading ? (
+                                    <div className="flex justify-center items-center h-full">
+                                        <Loader2 className="h-6 w-6 animate-spin text-gray-400" />
+                                    </div>
+                                ) : messages.length === 0 ? (
+                                    <div className="text-center text-gray-400 mt-10">
+                                        <p>Start the conversation...</p>
+                                    </div>
+                                ) : (
+                                    <div className="space-y-4">
+                                        {messages.map((message, index) => (
+                                            <motion.div
+                                                key={index}
+                                                initial={{ opacity: 0, y: 5 }}
+                                                animate={{ opacity: 1, y: 0 }}
+                                                className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}
                                             >
-                                                <p className="text-sm whitespace-pre-line">
+                                                <div className={`max-w-[80%] rounded-lg p-3 text-sm whitespace-pre-line shadow-sm
+                                                    ${message.role === "user" ? "bg-[#576238] text-white" : "bg-white border-2"}`}
+                                                >
                                                     {message.content}
-                                                </p>
-                                            </div>
-                                        </motion.div>
-                                    ))}
-                                </div>
+                                                </div>
+                                            </motion.div>
+                                        ))}
+                                    </div>
+                                )}
                             </ScrollArea>
 
-                            <div className="p-4 border-t">
-                                <div className="flex gap-2">
-                                    <Input
-                                        placeholder="Ask a question or request feedback..."
-                                        value={newMessage}
-                                        onChange={(e) => setNewMessage(e.target.value)}
-                                        onKeyPress={(e) => e.key === "Enter" && handleSendMessage()}
-                                    />
-                                    <Button
-                                        onClick={handleSendMessage}
-                                        className="bg-[#576238] hover:bg-[#6b7c3f]"
-                                    >
-                                        <Send className="h-4 w-4" />
-                                    </Button>
-                                </div>
+                            <div className="p-4 border-t bg-gray-50/50">
+                                {isStageCompleted ? (
+                                    <div className="flex items-center justify-center p-3 bg-yellow-50 text-yellow-700 border border-yellow-200 rounded-md text-sm">
+                                        🔒 This stage is complete. Loop back to unlock editing.
+                                    </div>
+                                ) : (
+                                    <div className="flex gap-2">
+                                        <Input
+                                            placeholder="Ask a question..."
+                                            value={newMessage}
+                                            onChange={(e) => setNewMessage(e.target.value)}
+                                            onKeyPress={(e) => e.key === "Enter" && handleSendMessage()}
+                                            disabled={!currentSessionId}
+                                        />
+                                        <Button
+                                            onClick={handleSendMessage}
+                                            className="bg-[#576238] hover:bg-[#6b7c3f]"
+                                            disabled={!currentSessionId}
+                                        >
+                                            <Send className="h-4 w-4" />
+                                        </Button>
+                                    </div>
+                                )}
                             </div>
                         </Card>
                     </motion.div>
 
+                    {/* 3. Bottom Action Button */}
                     <motion.div
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        transition={{ delay: 0.4 }}
-                        className="mt-6 text-center"
+                        initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.2 }}
+                        className="text-center"
                     >
-                        <Button
-                            size="lg"
-                            className="bg-[#FFD95D] hover:bg-[#ffe89a] text-black font-semibold"
-                            onClick={handleMarkComplete}
-                            disabled={isMarkingComplete}
-                        >
-                            {isMarkingComplete ? (
-                                <>
-                                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                                    Updating...
-                                </>
-                            ) : (
-                                "Mark as Complete & Continue"
-                            )}
-                        </Button>
+                        {!isStageCompleted ? (
+                            <Button
+                                size="lg"
+                                className="bg-[#FFD95D] hover:bg-[#ffe89a] text-black font-semibold"
+                                onClick={handleMarkComplete}
+                                disabled={isMarkingComplete}
+                            >
+                                {isMarkingComplete ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : "Mark as Complete & Continue"}
+                            </Button>
+                        ) : (
+                            <Button
+                                size="lg"
+                                variant="outline"
+                                className="font-semibold"
+                                asChild
+                            >
+                                {/* FIX: Use cleanId here as well */}
+                                <Link href={`/founder/startup/${cleanId}`}>
+                                    Continue to Dashboard
+                                </Link>
+                            </Button>
+                        )}
                     </motion.div>
+
                 </div>
             </main>
         </div>
