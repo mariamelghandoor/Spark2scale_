@@ -45,13 +45,10 @@ export default function IdeaCheckPage() {
     const [newMessage, setNewMessage] = useState("");
     const [isChatLoading, setIsChatLoading] = useState(false);
 
-    // --- FIX: Robust ID Getter ---
+    // --- Helper: Robust ID Getter ---
     const getCleanId = () => {
-        // Check for 'd' (your original folder name) OR 'id' (standard convention)
         const rawParam = params?.d || params?.id;
-
         if (!rawParam) return null;
-
         const rawId = Array.isArray(rawParam) ? rawParam[0] : rawParam;
         return decodeURIComponent(rawId).replace(/\s/g, '');
     };
@@ -126,7 +123,8 @@ export default function IdeaCheckPage() {
     };
 
     const handleNewSession = async (startupId: string) => {
-        if (isStageCompleted) return;
+        // Prevent new session ONLY if stage is completed AND we are not currently forcing a reset
+        // (This check is handled by the UI button disabled state mainly)
 
         try {
             const res = await fetch(`https://localhost:7155/api/Chat/start-new`, {
@@ -146,8 +144,11 @@ export default function IdeaCheckPage() {
                     createdAt: new Date().toISOString()
                 };
 
+                // Prepend new session to list
                 setSessions(prev => [newSummary, ...prev]);
+                // Select it
                 setCurrentSessionId(newSess.sessionId);
+                // Clear messages view
                 setMessages([]);
             }
         } catch (err) {
@@ -173,21 +174,20 @@ export default function IdeaCheckPage() {
                     Content: msgContent
                 })
             });
-            // Simulate AI response logic would go here
         } catch (err) {
             console.error("Error sending message:", err);
         }
     };
 
     // ---------------------------------------------------------
-    // 3. Idea & Workflow Logic
+    // 3. Idea & Workflow Logic (UPDATED: Force New Session)
     // ---------------------------------------------------------
     const handleToggleEdit = async () => {
-        if (isStageCompleted) return;
-
         if (isEditing) {
+            // --- SAVE CHANGES ---
             setIsSaving(true);
             try {
+                // 1. Update the Idea Text
                 const response = await fetch(`https://localhost:7155/api/startups/update-idea/${cleanId}`, {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
@@ -196,6 +196,34 @@ export default function IdeaCheckPage() {
 
                 if (response.ok) {
                     setIsEditing(false);
+
+                    // 2. RESET WORKFLOW (Mark all as false)
+                    const resetPayload = {
+                        StartupId: cleanId,
+                        IdeaCheck: false,
+                        MarketResearch: false,
+                        Evaluation: false,
+                        Recommendation: false,
+                        Documents: false,
+                        PitchDeck: false
+                    };
+
+                    const wfResponse = await fetch(`https://localhost:7155/api/StartupWorkflow/update`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(resetPayload),
+                    });
+
+                    if (wfResponse.ok) {
+                        setIsStageCompleted(false);
+                        console.log("Workflow reset.");
+
+                        // 3. FORCE NEW CHAT SESSION (New Logic Here)
+                        if (cleanId) {
+                            await handleNewSession(cleanId);
+                        }
+                    }
+
                 } else {
                     alert("Failed to save changes.");
                 }
@@ -205,6 +233,7 @@ export default function IdeaCheckPage() {
                 setIsSaving(false);
             }
         } else {
+            // --- ENTER EDIT MODE ---
             setIsEditing(true);
         }
     };
@@ -235,7 +264,6 @@ export default function IdeaCheckPage() {
             });
 
             if (updateRes.ok) {
-                // FIX: Use cleanId here instead of params.d
                 router.push(`/founder/startup/${cleanId}`);
             }
         } catch (error) {
@@ -252,7 +280,6 @@ export default function IdeaCheckPage() {
                 <div className="container mx-auto px-4 py-4 flex justify-between items-center">
                     <div className="flex items-center gap-4">
 
-                        {/* --- FIX: Use cleanId in the Link --- */}
                         <Link href={`/founder/startup/${cleanId}`}>
                             <Button variant="ghost" size="icon">
                                 <ArrowLeft className="h-5 w-5" />
@@ -323,30 +350,24 @@ export default function IdeaCheckPage() {
                     {/* 1. Idea Description Card */}
                     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
                         <Card className="p-6 border-2 relative overflow-hidden">
-                            {isStageCompleted && (
-                                <div className="absolute top-0 right-0 p-2 bg-gray-100 rounded-bl-lg border-b border-l text-xs text-gray-500">
-                                    Read Only
-                                </div>
-                            )}
                             <div className="flex justify-between items-start mb-4">
                                 <h2 className="text-xl font-bold text-[#576238]">Your Startup Idea</h2>
-                                {!isStageCompleted && (
-                                    <Button
-                                        variant={isEditing ? "default" : "outline"}
-                                        size="sm"
-                                        onClick={handleToggleEdit}
-                                        disabled={isSaving}
-                                        className={isEditing ? "bg-[#576238] hover:bg-[#464f2d] text-white" : ""}
-                                    >
-                                        {isSaving ? (
-                                            <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Saving...</>
-                                        ) : isEditing ? (
-                                            <><Save className="h-4 w-4 mr-2" /> Save Changes</>
-                                        ) : (
-                                            <><Edit3 className="h-4 w-4 mr-2" /> Edit Idea</>
-                                        )}
-                                    </Button>
-                                )}
+
+                                <Button
+                                    variant={isEditing ? "default" : "outline"}
+                                    size="sm"
+                                    onClick={handleToggleEdit}
+                                    disabled={isSaving}
+                                    className={isEditing ? "bg-[#576238] hover:bg-[#464f2d] text-white" : ""}
+                                >
+                                    {isSaving ? (
+                                        <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Saving...</>
+                                    ) : isEditing ? (
+                                        <><Save className="h-4 w-4 mr-2" /> Save & Reset Workflow</>
+                                    ) : (
+                                        <><Edit3 className="h-4 w-4 mr-2" /> Edit Idea</>
+                                    )}
+                                </Button>
                             </div>
 
                             {isLoading ? (
@@ -412,7 +433,7 @@ export default function IdeaCheckPage() {
                             <div className="p-4 border-t bg-gray-50/50">
                                 {isStageCompleted ? (
                                     <div className="flex items-center justify-center p-3 bg-yellow-50 text-yellow-700 border border-yellow-200 rounded-md text-sm">
-                                        🔒 This stage is complete. Loop back to unlock editing.
+                                        🔒 Stage Complete. Edit the idea above to unlock chat.
                                     </div>
                                 ) : (
                                     <div className="flex gap-2">

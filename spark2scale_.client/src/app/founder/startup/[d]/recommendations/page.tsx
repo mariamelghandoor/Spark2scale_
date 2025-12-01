@@ -3,152 +3,84 @@
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { ArrowLeft, RefreshCw, Sparkles, CheckCircle2, Loader2 } from "lucide-react";
+import { ArrowLeft, RefreshCw, Sparkles, CheckCircle2, Loader2, AlertTriangle } from "lucide-react";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { useParams, useRouter } from "next/navigation";
 
-// --- Types ---
-interface RecItem {
-    category: string;
-    recommendation: string;
-    priority: string;
+// --- Types matching your C# JSONB Structure ---
+interface RecommendationContent {
+    summary: string;
+    score: number;
+    keyPoints: string[];
+    actionPlan: string;
 }
 
-interface Recommendation {
-    id: string | number;
-    date: string;
-    version: number;
-    items: RecItem[];
-}
-
-interface DocumentResponse {
-    did: string;
-    master_id: string;
+interface DBRecommendation {
+    rid: string;
     startup_id: string;
-    document_name: string;
     type: string;
-    path: string;
+    content: RecommendationContent; // This matches the C# JSONB mapping
     version: number;
-    canaccess: number;
     created_at: string;
-}
-
-interface WorkflowStatus {
-    ideaCheck: boolean;
-    marketResearch: boolean;
-    evaluation: boolean;
-    recommendation: boolean;
-    documents: boolean;
-    pitchDeck: boolean;
 }
 
 export default function RecommendationsPage() {
     const params = useParams();
     const router = useRouter();
 
+    // --- State ---
     const [isLoadingButtons, setIsLoadingButtons] = useState<boolean>(false);
+    const [recommendations, setRecommendations] = useState<DBRecommendation[]>([]);
+    const [isLoadingData, setIsLoadingData] = useState(true);
 
-    // Default state (Placeholder)
-    const [recommendations, setRecommendations] = useState<Recommendation[]>([
-        {
-            id: "static-1",
-            date: new Date().toISOString(),
-            version: 1,
-            items: [
-                {
-                    category: "System",
-                    recommendation: "Loading data from database...",
-                    priority: "Low"
-                }
-            ],
-        },
-    ]);
-
-    // --- FIX: Robust ID Getter ---
-    const getStartupId = (): string | null => {
-        // 1. Check what params we actually have
-        // console.log("Current Params:", params); 
-
-        // 2. Try 'd' (from your previous code) OR 'id' (standard convention)
+    // Helper: Get Clean ID
+    const getCleanId = () => {
         const rawParam = params?.d || params?.id;
-
-        if (!rawParam) {
-            console.error("No Startup ID found in URL parameters");
-            return null;
-        }
-
+        if (!rawParam) return null;
         const rawId = Array.isArray(rawParam) ? rawParam[0] : rawParam;
         return decodeURIComponent(rawId).replace(/\s/g, '');
     };
+    const cleanId = getCleanId();
 
-    const cleanId = getStartupId();
-
+    // ---------------------------------------------------------
     // 1. Fetch Recommendations on Load
+    // ---------------------------------------------------------
     useEffect(() => {
-        const fetchDocs = async () => {
+        const fetchData = async () => {
             if (!cleanId) return;
 
-            console.log("Fetching recommendations for ID:", cleanId); // Debug Log
-
             try {
-                const response = await fetch(`https://localhost:7155/api/documents/recommendations/${cleanId}`);
+                // Fetch type='idea_check' (or change to 'document_review' if this page is for documents)
+                const response = await fetch(`https://localhost:7155/api/Recommendations/${cleanId}/idea_check`);
 
                 if (response.ok) {
-                    const data: DocumentResponse[] = await response.json();
-                    console.log("Data received from DB:", data); // Debug Log
-
-                    if (data.length > 0) {
-                        const mappedDocs: Recommendation[] = data.map((doc) => ({
-                            id: doc.did,
-                            date: doc.created_at,
-                            version: doc.version,
-                            items: [
-                                {
-                                    category: "File Record",
-                                    // Use the document_name from DB
-                                    recommendation: doc.document_name || "Untitled Recommendation",
-                                    priority: "High"
-                                }
-                            ]
-                        }));
-                        setRecommendations(mappedDocs);
-                    } else {
-                        // If API works but returns empty array
-                        setRecommendations([{
-                            id: "empty",
-                            date: new Date().toISOString(),
-                            version: 0,
-                            items: [{ category: "System", recommendation: "No recommendations found in DB.", priority: "Low" }]
-                        }]);
-                    }
-                } else {
-                    console.error("API Error:", response.statusText);
+                    const data: DBRecommendation[] = await response.json();
+                    setRecommendations(data);
                 }
             } catch (error) {
                 console.error("Error fetching recommendations:", error);
+            } finally {
+                setIsLoadingData(false);
             }
         };
 
-        fetchDocs();
+        fetchData();
     }, [cleanId]);
 
-    // 2. Handle "Complete & Continue"
+    // ---------------------------------------------------------
+    // 2. Logic: Complete Stage
+    // ---------------------------------------------------------
     const handleComplete = async () => {
         setIsLoadingButtons(true);
         if (!cleanId) return;
 
         try {
-            const getResponse = await fetch(`https://localhost:7155/api/StartupWorkflow/${cleanId}`);
-
-            let currentData: WorkflowStatus = {
-                ideaCheck: false, marketResearch: false, evaluation: false,
-                recommendation: false, documents: false, pitchDeck: false
-            };
-
-            if (getResponse.ok) {
-                const json = await getResponse.json();
-                // Handle different casing (Pascal vs Camel)
+            // Get current status to preserve other flags
+            const getRes = await fetch(`https://localhost:7155/api/StartupWorkflow/${cleanId}`);
+            let currentData = { ideaCheck: false, marketResearch: false, evaluation: false, recommendation: false, documents: false, pitchDeck: false };
+            if (getRes.ok) {
+                const json = await getRes.json();
                 currentData = {
                     ideaCheck: json.ideaCheck || json.IdeaCheck,
                     marketResearch: json.marketResearch || json.MarketResearch,
@@ -164,7 +96,7 @@ export default function RecommendationsPage() {
                 IdeaCheck: currentData.ideaCheck,
                 MarketResearch: currentData.marketResearch,
                 Evaluation: currentData.evaluation,
-                Recommendation: true,
+                Recommendation: true, // <--- Set this to TRUE
                 Documents: currentData.documents,
                 PitchDeck: currentData.pitchDeck
             };
@@ -175,7 +107,7 @@ export default function RecommendationsPage() {
                 body: JSON.stringify(updatePayload),
             });
 
-            router.push(`/founder/startup/${cleanId}`); // Fixed: Using cleanId
+            router.push(`/founder/startup/${cleanId}`);
 
         } catch (error) {
             console.error("Error completing stage:", error);
@@ -184,12 +116,15 @@ export default function RecommendationsPage() {
         }
     };
 
-    // 3. Handle "Loop Back to Idea Stage"
+    // ---------------------------------------------------------
+    // 3. Logic: Loop Back (Reset)
+    // ---------------------------------------------------------
     const handleLoopBack = async () => {
         setIsLoadingButtons(true);
         if (!cleanId) return;
 
         try {
+            // Reset ALL to false to force restart
             const resetPayload = {
                 StartupId: cleanId,
                 IdeaCheck: false,
@@ -206,7 +141,7 @@ export default function RecommendationsPage() {
                 body: JSON.stringify(resetPayload),
             });
 
-            router.push(`/founder/startup/${cleanId}/idea-check`); // Fixed: Using cleanId
+            router.push(`/founder/startup/${cleanId}/idea-check`);
 
         } catch (error) {
             console.error("Error looping back:", error);
@@ -215,13 +150,11 @@ export default function RecommendationsPage() {
         }
     };
 
-    const getPriorityColor = (priority: string) => {
-        switch (priority) {
-            case "High": return "text-red-600 bg-red-50 border-red-200";
-            case "Medium": return "text-yellow-600 bg-yellow-50 border-yellow-200";
-            case "Low": return "text-green-600 bg-green-50 border-green-200";
-            default: return "text-gray-600 bg-gray-50 border-gray-200";
-        }
+    // Helper for Priority Colors (Based on key phrases in the text)
+    const getPriorityColor = (text: string) => {
+        if (text.includes("High") || text.includes("Critical") || text.includes("Risk")) return "text-red-600 bg-red-50 border-red-200";
+        if (text.includes("Medium") || text.includes("Moderate")) return "text-yellow-600 bg-yellow-50 border-yellow-200";
+        return "text-green-600 bg-green-50 border-green-200";
     };
 
     return (
@@ -230,7 +163,6 @@ export default function RecommendationsPage() {
             <div className="border-b bg-white/80 backdrop-blur-lg">
                 <div className="container mx-auto px-4 py-4 flex justify-between items-center">
                     <div className="flex items-center gap-4">
-                        {/* Fixed Link to use cleanId */}
                         <Link href={`/founder/startup/${cleanId}`}>
                             <Button variant="ghost" size="icon">
                                 <ArrowLeft className="h-5 w-5" />
@@ -250,11 +182,9 @@ export default function RecommendationsPage() {
 
             <main className="container mx-auto px-4 py-8">
                 <div className="max-w-4xl mx-auto">
-                    {/* Generate Recommendations */}
-                    <motion.div
-                        initial={{ opacity: 0, y: 20 }}
-                        animate={{ opacity: 1, y: 0 }}
-                    >
+
+                    {/* Generate Button (Static for now, hooks into AI later) */}
+                    <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
                         <Card className="mb-6 border-2 border-[#FFD95D]">
                             <CardHeader className="bg-gradient-to-r from-[#FFD95D]/20 to-transparent">
                                 <CardTitle className="text-[#576238] flex items-center gap-2">
@@ -272,10 +202,7 @@ export default function RecommendationsPage() {
                                         Generate personalized recommendations to strengthen your
                                         startup and address weaknesses
                                     </p>
-                                    <Button
-                                        className="bg-[#576238] hover:bg-[#6b7c3f]"
-                                        size="lg"
-                                    >
+                                    <Button className="bg-[#576238] hover:bg-[#6b7c3f]" size="lg">
                                         <Sparkles className="mr-2 h-5 w-5" />
                                         Generate Recommendations
                                     </Button>
@@ -284,7 +211,7 @@ export default function RecommendationsPage() {
                         </Card>
                     </motion.div>
 
-                    {/* Recommendations History */}
+                    {/* Recommendations History List */}
                     <motion.div
                         initial={{ opacity: 0, y: 20 }}
                         animate={{ opacity: 1, y: 0 }}
@@ -292,60 +219,71 @@ export default function RecommendationsPage() {
                     >
                         <Card className="border-2">
                             <CardHeader>
-                                <CardTitle className="text-[#576238]">
-                                    Recommendations History
-                                </CardTitle>
-                                <CardDescription>
-                                    Track iterations and improvements
-                                </CardDescription>
+                                <CardTitle className="text-[#576238]">Recommendations History</CardTitle>
+                                <CardDescription>Track iterations and improvements</CardDescription>
                             </CardHeader>
                             <CardContent>
-                                {recommendations.map((rec) => (
-                                    <div key={rec.id} className="space-y-4 mb-8 border-b pb-4 last:border-0">
-                                        <div className="flex justify-between items-center mb-4">
-                                            <div className="flex flex-col">
-                                                <span className="font-bold text-[#576238]">Version {rec.version}</span>
-                                                <p className="text-sm text-muted-foreground">
-                                                    Generated on {new Date(rec.date).toLocaleDateString()}
-                                                </p>
+                                {isLoadingData ? (
+                                    <div className="text-center py-8"><Loader2 className="h-8 w-8 animate-spin mx-auto text-[#576238]" /></div>
+                                ) : recommendations.length === 0 ? (
+                                    <div className="text-center py-8 text-muted-foreground border-dashed border-2 rounded">
+                                        No recommendations found. Generate one to start!
+                                    </div>
+                                ) : (
+                                    recommendations.map((rec) => (
+                                        <div key={rec.rid} className="space-y-4 mb-8 border-b pb-8 last:border-0 last:pb-0">
+                                            {/* Version Header */}
+                                            <div className="flex justify-between items-center mb-4">
+                                                <div className="flex flex-col">
+                                                    <span className="font-bold text-[#576238] text-lg">Version {rec.version}</span>
+                                                    <p className="text-sm text-muted-foreground">
+                                                        Generated on {new Date(rec.created_at).toLocaleDateString()}
+                                                    </p>
+                                                </div>
+                                            
                                             </div>
-                                            <Button variant="outline" size="sm">
-                                                <RefreshCw className="h-4 w-4 mr-2" />
-                                                Refine Again
-                                            </Button>
-                                        </div>
 
-                                        <div className="space-y-3">
-                                            {rec.items.map((item, index) => (
-                                                <motion.div
-                                                    key={index}
-                                                    initial={{ opacity: 0, x: -20 }}
-                                                    animate={{ opacity: 1, x: 0 }}
-                                                    className="p-4 rounded-lg border-2 hover:border-[#FFD95D] transition-all"
-                                                >
-                                                    <div className="flex items-start justify-between gap-4">
+                                            {/* Summary */}
+                                            <div className="bg-gray-50 p-4 rounded-lg border">
+                                                <p className="text-sm text-gray-700 italic">"{rec.content.summary}"</p>
+                                            </div>
+
+                                            {/* Key Points List */}
+                                            <div className="space-y-3">
+                                                <h4 className="font-semibold text-sm text-[#576238]">Key Findings:</h4>
+                                                {rec.content.keyPoints?.map((point, index) => (
+                                                    <motion.div
+                                                        key={index}
+                                                        initial={{ opacity: 0, x: -10 }}
+                                                        animate={{ opacity: 1, x: 0 }}
+                                                        transition={{ delay: index * 0.05 }}
+                                                        className="p-3 rounded-lg border hover:border-[#FFD95D] transition-all bg-white flex justify-between items-start gap-4"
+                                                    >
                                                         <div className="flex-1">
-                                                            <div className="flex items-center gap-2 mb-2">
-                                                                <span className="font-semibold text-[#576238]">
-                                                                    {item.category}
-                                                                </span>
-                                                                <span className={`text-xs px-2 py-1 rounded-full border ${getPriorityColor(item.priority)}`}>
-                                                                    {item.priority} Priority
+                                                            <div className="flex items-center gap-2 mb-1">
+                                                                <span className={`text-xs px-2 py-0.5 rounded-full border ${getPriorityColor(point)}`}>
+                                                                    Insight
                                                                 </span>
                                                             </div>
-                                                            <p className="text-sm text-muted-foreground">
-                                                                {item.recommendation}
-                                                            </p>
+                                                            <p className="text-sm text-gray-700">{point}</p>
                                                         </div>
-                                                        <Button variant="ghost" size="sm">
-                                                            <CheckCircle2 className="h-4 w-4" />
-                                                        </Button>
-                                                    </div>
-                                                </motion.div>
-                                            ))}
+                                                        <CheckCircle2 className="h-4 w-4 text-green-500 mt-1" />
+                                                    </motion.div>
+                                                ))}
+                                            </div>
+
+                                            {/* Action Plan */}
+                                            {rec.content.actionPlan && (
+                                                <div className="mt-4 p-4 bg-[#FFD95D]/10 rounded-lg border border-[#FFD95D]/30">
+                                                    <h4 className="font-semibold text-sm text-[#576238] mb-2 flex items-center gap-2">
+                                                        <AlertTriangle className="h-4 w-4" /> Recommended Action Plan
+                                                    </h4>
+                                                    <p className="text-sm whitespace-pre-line text-gray-800">{rec.content.actionPlan}</p>
+                                                </div>
+                                            )}
                                         </div>
-                                    </div>
-                                ))}
+                                    ))
+                                )}
                             </CardContent>
                         </Card>
                     </motion.div>
