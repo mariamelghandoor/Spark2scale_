@@ -35,9 +35,6 @@ namespace Spark2Scale_.Server.Models
 
         [Column("created_at")]
         public DateTime CreatedAt { get; set; }
-
-        [Column("is_current")]
-        public bool IsCurrent { get; set; }
     }
 
     // Input DTO

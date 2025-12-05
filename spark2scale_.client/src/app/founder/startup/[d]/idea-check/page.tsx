@@ -184,6 +184,7 @@ export default function IdeaCheckPage() {
     // ---------------------------------------------------------
     const handleToggleEdit = async () => {
         if (isEditing) {
+            // --- SAVE CHANGES ---
             setIsSaving(true);
             try {
                 // 1. Update the Idea Text
@@ -196,16 +197,33 @@ export default function IdeaCheckPage() {
                 if (response.ok) {
                     setIsEditing(false);
 
-                    // 2. CALL THE RESET ENDPOINT (This archives documents & resets workflow)
-                    const resetResponse = await fetch(`https://localhost:7155/api/StartupWorkflow/reset/${cleanId}`, {
+                    // 2. RESET WORKFLOW (Mark all as false)
+                    const resetPayload = {
+                        StartupId: cleanId,
+                        IdeaCheck: false,
+                        MarketResearch: false,
+                        Evaluation: false,
+                        Recommendation: false,
+                        Documents: false,
+                        PitchDeck: false
+                    };
+
+                    const wfResponse = await fetch(`https://localhost:7155/api/StartupWorkflow/update`, {
                         method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(resetPayload),
                     });
 
-                    if (resetResponse.ok) {
+                    if (wfResponse.ok) {
                         setIsStageCompleted(false);
-                        // Optional: Start new chat context
-                        if (cleanId) await handleNewSession(cleanId);
+                        console.log("Workflow reset.");
+
+                        // 3. FORCE NEW CHAT SESSION (New Logic Here)
+                        if (cleanId) {
+                            await handleNewSession(cleanId);
+                        }
                     }
+
                 } else {
                     alert("Failed to save changes.");
                 }
@@ -215,6 +233,7 @@ export default function IdeaCheckPage() {
                 setIsSaving(false);
             }
         } else {
+            // --- ENTER EDIT MODE ---
             setIsEditing(true);
         }
     };
