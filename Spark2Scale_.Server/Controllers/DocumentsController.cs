@@ -28,7 +28,7 @@ namespace Spark2Scale_.Server.Controllers
             if (!Guid.TryParse(startupId, out Guid sId)) return BadRequest("Invalid ID");
 
             var result = await _supabase.From<Document>()
-                .Where(x => x.StartupId == sId && x.IsCurrent == true) // <--- THIS FILTER IS MANDATORY
+                .Where(x => x.StartupId == sId)
                 .Order("updated_at", Supabase.Postgrest.Constants.Ordering.Descending)
                 .Get();
 

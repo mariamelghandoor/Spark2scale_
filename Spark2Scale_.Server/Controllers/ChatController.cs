@@ -29,9 +29,10 @@ namespace Spark2Scale_.Server.Controllers
             try
             {
                 var result = await _supabase.From<ChatSession>()
-                    .Where(x => x.StartupId == sId && x.FeatureType == featureType && x.IsCurrent == true) // <--- ADD THIS FILTER
-                    .Order("session_number", Supabase.Postgrest.Constants.Ordering.Descending)
+                    .Where(x => x.StartupId == sId && x.FeatureType == featureType)
+                    .Order("session_number", Supabase.Postgrest.Constants.Ordering.Descending) // Newest first
                     .Get();
+
 
                 var summaries = result.Models.Select(s => new SessionSummaryDto
                 {
