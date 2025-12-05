@@ -137,5 +137,47 @@ namespace Spark2Scale_.Server.Controllers
                 return StatusCode(500, $"Database Error: {ex.Message}");
             }
         }
+
+        // POST: api/StartupWorkflow/reset/{startupId}
+        [HttpPost("reset/{startupId}")]
+        public async Task<IActionResult> ResetProgress(string startupId)
+        {
+            if (!Guid.TryParse(startupId, out Guid sId)) return BadRequest("Invalid ID");
+
+            try
+            {
+                // 1. Archive Documents (Hide them from the main list)
+                await _supabase.From<Document>()
+                    .Where(x => x.StartupId == sId && x.IsCurrent == true)
+                    .Set(x => x.IsCurrent, false)
+                    .Update();
+
+                // 2. Archive Recommendations
+                await _supabase.From<Recommendation>()
+                    .Where(x => x.StartupId == sId && x.IsCurrent == true)
+                    .Set(x => x.IsCurrent, false)
+                    .Update();
+
+                // 3. Reset Workflow Flags
+                var workflowReset = new StartupWorkflow
+                {
+                    StartupId = sId,
+                    IdeaCheck = false,
+                    MarketResearch = false,
+                    Evaluation = false,
+                    Recommendation = false,
+                    Documents = false,
+                    PitchDeck = false,
+                    UpdatedAt = DateTime.UtcNow
+                };
+                await _supabase.From<StartupWorkflow>().Upsert(workflowReset);
+
+                return Ok(new { message = "Reset successful" });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, $"Reset failed: {ex.Message}");
+            }
+        }
     }
 }

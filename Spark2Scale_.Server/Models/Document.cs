@@ -1,4 +1,5 @@
-﻿using Supabase.Postgrest.Attributes;
+﻿using Microsoft.AspNetCore.Http; // Required for IFormFile
+using Supabase.Postgrest.Attributes;
 using Supabase.Postgrest.Models;
 using System;
 
@@ -35,9 +36,14 @@ namespace Spark2Scale_.Server.Models
 
         [Column("created_at")]
         public DateTime CreatedAt { get; set; }
+
+        [Column("is_current")]
+        public bool IsCurrent { get; set; }
     }
 
-    // DTO for the Frontend List
+    // --- DTOs ---
+
+    // For the Frontend List
     public class DocumentResponseDto
     {
         public Guid did { get; set; }
@@ -49,12 +55,20 @@ namespace Spark2Scale_.Server.Models
         public DateTime updated_at { get; set; }
     }
 
+    // For Uploading Files
     public class DocumentUploadDto
     {
         public IFormFile File { get; set; }
         public string StartupId { get; set; }
         public string Type { get; set; }
         public string DocName { get; set; }
-        public string? DocumentId { get; set; } // Optional
+        public string? DocumentId { get; set; } // Optional (for updating)
+    }
+
+    // remove whem integrating with ai
+    public class GenerateMockDto
+    {
+        public Guid StartupId { get; set; }
+        public string Type { get; set; } // e.g. "Cap Table"
     }
 }

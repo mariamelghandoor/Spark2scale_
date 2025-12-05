@@ -38,6 +38,9 @@ namespace Spark2Scale_.Server.Models
 
         [Column("created_at")]
         public DateTime CreatedAt { get; set; }
+
+        [Column("is_current")]
+        public bool IsCurrent { get; set; }
     }
 
     // --- 3. DTOs (Data Transfer Objects) for API Input/Output ---

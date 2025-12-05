@@ -25,7 +25,7 @@ namespace Spark2Scale_.Server.Controllers
             if (!Guid.TryParse(startupId, out Guid sId)) return BadRequest("Invalid ID");
 
             var result = await _supabase.From<Recommendation>()
-                .Where(x => x.StartupId == sId && x.Type == type)
+                .Where(x => x.StartupId == sId && x.Type == type && x.IsCurrent == true) // <--- ADD THIS FILTER
                 .Order("version", Supabase.Postgrest.Constants.Ordering.Descending)
                 .Get();
 
