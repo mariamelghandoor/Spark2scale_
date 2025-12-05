@@ -14,7 +14,7 @@ import { startupService } from "@/services/startupService";
 import LegoLoader from "@/components/lego/LegoLoader";
 import LegoAddTrigger from "@/components/lego/LegoAddTrigger";
 
-const TEST_USER_ID = "8d3dbf4b-ce80-4ab5-a4b9-626333c8b7cc";
+const TEST_USER_ID = "400b330f-fc83-43d5-b9b2-74a4fe0696e3";
 const CACHE_KEY = `dashboard_data_${TEST_USER_ID}`;
 
 export default function FounderDashboard() {
@@ -27,8 +27,6 @@ export default function FounderDashboard() {
     const [isCreating, setIsCreating] = useState(false);
 
     const [open, setOpen] = useState(false);
-
-    // NEW: Controls the Lego Block Animation state
     const [isBlockDropped, setIsBlockDropped] = useState(false);
 
     const [newStartup, setNewStartup] = useState({
@@ -60,7 +58,7 @@ export default function FounderDashboard() {
                     name: s.startupname,
                     field: s.field,
                     progress: s.progress_count,
-                    likes: s.total_likes,
+                    likes: s.total_likes, // This comes pre-calculated from Backend
                     isBroken: s.progress_has_gap
                 }));
 
@@ -79,20 +77,14 @@ export default function FounderDashboard() {
         return () => clearTimeout(loaderTimer);
     }, []);
 
-    // HANDLE TRIGGER CLICK (Drop Block -> Wait -> Open Popup)
     const handleTriggerClick = () => {
         setIsBlockDropped(true);
-        setTimeout(() => {
-            setOpen(true);
-        }, 600);
+        setTimeout(() => setOpen(true), 600);
     };
 
-    // HANDLE POPUP CLOSING (Reset block if canceled)
     const handleOpenChange = (isOpen: boolean) => {
         setOpen(isOpen);
         if (!isOpen && startups.length === 0) {
-            // If closing and we still have no startups, RESET the block animation
-            // This makes it fly back up or fade out
             setTimeout(() => setIsBlockDropped(false), 200);
         }
     };
@@ -134,8 +126,6 @@ export default function FounderDashboard() {
 
             setNewStartup({ name: "", field: "", description: "" });
             setOpen(false);
-            // Note: handleOpenChange will run here, but since startups.length > 0 now, 
-            // it won't reset the block (which is correct, as it gets replaced by the grid)
 
         } catch (error) {
             console.error("Error creating startup:", error);
@@ -211,13 +201,8 @@ export default function FounderDashboard() {
                         </div>
                     ) : startups.length === 0 && !isFetching ? (
                         <>
-                            {/* Controlled Component: We pass isDropped and handle the trigger */}
-                            <LegoAddTrigger
-                                isDropped={isBlockDropped}
-                                onTrigger={handleTriggerClick}
-                            />
-
-                            {/* Hidden Dialog triggered by state */}
+                            <LegoAddTrigger isDropped={isBlockDropped} onTrigger={handleTriggerClick} />
+                            {/* Hidden Dialog for Empty State Trigger */}
                             <Dialog open={open} onOpenChange={handleOpenChange}>
                                 <DialogContent className="max-h-[90vh] overflow-y-auto">
                                     <DialogHeader>
@@ -272,10 +257,7 @@ export default function FounderDashboard() {
                                                     </span>
                                                 </div>
                                                 <div className="w-full bg-gray-200 rounded-full h-2">
-                                                    <div
-                                                        className={`${startup.isBroken ? 'bg-red-500' : 'bg-[#576238]'} h-2 rounded-full transition-all`}
-                                                        style={{ width: `${(startup.progress / 6) * 100}%` }}
-                                                    />
+                                                    <div className={`${startup.isBroken ? 'bg-red-500' : 'bg-[#576238]'} h-2 rounded-full transition-all`} style={{ width: `${(startup.progress / 6) * 100}%` }} />
                                                 </div>
                                                 <div className="flex items-center justify-between pt-2">
                                                     <span className="text-sm text-muted-foreground">❤️ {startup.likes} likes</span>
@@ -289,6 +271,39 @@ export default function FounderDashboard() {
                         ))
                     )}
                 </div>
+
+                {/* --- NEW SECTION: Most Liked Startups --- */}
+                {!isFetching && startups.length > 0 && (
+                    <div className="mt-12">
+                        <h3 className="text-2xl font-bold text-[#576238] mb-4">
+                            Most Liked Startups
+                        </h3>
+                        <div className="grid md:grid-cols-2 gap-4">
+                            {startups
+                                .sort((a, b) => b.likes - a.likes) // Sort Highest Likes First
+                                .slice(0, 2) // Top 2
+                                .map((startup) => (
+                                    <Card key={startup.id} className="border-2 border-[#576238]/20">
+                                        <CardHeader>
+                                            <div className="flex justify-between items-start">
+                                                <div>
+                                                    <CardTitle className="text-lg text-[#576238]">{startup.name}</CardTitle>
+                                                    <CardDescription>{startup.field}</CardDescription>
+                                                </div>
+                                                <div className="bg-[#FFD95D]/20 text-[#576238] px-3 py-1 rounded-full text-sm font-semibold">
+                                                    🏆 Top Rated
+                                                </div>
+                                            </div>
+                                            <div className="pt-2 text-sm text-muted-foreground">
+                                                Total Investor Interest: <span className="font-bold text-[#576238]">{startup.likes} Likes</span>
+                                            </div>
+                                        </CardHeader>
+                                    </Card>
+                                ))}
+                        </div>
+                    </div>
+                )}
+
             </main>
         </div>
     );
