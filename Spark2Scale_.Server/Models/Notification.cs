@@ -28,6 +28,13 @@ namespace Spark2Scale_.Server.Models
 
         [Column("is_read")]
         public bool IsRead { get; set; }
+
+        // NEW FIELDS FOR INVITES
+        [Column("type")]
+        public string Type { get; set; } = "info";
+
+        [Column("related_entity_id")]
+        public Guid? RelatedEntityId { get; set; }
     }
 
     public class NotificationInsertDto
@@ -50,8 +57,11 @@ namespace Spark2Scale_.Server.Models
         [JsonPropertyName("is_read")]
         public bool is_read { get; set; }
 
-        // NEW FIELD
         [JsonPropertyName("sender_name")]
         public string sender_name { get; set; }
+
+        // NEW FIELDS
+        public string type { get; set; }
+        public Guid? related_entity_id { get; set; }
     }
 }

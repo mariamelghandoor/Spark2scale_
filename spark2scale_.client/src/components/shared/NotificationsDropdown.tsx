@@ -1,21 +1,21 @@
-"use client";
+﻿"use client";
 
 import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
-import { Bell, ChevronDown, ChevronUp } from "lucide-react";
+import { Bell, ChevronDown, Check, X } from "lucide-react";
 import {
     DropdownMenu,
     DropdownMenuContent,
-    DropdownMenuItem,
     DropdownMenuLabel,
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { notificationService, NotificationDto } from "@/services/notificationService";
+import { meetingService } from "@/services/meetingService";
 import { motion, AnimatePresence } from "framer-motion";
 import LegoNotificationEmpty from "@/components/lego/LegoNotificationEmpty";
 
-const TEST_USER_ID = "b4e1a0db-dde7-40c0-9489-d3a33bd545b2";
+const TEST_USER_ID = "60ee9d09-e1d0-4e01-ba90-4fb087fc2ec8";
 const INITIAL_COUNT = 5;
 
 export default function NotificationsDropdown() {
@@ -49,10 +49,30 @@ export default function NotificationsDropdown() {
                 ));
                 try {
                     await notificationService.markAsRead(n.nid);
-                } catch (error) {
-                    console.error("Failed to mark as read", error);
-                }
+                } catch (error) { }
             }
+        }
+    };
+
+    // --- ACTION HANDLERS ---
+    const handleAccept = async (e: React.MouseEvent, n: NotificationDto) => {
+        e.stopPropagation(); // Stop click form toggling dropdown
+        if (n.related_entity_id) {
+            await meetingService.acceptMeeting(n.related_entity_id);
+            // Visual Update: Convert invite to simple info msg
+            setNotifications(prev => prev.map(item =>
+                item.nid === n.nid ? { ...item, type: 'info', description: '✅ You accepted this meeting.' } : item
+            ));
+        }
+    };
+
+    const handleReject = async (e: React.MouseEvent, n: NotificationDto) => {
+        e.stopPropagation();
+        if (n.related_entity_id) {
+            await meetingService.rejectMeeting(n.related_entity_id);
+            setNotifications(prev => prev.map(item =>
+                item.nid === n.nid ? { ...item, type: 'info', description: '❌ You declined this meeting.' } : item
+            ));
         }
     };
 
@@ -102,12 +122,11 @@ export default function NotificationsDropdown() {
                 <DropdownMenuContent
                     align="end"
                     sideOffset={4}
-                    className="w-80 border-2 border-[#576238]/10 shadow-2xl z-[9999] bg-white rounded-xl overflow-hidden mt-0 p-0 flex flex-col"
+                    className="w-80 border-2 border-[#576238]/10 shadow-2xl z-[9999] bg-white rounded-xl overflow-hidden mt-0 p-0"
                     onMouseEnter={handleMouseEnter}
                     onMouseLeave={handleMouseLeave}
                 >
-                    {/* 1. FIXED HEADER */}
-                    <div className="bg-[#F0EADC]/30 px-4 py-2 border-b border-[#576238]/10 flex justify-between items-center shrink-0">
+                    <div className="bg-[#F0EADC]/30 px-4 py-2 border-b border-[#576238]/10 flex justify-between items-center">
                         <DropdownMenuLabel className="font-bold text-[#576238] p-0 text-xs">
                             Notifications
                         </DropdownMenuLabel>
@@ -118,103 +137,116 @@ export default function NotificationsDropdown() {
                         )}
                     </div>
 
-                    {/* 2. SCROLLABLE LIST AREA */}
-                    <div className="flex-1 min-h-[100px]">
-                        {notifications.length === 0 ? (
-                            <div className="h-[250px] flex items-center justify-center">
-                                <LegoNotificationEmpty />
-                            </div>
-                        ) : (
-                            // FIX: Fixed height allows scrollbar to appear correctly
-                            <ScrollArea className="h-[300px] w-full">
-                                <div className="flex flex-col">
-                                    {visibleNotifications.map((n) => {
-                                        const isExpanded = expandedId === n.nid;
-                                        return (
-                                            <div
-                                                key={n.nid}
-                                                className={`cursor-pointer p-3 border-b last:border-0 transition-colors
-                                                    ${n.is_read
-                                                        ? "bg-white hover:bg-gray-50"
-                                                        : "bg-[#FFD95D]/5 hover:bg-[#FFD95D]/10"
-                                                    }
-                                                    ${isExpanded ? "bg-gray-50" : ""}
-                                                `}
-                                                onClick={() => handleNotificationClick(n)}
-                                            >
-                                                <div className="flex items-start gap-3">
-                                                    <div className="mt-1.5">
-                                                        {!n.is_read ? (
-                                                            <div className="h-2 w-2 bg-[#FFD95D] rounded-full shadow-sm ring-2 ring-white animate-pulse" />
-                                                        ) : (
-                                                            <div className="h-2 w-2 bg-gray-200 rounded-full" />
-                                                        )}
+                    {notifications.length === 0 ? (
+                        <div className="h-[250px] flex items-center justify-center">
+                            <LegoNotificationEmpty />
+                        </div>
+                    ) : (
+                        <ScrollArea className="max-h-[300px]">
+                            <div className="flex flex-col">
+                                {visibleNotifications.map((n) => {
+                                    const isExpanded = expandedId === n.nid;
+                                    const isInvite = n.type === 'meeting_invite';
+
+                                    return (
+                                        <div
+                                            key={n.nid}
+                                            className={`cursor-pointer p-3 border-b last:border-0 transition-colors
+                                                ${n.is_read
+                                                    ? "bg-white hover:bg-gray-50"
+                                                    : "bg-[#FFD95D]/5 hover:bg-[#FFD95D]/10"
+                                                }
+                                                ${isExpanded ? "bg-gray-50" : ""}
+                                            `}
+                                            onClick={() => handleNotificationClick(n)}
+                                        >
+                                            <div className="flex items-start gap-3">
+                                                <div className="mt-1.5">
+                                                    {!n.is_read ? (
+                                                        <div className="h-2 w-2 bg-[#FFD95D] rounded-full shadow-sm ring-2 ring-white animate-pulse" />
+                                                    ) : (
+                                                        <div className="h-2 w-2 bg-gray-200 rounded-full" />
+                                                    )}
+                                                </div>
+
+                                                <div className="flex flex-col gap-0.5 w-full">
+                                                    <div className="flex justify-between items-center">
+                                                        <span className="text-[10px] font-bold text-[#576238] uppercase tracking-wide">
+                                                            {n.sender_name}
+                                                        </span>
+                                                        <span className="text-[9px] text-gray-400 whitespace-nowrap">
+                                                            {n.created_at
+                                                                ? new Date(n.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+                                                                : "Now"}
+                                                        </span>
                                                     </div>
 
-                                                    <div className="flex flex-col gap-0.5 w-full">
-                                                        <div className="flex justify-between items-center">
-                                                            <span className="text-[10px] font-bold text-[#576238] uppercase tracking-wide">
-                                                                {n.sender_name}
-                                                            </span>
-                                                            <span className="text-[9px] text-gray-400 whitespace-nowrap">
-                                                                {n.created_at
-                                                                    ? new Date(n.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
-                                                                    : "Now"}
-                                                            </span>
-                                                        </div>
+                                                    <h4 className={`font-semibold text-xs leading-tight ${n.is_read ? "text-gray-600" : "text-gray-900"}`}>
+                                                        {n.topic}
+                                                    </h4>
 
-                                                        <h4 className={`font-semibold text-xs leading-tight ${n.is_read ? "text-gray-600" : "text-gray-900"}`}>
-                                                            {n.topic}
-                                                        </h4>
-
-                                                        <AnimatePresence>
-                                                            {isExpanded && (
-                                                                <motion.div
-                                                                    initial={{ height: 0, opacity: 0 }}
-                                                                    animate={{ height: "auto", opacity: 1 }}
-                                                                    exit={{ height: 0, opacity: 0 }}
-                                                                    className="overflow-hidden"
-                                                                >
-                                                                    <p className="text-[11px] text-gray-600 mt-2 leading-relaxed bg-white/50 p-2 rounded-md border border-gray-100">
-                                                                        {n.description || "No details provided."}
-                                                                    </p>
-                                                                </motion.div>
-                                                            )}
-                                                        </AnimatePresence>
-
-                                                        {!isExpanded && (
-                                                            <div className="flex justify-center mt-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                                <ChevronDown className="w-3 h-3 text-gray-300" />
-                                                            </div>
-                                                        )}
+                                                    <AnimatePresence>
                                                         {isExpanded && (
-                                                            <div className="flex justify-center mt-1">
-                                                                <ChevronUp className="w-3 h-3 text-gray-300" />
-                                                            </div>
+                                                            <motion.div
+                                                                initial={{ height: 0, opacity: 0 }}
+                                                                animate={{ height: "auto", opacity: 1 }}
+                                                                exit={{ height: 0, opacity: 0 }}
+                                                                className="overflow-hidden"
+                                                            >
+                                                                <p className="text-[11px] text-gray-600 mt-2 leading-relaxed bg-white/50 p-2 rounded-md border border-gray-100">
+                                                                    {n.description || "No details provided."}
+                                                                </p>
+
+                                                                {/* --- ACTION BUTTONS --- */}
+                                                                {isInvite && (
+                                                                    <div className="flex gap-2 mt-2">
+                                                                        <Button
+                                                                            size="sm"
+                                                                            onClick={(e) => handleAccept(e, n)}
+                                                                            className="h-6 text-[10px] bg-green-600 hover:bg-green-700 text-white w-full"
+                                                                        >
+                                                                            <Check className="w-3 h-3 mr-1" /> Accept
+                                                                        </Button>
+                                                                        <Button
+                                                                            size="sm"
+                                                                            variant="outline"
+                                                                            onClick={(e) => handleReject(e, n)}
+                                                                            className="h-6 text-[10px] border-red-200 text-red-600 hover:bg-red-50 w-full"
+                                                                        >
+                                                                            <X className="w-3 h-3 mr-1" /> Reject
+                                                                        </Button>
+                                                                    </div>
+                                                                )}
+                                                            </motion.div>
                                                         )}
-                                                    </div>
+                                                    </AnimatePresence>
+
+                                                    {!isExpanded && (
+                                                        <div className="flex justify-center mt-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                            <ChevronDown className="w-3 h-3 text-gray-300" />
+                                                        </div>
+                                                    )}
                                                 </div>
                                             </div>
-                                        );
-                                    })}
-                                </div>
-                            </ScrollArea>
-                        )}
-                    </div>
+                                        </div>
+                                    );
+                                })}
 
-                    {/* 3. FIXED FOOTER (Outside ScrollArea) */}
-                    {hasMore && (
-                        <div className="p-2 flex justify-center bg-gray-50/80 border-t border-[#576238]/5 shrink-0 z-10">
-                            <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={handleLoadMore}
-                                className="text-xs text-[#576238] hover:text-[#576238] hover:bg-[#576238]/10 h-7 w-full font-semibold"
-                            >
-                                <ChevronDown className="w-3 h-3 mr-1" />
-                                Load More Notifications
-                            </Button>
-                        </div>
+                                {hasMore && (
+                                    <div className="p-2 flex justify-center bg-gray-50/50 border-t border-[#576238]/5">
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            onClick={handleLoadMore}
+                                            className="text-xs text-[#576238] hover:text-[#576238] hover:bg-[#576238]/10 h-6 px-3"
+                                        >
+                                            <ChevronDown className="w-3 h-3 mr-1" />
+                                            Load More
+                                        </Button>
+                                    </div>
+                                )}
+                            </div>
+                        </ScrollArea>
                     )}
                 </DropdownMenuContent>
             </DropdownMenu>

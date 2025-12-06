@@ -9,6 +9,8 @@ export interface NotificationDto {
     created_at: string;
     is_read: boolean;
     sender_name: string; // <-- This is the key addition
+    type: string; // 'info' or 'meeting_invite'
+    related_entity_id: string | null;
 }
 
 export const notificationService = {
