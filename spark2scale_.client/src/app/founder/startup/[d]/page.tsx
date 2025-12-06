@@ -331,7 +331,9 @@ export default function StartupDashboard() {
                                 Resources & Content
                             </h3>
                             <div className="grid md:grid-cols-2 gap-6">
-                                <Link href={`/founder/startup/${params.id}/documents-page`}>
+
+                                {/* --- FIX 1: Use startupId instead of params.id --- */}
+                                <Link href={`/founder/startup/${startupId}/documents-page`}>
                                     <Card className="p-8 hover:shadow-xl transition-all cursor-pointer border-2 hover:border-[#FFD95D] bg-[#F0EADC]/50 group">
                                         <div className="flex items-center gap-4">
                                             <div className="bg-[#576238] p-4 rounded-2xl group-hover:scale-110 transition-transform">
@@ -354,7 +356,8 @@ export default function StartupDashboard() {
                                     </Card>
                                 </Link>
 
-                                <Link href={`/founder/startup/${params.id}/pitches-page`}>
+                                {/* --- FIX 2: Use startupId here too --- */}
+                                <Link href={`/founder/startup/${startupId}/pitches-page`}>
                                     <Card className="p-8 hover:shadow-xl transition-all cursor-pointer border-2 hover:border-[#FFD95D] bg-[#F0EADC]/50 group">
                                         <div className="flex items-center gap-4">
                                             <div className="bg-[#576238] p-4 rounded-2xl group-hover:scale-110 transition-transform">

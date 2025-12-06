@@ -1,478 +1,268 @@
 ﻿"use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { ArrowLeft, Download, Upload, FileText, Plus, Eye, Send, Star, Users, Globe, Mail, Edit3 } from "lucide-react";
+import { ArrowLeft, Eye, Users, Loader2 } from "lucide-react";
 import Link from "next/link";
 import { motion } from "framer-motion";
-import { useParams, useRouter } from "next/navigation";
+import { useParams } from "next/navigation";
 import { Input } from "@/components/ui/input";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
-} from "@/components/ui/select";
-import {
-    Dialog,
-    DialogContent,
-    DialogDescription,
-    DialogFooter,
-    DialogHeader,
-    DialogTitle,
-} from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
+
+// --- Interfaces ---
+interface DocumentVersion {
+    vid: string;
+    version_number: number;
+    path: string;
+    created_at: string;
+    generated_by: string;
+}
+
+interface DocumentData {
+    did: string;
+    document_name: string; // This is the LATEST filename
+    type: string;          // This is the Category (e.g., Business Plan)
+    current_path: string;  // This is the LATEST path
+    updated_at: string;
+    versions: DocumentVersion[];
+}
 
 export default function DocumentsPage() {
     const params = useParams();
-    const router = useRouter();
-    const [documents] = useState([
-        {
-            id: 1,
-            name: "Business Model Canvas",
-            type: "PDF",
-            size: "2.4 MB",
-            date: "2024-01-15",
-            icon: "📄",
-            versions: [
-                { id: "v3", label: "Version 3 (Current)", date: "2024-01-15" },
-                { id: "v2", label: "Version 2", date: "2024-01-10" },
-                { id: "v1", label: "Version 1", date: "2024-01-05" },
-            ],
-        },
-        {
-            id: 2,
-            name: "Financial Projections",
-            type: "Excel",
-            size: "1.8 MB",
-            date: "2024-01-14",
-            icon: "📊",
-            versions: [
-                { id: "v2", label: "Version 2 (Current)", date: "2024-01-14" },
-                { id: "v1", label: "Version 1", date: "2024-01-08" },
-            ],
-        },
-        {
-            id: 3,
-            name: "Market Analysis Report",
-            type: "Word",
-            size: "3.2 MB",
-            date: "2024-01-12",
-            icon: "📈",
-            versions: [
-                { id: "v1", label: "Version 1 (Current)", date: "2024-01-12" },
-            ],
-        },
-    ]);
+    const [documents, setDocuments] = useState<DocumentData[]>([]);
+    const [loading, setLoading] = useState(true);
 
-    const [selectedVersions, setSelectedVersions] = useState<{ [key: number]: string }>({});
-    const [manageAccessDialog, setManageAccessDialog] = useState(false);
-    const [selectedDocForAccess, setSelectedDocForAccess] = useState<number | null>(null);
-    const [accessEmail, setAccessEmail] = useState("");
-    const [isPublic, setIsPublic] = useState(false);
+    // ID Logic
+    const startupId = params?.id || params?.d;
 
-    const [messages, setMessages] = useState([
-        {
-            role: "assistant",
-            content:
-                "Hello! I'm your AI document assistant. I can help you generate professional business documents or answer questions about your existing documents. What would you like to create today?",
-        },
-    ]);
-    const [newMessage, setNewMessage] = useState("");
+    // Upload State
+    const [isUploadOpen, setIsUploadOpen] = useState(false);
+    const [isUploading, setIsUploading] = useState(false);
+    const [uploadFile, setUploadFile] = useState<File | null>(null);
+    const [uploadName, setUploadName] = useState("");
+    const [uploadType, setUploadType] = useState("");
 
-    const handleSendMessage = () => {
-        if (!newMessage.trim()) return;
+    // Version Selection State: { docId: "vid_of_version" }
+    const [selectedVersions, setSelectedVersions] = useState<{ [docId: string]: string }>({});
 
-        setMessages([
-            ...messages,
-            {
-                role: "user",
-                content: newMessage,
-            },
-            {
-                role: "assistant",
-                content:
-                    "I can help you with that! Let me assist you in creating or editing that document. Would you like me to use your existing Business Model Canvas as a reference?",
-            },
-        ]);
-        setNewMessage("");
-    };
+    const API_BASE_URL = "https://localhost:7155";
 
-    const handleEvaluate = (docId: number) => {
-        const version = selectedVersions[docId];
-        if (!version) {
-            alert("Please select a version first");
-            return;
+    useEffect(() => {
+        if (startupId) fetchDocuments();
+        else setLoading(false);
+    }, [startupId]);
+
+    const fetchDocuments = async () => {
+        try {
+            setLoading(true);
+
+            // 1. Get Parents (Latest Version Info)
+            const res = await fetch(`${API_BASE_URL}/api/documents?startupId=${startupId}`);
+            if (!res.ok) throw new Error("Failed");
+            const docs: DocumentData[] = await res.json();
+
+            // 2. Get Versions for each Parent
+            const docsWithHistory = await Promise.all(
+                docs.map(async (doc) => {
+                    const hRes = await fetch(`${API_BASE_URL}/api/documents/history/${doc.did}`);
+                    const history: DocumentVersion[] = hRes.ok ? await hRes.json() : [];
+                    history.sort((a, b) => b.version_number - a.version_number);
+                    return { ...doc, versions: history };
+                })
+            );
+
+            setDocuments(docsWithHistory);
+        } catch (error) {
+            console.error(error);
+        } finally {
+            setLoading(false);
         }
-        router.push(`/founder/startup/${params.id}/documents/${docId}/evaluate?version=${version}`);
     };
 
-    const handleRecommend = (docId: number) => {
-        const version = selectedVersions[docId];
-        if (!version) {
-            alert("Please select a version first");
-            return;
+    const handleUploadSubmit = async () => {
+        if (!uploadFile || !uploadName || !uploadType || !startupId) return;
+
+        setIsUploading(true);
+        const formData = new FormData();
+        formData.append("File", uploadFile);
+        formData.append("StartupId", startupId as string);
+        formData.append("DocName", uploadName); // This is just for initial name, backend uses filename
+        formData.append("Type", uploadType);
+
+        try {
+            const res = await fetch(`${API_BASE_URL}/api/documents/upload`, {
+                method: "POST",
+                body: formData,
+            });
+            if (!res.ok) throw new Error("Upload failed");
+
+            setIsUploadOpen(false);
+            setUploadFile(null);
+            setUploadName("");
+            setUploadType("");
+            fetchDocuments();
+        } catch (error) {
+            console.error(error);
+            alert("Failed to upload");
+        } finally {
+            setIsUploading(false);
         }
-        router.push(`/founder/startup/${params.id}/documents/${docId}/recommend?version=${version}`);
     };
 
-    const handleManageAccess = (docId: number) => {
-        setSelectedDocForAccess(docId);
-        setManageAccessDialog(true);
+    // --- VIEW LOGIC ---
+    const handleView = (doc: DocumentData) => {
+        const selectedVid = selectedVersions[doc.did];
+
+        // If user picked a specific version in dropdown, find it
+        const specificVersion = doc.versions.find(v => v.vid === selectedVid);
+
+        // If specific version found, use its path. Otherwise use the PARENT (Latest) path.
+        const urlToOpen = specificVersion ? specificVersion.path : doc.current_path;
+
+        if (urlToOpen) window.open(urlToOpen, "_blank");
     };
 
-    const handleAddAccess = () => {
-        console.log("Adding access for:", accessEmail, "to document:", selectedDocForAccess);
-        setAccessEmail("");
-    };
-
-    const handleTogglePublic = () => {
-        setIsPublic(!isPublic);
-        console.log("Document is now:", !isPublic ? "public" : "private");
+    const getIcon = (type: string) => {
+        const t = type.toLowerCase();
+        if (t.includes("pdf")) return "📄";
+        if (t.includes("excel") || t.includes("financial")) return "📊";
+        return "📈";
     };
 
     return (
         <div className="min-h-screen bg-gradient-to-br from-[#F0EADC] via-[#fff] to-[#FFD95D]/20">
-            {/* Top Navigation Bar */}
+            {/* Nav ... */}
             <div className="border-b bg-white/80 backdrop-blur-lg">
                 <div className="container mx-auto px-4 py-4 flex justify-between items-center">
-                    <div className="flex items-center gap-4">
-                        <Link href={`/founder/startup/${params.id}`}>
-                            <Button variant="ghost" size="icon">
-                                <ArrowLeft className="h-5 w-5" />
-                            </Button>
-                        </Link>
-                        <div>
-                            <h1 className="text-2xl font-bold text-[#576238]">
-                                📁 Documents
-                            </h1>
-                            <p className="text-sm text-muted-foreground">
-                                Manage all your startup documents
-                            </p>
-                        </div>
-                    </div>
-                    <div className="flex gap-2">
-                        <Button variant="outline">
-                            <Upload className="mr-2 h-4 w-4" />
-                            Upload
-                        </Button>
-                        <Button className="bg-[#576238] hover:bg-[#6b7c3f] text-white">
-                            <Plus className="mr-2 h-4 w-4" />
-                            Generate New
-                        </Button>
-                    </div>
+                    <Link href={`/founder/startup/${startupId}`}>
+                        <Button variant="ghost" size="icon"><ArrowLeft className="h-5 w-5" /></Button>
+                    </Link>
+                    <h1 className="text-2xl font-bold text-[#576238]">📁 Documents</h1>
                 </div>
             </div>
 
             <main className="container mx-auto px-4 py-8">
-                <div className="grid lg:grid-cols-3 gap-8">
-                    {/* Left Column - Documents Grid */}
-                    <div className="lg:col-span-2 space-y-8">
-                        {/* Info Section */}
-                        <Card className="p-6 bg-[#F0EADC]/50 border-2 border-[#FFD95D]">
-                            <div className="flex items-start gap-4">
-                                <div className="text-4xl">💡</div>
-                                <div>
-                                    <h3 className="font-bold text-[#576238] mb-2">
-                                        Document Resources with Version Control
-                                    </h3>
-                                    <p className="text-sm text-muted-foreground">
-                                        Select a version to evaluate, get recommendations, or manage access. Each document maintains a complete version history.
-                                    </p>
-                                </div>
-                            </div>
-                        </Card>
+                <div className="max-w-5xl mx-auto space-y-8">
+                    <div className="grid md:grid-cols-1 gap-6">
+                        {loading ? (
+                            <div className="flex justify-center py-10"><Loader2 className="h-8 w-8 animate-spin text-[#576238]" /></div>
+                        ) : documents.map((doc, index) => (
+                            <motion.div
+                                key={doc.did}
+                                initial={{ opacity: 0, y: 20 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                transition={{ delay: index * 0.1 }}
+                            >
+                                <Card className="p-6 border-2 hover:border-[#FFD95D] bg-white transition-all">
+                                    <div className="flex flex-col md:flex-row gap-6">
 
-                        {/* Documents Grid */}
-                        <div className="grid md:grid-cols-1 gap-6">
-                            {documents.map((doc, index) => (
-                                <motion.div
-                                    key={doc.id}
-                                    initial={{ opacity: 0, y: 20 }}
-                                    animate={{ opacity: 1, y: 0 }}
-                                    transition={{ delay: index * 0.1 }}
-                                >
-                                    <Card className="p-6 border-2 hover:border-[#FFD95D] bg-white transition-all">
-                                        <div className="flex flex-col md:flex-row gap-6">
-                                            {/* Icon & Basic Info */}
-                                            <div className="flex items-start gap-4 md:w-1/3">
-                                                <div className="text-5xl">{doc.icon}</div>
-                                                <div className="flex-grow">
-                                                    <h3 className="font-bold text-[#576238] mb-2">
-                                                        {doc.name}
-                                                    </h3>
-                                                    <div className="flex flex-col gap-1 text-xs text-muted-foreground">
-                                                        <span className="bg-[#576238] text-white px-2 py-1 rounded-full w-fit">
-                                                            {doc.type}
-                                                        </span>
-                                                        <span>{doc.size}</span>
-                                                        <span>{doc.date}</span>
+                                        {/* LEFT SIDE: Document Info */}
+                                        <div className="flex items-start gap-4 md:w-1/3">
+                                            <div className="text-5xl">{getIcon(doc.type)}</div>
+                                            <div className="flex-grow">
+                                                {/* 1. Main Title = Document Type (e.g. "Business Plan") */}
+                                                <h3 className="font-bold text-[#576238] text-lg mb-1">{doc.type}</h3>
+
+                                                <div className="flex flex-col gap-1 text-xs text-muted-foreground">
+                                                    {/* 2. Subtitle = Actual Filename (Latest) */}
+                                                    <div className="flex items-center gap-2" title={doc.document_name}>
+                                                        <span className="font-semibold text-gray-500">Latest File:</span>
+                                                        <span className="truncate max-w-[150px]">{doc.document_name}</span>
                                                     </div>
-                                                </div>
-                                            </div>
-
-                                            {/* Version Selection & Actions */}
-                                            <div className="md:w-2/3 space-y-4">
-                                                {/* Version Selector */}
-                                                <div>
-                                                    <Label className="text-xs text-muted-foreground mb-2 block">
-                                                        Select Version (Required) *
-                                                    </Label>
-                                                    <Select
-                                                        value={selectedVersions[doc.id]}
-                                                        onValueChange={(value) =>
-                                                            setSelectedVersions({ ...selectedVersions, [doc.id]: value })
-                                                        }
-                                                    >
-                                                        <SelectTrigger className="w-full">
-                                                            <SelectValue placeholder="Choose a version..." />
-                                                        </SelectTrigger>
-                                                        <SelectContent>
-                                                            {doc.versions.map((version) => (
-                                                                <SelectItem key={version.id} value={version.id}>
-                                                                    {version.label} - {version.date}
-                                                                </SelectItem>
-                                                            ))}
-                                                        </SelectContent>
-                                                    </Select>
-                                                </div>
-
-                                                {/* Action Buttons */}
-                                                <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-                                                    <Button
-                                                        variant="outline"
-                                                        size="sm"
-                                                        onClick={() => handleEvaluate(doc.id)}
-                                                        className="text-xs"
-                                                    >
-                                                        <Star className="h-3 w-3 mr-1" />
-                                                        Evaluate
-                                                    </Button>
-                                                    <Button
-                                                        variant="outline"
-                                                        size="sm"
-                                                        onClick={() => handleRecommend(doc.id)}
-                                                        className="text-xs"
-                                                    >
-                                                        <Edit3 className="h-3 w-3 mr-1" />
-                                                        Recommend
-                                                    </Button>
-                                                    <Button
-                                                        variant="outline"
-                                                        size="sm"
-                                                        className="text-xs"
-                                                    >
-                                                        <Eye className="h-3 w-3 mr-1" />
-                                                        View
-                                                    </Button>
-                                                    <Button
-                                                        variant="outline"
-                                                        size="sm"
-                                                        className="text-xs"
-                                                    >
-                                                        <Download className="h-3 w-3 mr-1" />
-                                                        Download
-                                                    </Button>
-                                                    <Button
-                                                        variant="outline"
-                                                        size="sm"
-                                                        onClick={() => handleManageAccess(doc.id)}
-                                                        className="text-xs col-span-2 md:col-span-1"
-                                                    >
-                                                        <Users className="h-3 w-3 mr-1" />
-                                                        Manage Access
-                                                    </Button>
+                                                    <span>Updated: {new Date(doc.updated_at).toLocaleDateString()}</span>
                                                 </div>
                                             </div>
                                         </div>
-                                    </Card>
-                                </motion.div>
-                            ))}
 
-                            {/* Add New Document Card */}
-                            <motion.div
-                                initial={{ opacity: 0, y: 20 }}
-                                animate={{ opacity: 1, y: 0 }}
-                                transition={{ delay: documents.length * 0.1 }}
-                            >
-                                <Card className="p-6 h-full flex flex-col items-center justify-center border-2 border-dashed border-[#576238] bg-white/50 hover:bg-[#F0EADC]/30 transition-all cursor-pointer min-h-[150px]">
-                                    <div className="text-5xl mb-4">➕</div>
-                                    <h3 className="font-bold text-[#576238] mb-2">
-                                        Add Document
-                                    </h3>
-                                    <p className="text-xs text-muted-foreground text-center">
-                                        Upload or generate a new document
-                                    </p>
+                                        {/* RIGHT SIDE: Controls */}
+                                        <div className="md:w-2/3 space-y-4">
+                                            <div>
+                                                <Label className="text-xs text-muted-foreground mb-2 block">
+                                                    Version History
+                                                </Label>
+                                                <Select
+                                                    value={selectedVersions[doc.did] || "latest"}
+                                                    onValueChange={(val) => setSelectedVersions({ ...selectedVersions, [doc.did]: val })}
+                                                >
+                                                    <SelectTrigger className="w-full">
+                                                        <SelectValue placeholder="Latest Version" />
+                                                    </SelectTrigger>
+                                                    <SelectContent>
+                                                        {/* Default Option: Latest */}
+                                                        <SelectItem value="latest">
+                                                            Current (Latest)
+                                                        </SelectItem>
+
+                                                        {/* History Options */}
+                                                        {doc.versions.map((v) => (
+                                                            <SelectItem key={v.vid} value={v.vid}>
+                                                                Version {v.version_number} - {new Date(v.created_at).toLocaleDateString()}
+                                                            </SelectItem>
+                                                        ))}
+                                                    </SelectContent>
+                                                </Select>
+                                            </div>
+
+                                            <div className="grid grid-cols-2 gap-2">
+                                                <Button variant="outline" size="sm" onClick={() => handleView(doc)}>
+                                                    <Eye className="h-4 w-4 mr-2" />
+                                                    View / Download
+                                                </Button>
+                                                <Button variant="outline" size="sm">
+                                                    <Users className="h-4 w-4 mr-2" />
+                                                    Manage Access
+                                                </Button>
+                                            </div>
+                                        </div>
+                                    </div>
                                 </Card>
                             </motion.div>
-                        </div>
+                        ))}
 
-                        {/* Generation Options */}
-                        <div>
-                            <h2 className="text-2xl font-bold text-[#576238] mb-6">
-                                Generate Documents with AI
-                            </h2>
-                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                                {[
-                                    { name: "Business Plan", icon: "📋" },
-                                    { name: "Pitch Deck", icon: "🎤" },
-                                    { name: "Financial Model", icon: "💰" },
-                                    { name: "Marketing Plan", icon: "📢" },
-                                ].map((template, index) => (
-                                    <Card
-                                        key={index}
-                                        className="p-4 hover:shadow-lg transition-all cursor-pointer border-2 hover:border-[#FFD95D] text-center"
-                                    >
-                                        <div className="text-4xl mb-2">{template.icon}</div>
-                                        <h4 className="font-semibold text-[#576238] text-sm">
-                                            {template.name}
-                                        </h4>
-                                    </Card>
-                                ))}
-                            </div>
-                        </div>
-                    </div>
-
-                    {/* Right Column - AI Chatbot Assistant */}
-                    <div className="lg:col-span-1">
-                        <motion.div
-                            initial={{ opacity: 0, x: 20 }}
-                            animate={{ opacity: 1, x: 0 }}
-                            transition={{ delay: 0.3 }}
-                            className="sticky top-8"
-                        >
-                            <Card className="border-2">
-                                <div className="p-6 border-b bg-[#576238] text-white">
-                                    <h2 className="text-xl font-bold">AI Document Assistant</h2>
-                                    <p className="text-sm text-white/80">
-                                        Get help with document generation
-                                    </p>
-                                </div>
-
-                                <ScrollArea className="h-[500px] p-6">
-                                    <div className="space-y-4">
-                                        {messages.map((message, index) => (
-                                            <motion.div
-                                                key={index}
-                                                initial={{ opacity: 0, y: 10 }}
-                                                animate={{ opacity: 1, y: 0 }}
-                                                transition={{ delay: index * 0.1 }}
-                                                className={`flex ${message.role === "user" ? "justify-end" : "justify-start"
-                                                    }`}
-                                            >
-                                                <div
-                                                    className={`max-w-[85%] rounded-lg p-4 ${message.role === "user"
-                                                            ? "bg-[#576238] text-white"
-                                                            : "bg-white border-2"
-                                                        }`}
-                                                >
-                                                    <p className="text-sm whitespace-pre-line">
-                                                        {message.content}
-                                                    </p>
-                                                </div>
-                                            </motion.div>
-                                        ))}
-                                    </div>
-                                </ScrollArea>
-
-                                <div className="p-4 border-t">
-                                    <div className="flex gap-2">
-                                        <Input
-                                            placeholder="Ask about documents or request generation..."
-                                            value={newMessage}
-                                            onChange={(e) => setNewMessage(e.target.value)}
-                                            onKeyPress={(e) => e.key === "Enter" && handleSendMessage()}
-                                        />
-                                        <Button
-                                            onClick={handleSendMessage}
-                                            className="bg-[#576238] hover:bg-[#6b7c3f]"
-                                        >
-                                            <Send className="h-4 w-4" />
-                                        </Button>
-                                    </div>
-                                </div>
+                        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+                            <Card onClick={() => setIsUploadOpen(true)} className="p-6 h-full flex flex-col items-center justify-center border-2 border-dashed border-[#576238]/30 bg-white/50 hover:bg-[#F0EADC]/30 cursor-pointer min-h-[150px]">
+                                <div className="text-5xl mb-4 opacity-50">➕</div>
+                                <h3 className="font-bold text-[#576238]">Upload New Document</h3>
                             </Card>
                         </motion.div>
                     </div>
                 </div>
             </main>
 
-            {/* Manage Access Dialog */}
-            <Dialog open={manageAccessDialog} onOpenChange={setManageAccessDialog}>
-                <DialogContent className="sm:max-w-[500px]">
-                    <DialogHeader>
-                        <DialogTitle className="text-[#576238]">Manage Document Access</DialogTitle>
-                        <DialogDescription>
-                            Control who can view and edit this document
-                        </DialogDescription>
-                    </DialogHeader>
+            {/* Upload Dialog (Standard) */}
+            <Dialog open={isUploadOpen} onOpenChange={setIsUploadOpen}>
+                <DialogContent>
+                    <DialogHeader><DialogTitle>Upload Document</DialogTitle></DialogHeader>
                     <div className="grid gap-4 py-4">
-                        {/* Public Toggle */}
-                        <div className="flex items-center justify-between p-4 border rounded-lg">
-                            <div className="flex items-center gap-3">
-                                <Globe className="h-5 w-5 text-[#576238]" />
-                                <div>
-                                    <p className="font-semibold text-sm">Public Access</p>
-                                    <p className="text-xs text-muted-foreground">
-                                        Anyone with the link can view
-                                    </p>
-                                </div>
-                            </div>
-                            <Button
-                                variant={isPublic ? "default" : "outline"}
-                                size="sm"
-                                onClick={handleTogglePublic}
-                                className={isPublic ? "bg-[#576238]" : ""}
-                            >
-                                {isPublic ? "Enabled" : "Disabled"}
-                            </Button>
+                        {/* Fields for Name, Type, File... */}
+                        <div className="grid gap-2">
+                            <Label>Document Name</Label>
+                            <Input value={uploadName} onChange={(e) => setUploadName(e.target.value)} />
                         </div>
-
-                        {/* Add User by Email */}
-                        <div className="space-y-2">
-                            <Label htmlFor="access-email" className="text-[#576238]">
-                                Add User by Email
-                            </Label>
-                            <div className="flex gap-2">
-                                <Input
-                                    id="access-email"
-                                    type="email"
-                                    placeholder="user@example.com"
-                                    value={accessEmail}
-                                    onChange={(e) => setAccessEmail(e.target.value)}
-                                />
-                                <Button
-                                    onClick={handleAddAccess}
-                                    disabled={!accessEmail}
-                                    className="bg-[#576238] hover:bg-[#6b7c3f]"
-                                >
-                                    <Mail className="h-4 w-4" />
-                                </Button>
-                            </div>
+                        <div className="grid gap-2">
+                            <Label>Type</Label>
+                            <Select onValueChange={setUploadType} value={uploadType}>
+                                <SelectTrigger><SelectValue placeholder="Select type" /></SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="Pitch Deck">Pitch Deck</SelectItem>
+                                    <SelectItem value="Business Plan">Business Plan</SelectItem>
+                                    <SelectItem value="Financials">Financials</SelectItem>
+                                    <SelectItem value="Legal Docs">Legal Docs</SelectItem>
+                                    <SelectItem value="Cap Table">Cap Table</SelectItem>
+                                </SelectContent>
+                            </Select>
                         </div>
-
-                        {/* Current Access List */}
-                        <div className="space-y-2">
-                            <Label className="text-[#576238]">Current Access</Label>
-                            <div className="border rounded-lg divide-y">
-                                <div className="flex items-center justify-between p-3">
-                                    <div className="flex items-center gap-2">
-                                        <Users className="h-4 w-4 text-muted-foreground" />
-                                        <span className="text-sm">you@startup.com (Owner)</span>
-                                    </div>
-                                </div>
-                            </div>
+                        <div className="grid gap-2">
+                            <Label>File</Label>
+                            <Input type="file" onChange={(e) => setUploadFile(e.target.files?.[0] || null)} />
                         </div>
                     </div>
                     <DialogFooter>
-                        <Button
-                            variant="outline"
-                            onClick={() => setManageAccessDialog(false)}
-                        >
-                            Close
+                        <Button onClick={handleUploadSubmit} disabled={isUploading || !uploadFile} className="bg-[#576238] text-white">
+                            {isUploading ? "Uploading..." : "Upload"}
                         </Button>
                     </DialogFooter>
                 </DialogContent>
