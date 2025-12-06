@@ -3,8 +3,16 @@
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { motion } from "framer-motion";
+import NotificationsDropdown from "@/components/shared/NotificationsDropdown";
+import { usePathname } from "next/navigation";
 
 export default function Navbar() {
+    const pathname = usePathname();
+
+    const showNotifications = pathname?.startsWith("/founder") ||
+        pathname?.startsWith("/investor") ||
+        pathname?.startsWith("/contributor");
+
     return (
         <motion.nav
             initial={{ y: -20, opacity: 0 }}
@@ -26,10 +34,14 @@ export default function Navbar() {
 
                 <div className="flex items-center gap-4">
                     <Link href="/plans">
-                        <Button variant="outline" className="font-semibold">
+                        <Button variant="ghost" className="font-semibold text-[#576238]">
                             Plans
                         </Button>
                     </Link>
+
+                    {/* Simplified: Removed the wrapper div that might block clicks */}
+                    {showNotifications && <NotificationsDropdown />}
+
                     <Link href="/signup">
                         <Button
                             variant="default"
@@ -39,7 +51,7 @@ export default function Navbar() {
                         </Button>
                     </Link>
                     <Link href="/contact">
-                        <Button variant="outline" className="font-semibold">
+                        <Button variant="outline" className="font-semibold border-[#576238] text-[#576238]">
                             Contact Us
                         </Button>
                     </Link>

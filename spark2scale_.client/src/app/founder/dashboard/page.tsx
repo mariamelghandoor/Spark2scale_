@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Bell, Calendar, Plus, User } from "lucide-react";
+import { Calendar, Plus, User } from "lucide-react";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -13,8 +13,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { startupService } from "@/services/startupService";
 import LegoLoader from "@/components/lego/LegoLoader";
 import LegoAddTrigger from "@/components/lego/LegoAddTrigger";
+import NotificationsDropdown from "@/components/shared/NotificationsDropdown";
 
-const TEST_USER_ID = "400b330f-fc83-43d5-b9b2-74a4fe0696e3";
+const TEST_USER_ID = "b4e1a0db-dde7-40c0-9489-d3a33bd545b2";
 const CACHE_KEY = `dashboard_data_${TEST_USER_ID}`;
 
 export default function FounderDashboard() {
@@ -58,7 +59,7 @@ export default function FounderDashboard() {
                     name: s.startupname,
                     field: s.field,
                     progress: s.progress_count,
-                    likes: s.total_likes, // This comes pre-calculated from Backend
+                    likes: s.total_likes,
                     isBroken: s.progress_has_gap
                 }));
 
@@ -136,19 +137,23 @@ export default function FounderDashboard() {
     };
 
     return (
-        <div className="min-h-screen bg-gradient-to-br from-[#F0EADC] via-[#fff] to-[#FFD95D]/20">
-            <div className="border-b bg-white/80 backdrop-blur-lg">
+        // FIX: Changed min-h-screen to h-screen overflow-y-auto to guarantee scrolling
+        // Also made the header sticky for better UX
+        <div className="h-screen w-full overflow-y-auto bg-gradient-to-br from-[#F0EADC] via-[#fff] to-[#FFD95D]/20">
+            <div className="sticky top-0 z-40 border-b bg-white/80 backdrop-blur-lg">
                 <div className="container mx-auto px-4 py-4 flex justify-between items-center">
                     <h1 className="text-2xl font-bold text-[#576238]">Hello {userName} 👋</h1>
                     <div className="flex items-center gap-4">
                         <Link href="/schedule"><Button variant="ghost" size="icon"><Calendar className="h-5 w-5" /></Button></Link>
-                        <Button variant="ghost" size="icon"><Bell className="h-5 w-5" /></Button>
+
+                        <NotificationsDropdown />
+
                         <Link href="/profile"><Button variant="ghost" size="icon"><User className="h-5 w-5" /></Button></Link>
                     </div>
                 </div>
             </div>
 
-            <main className="container mx-auto px-4 py-8">
+            <main className="container mx-auto px-4 py-8 pb-20"> {/* Added pb-20 for bottom spacing */}
                 <div className="flex justify-between items-center mb-6">
                     <h2 className="text-3xl font-bold text-[#576238]">Startup Projects</h2>
 
@@ -202,7 +207,6 @@ export default function FounderDashboard() {
                     ) : startups.length === 0 && !isFetching ? (
                         <>
                             <LegoAddTrigger isDropped={isBlockDropped} onTrigger={handleTriggerClick} />
-                            {/* Hidden Dialog for Empty State Trigger */}
                             <Dialog open={open} onOpenChange={handleOpenChange}>
                                 <DialogContent className="max-h-[90vh] overflow-y-auto">
                                     <DialogHeader>
@@ -272,7 +276,7 @@ export default function FounderDashboard() {
                     )}
                 </div>
 
-                {/* --- NEW SECTION: Most Liked Startups --- */}
+                {/* --- MOST LIKED SECTION --- */}
                 {!isFetching && startups.length > 0 && (
                     <div className="mt-12">
                         <h3 className="text-2xl font-bold text-[#576238] mb-4">
@@ -280,23 +284,15 @@ export default function FounderDashboard() {
                         </h3>
                         <div className="grid md:grid-cols-2 gap-4">
                             {startups
-                                .sort((a, b) => b.likes - a.likes) // Sort Highest Likes First
-                                .slice(0, 2) // Top 2
+                                .sort((a, b) => b.likes - a.likes)
+                                .slice(0, 2)
                                 .map((startup) => (
-                                    <Card key={startup.id} className="border-2 border-[#576238]/20">
+                                    <Card key={startup.id} className="border-2">
                                         <CardHeader>
-                                            <div className="flex justify-between items-start">
-                                                <div>
-                                                    <CardTitle className="text-lg text-[#576238]">{startup.name}</CardTitle>
-                                                    <CardDescription>{startup.field}</CardDescription>
-                                                </div>
-                                                <div className="bg-[#FFD95D]/20 text-[#576238] px-3 py-1 rounded-full text-sm font-semibold">
-                                                    🏆 Top Rated
-                                                </div>
-                                            </div>
-                                            <div className="pt-2 text-sm text-muted-foreground">
-                                                Total Investor Interest: <span className="font-bold text-[#576238]">{startup.likes} Likes</span>
-                                            </div>
+                                            <CardTitle className="text-lg">{startup.name}</CardTitle>
+                                            <CardDescription>
+                                                ❤️ {startup.likes} investor likes
+                                            </CardDescription>
                                         </CardHeader>
                                     </Card>
                                 ))}

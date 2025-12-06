@@ -1,10 +1,10 @@
 ﻿using Supabase.Postgrest.Attributes;
 using Supabase.Postgrest.Models;
 using System;
+using System.Text.Json.Serialization;
 
 namespace Spark2Scale_.Server.Models
 {
-    // INTERNAL MODEL: Maps to Supabase Table
     [Table("notifications")]
     public class Notification : BaseModel
     {
@@ -12,10 +12,10 @@ namespace Spark2Scale_.Server.Models
         public Guid Nid { get; set; }
 
         [Column("sender")]
-        public Guid? Sender { get; set; } // Nullable based on screenshot
+        public Guid? Sender { get; set; }
 
         [Column("receiver")]
-        public Guid? Receiver { get; set; } // Nullable based on screenshot
+        public Guid? Receiver { get; set; }
 
         [Column("topic")]
         public string Topic { get; set; }
@@ -25,9 +25,11 @@ namespace Spark2Scale_.Server.Models
 
         [Column("created_at")]
         public DateTime? CreatedAt { get; set; }
+
+        [Column("is_read")]
+        public bool IsRead { get; set; }
     }
 
-    // INPUT: Clean input for Swagger (No ID, No Date)
     public class NotificationInsertDto
     {
         public Guid? sender { get; set; }
@@ -36,7 +38,6 @@ namespace Spark2Scale_.Server.Models
         public string? description { get; set; }
     }
 
-    // OUTPUT: Includes generated ID and Timestamp
     public class NotificationResponseDto
     {
         public Guid nid { get; set; }
@@ -45,5 +46,12 @@ namespace Spark2Scale_.Server.Models
         public string topic { get; set; }
         public string? description { get; set; }
         public DateTime? created_at { get; set; }
+
+        [JsonPropertyName("is_read")]
+        public bool is_read { get; set; }
+
+        // NEW FIELD
+        [JsonPropertyName("sender_name")]
+        public string sender_name { get; set; }
     }
 }
