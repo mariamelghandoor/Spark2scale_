@@ -18,7 +18,7 @@ namespace Spark2Scale_.Server.Controllers
             _supabase = supabase;
         }
 
-        // GET: api/Recommendations/{startupId}/{type}
+        // GET: api/Recommendations/{startupId}/{type}.
         [HttpGet("{startupId}/{type}")]
         public async Task<IActionResult> GetRecommendations(string startupId, string type)
         {

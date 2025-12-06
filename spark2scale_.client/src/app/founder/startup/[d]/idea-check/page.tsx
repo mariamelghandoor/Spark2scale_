@@ -294,7 +294,9 @@ export default function IdeaCheckPage() {
                             New Chat
                         </Button>
                     </div>
-                    <ScrollArea className="flex-1 p-3">
+
+                   
+                    <div className="flex-1 p-3 overflow-y-auto [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-gray-300 [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-gray-400">
                         <div className="space-y-2">
                             {sessions.length === 0 && (
                                 <p className="text-xs text-center text-muted-foreground mt-4">No history yet</p>
@@ -304,14 +306,14 @@ export default function IdeaCheckPage() {
                                     key={sess.sessionId}
                                     onClick={() => loadSessionMessages(sess.sessionId)}
                                     className={`w-full text-left p-3 rounded-lg text-sm transition-colors flex items-center gap-2
-                                        ${currentSessionId === sess.sessionId
+                        ${currentSessionId === sess.sessionId
                                             ? "bg-[#FFD95D]/30 border border-[#FFD95D] font-medium text-[#576238]"
                                             : "hover:bg-gray-100 text-gray-600"
                                         }`}
                                 >
-                                    <MessageSquare className="h-4 w-4 opacity-70" />
-                                    <div className="truncate">
-                                        <div>{sess.sessionName}</div>
+                                    <MessageSquare className="h-4 w-4 opacity-70 flex-shrink-0" />
+                                    <div className="truncate flex-1">
+                                        <div className="truncate">{sess.sessionName}</div>
                                         <div className="text-[10px] text-gray-400">
                                             {new Date(sess.createdAt).toLocaleDateString()}
                                         </div>
@@ -319,7 +321,8 @@ export default function IdeaCheckPage() {
                                 </button>
                             ))}
                         </div>
-                    </ScrollArea>
+                    </div>
+
                     <div className="p-3 border-t text-center text-xs text-muted-foreground">
                         <History className="h-3 w-3 inline mr-1" /> History
                     </div>
