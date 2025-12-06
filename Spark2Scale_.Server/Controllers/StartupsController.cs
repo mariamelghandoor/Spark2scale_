@@ -1,6 +1,7 @@
 ﻿using Microsoft.AspNetCore.Mvc;
 using Spark2Scale_.Server.Models;
 using System;
+using System.Collections.Generic; // Required for Dictionary
 using System.Linq;
 using System.Threading.Tasks;
 
@@ -111,23 +112,34 @@ namespace Spark2Scale_.Server.Controllers
         [HttpPut("update-idea/{id}")]
         public async Task<IActionResult> UpdateIdea(string id, [FromBody] IdeaUpdateDto input)
         {
-            if (!Guid.TryParse(id, out Guid sId)) return BadRequest("Invalid ID format");
+            if (!Guid.TryParse(id, out Guid sId))
+                return BadRequest("Invalid ID format");
+
+            if (string.IsNullOrWhiteSpace(input.IdeaDescription))
+                return BadRequest("Idea description cannot be empty");
 
             try
             {
-                var updateResult = await _supabase.From<Startup>()
-                                          .Where(x => x.Sid == sId)
-                                          .Set(x => x.IdeaDescription, input.IdeaDescription)
-                                          .Update();
+                // We use RPC (Remote Procedure Call) to execute the SQL function we created.
+                // This ensures the Update, Archiving, and Reset happen together safely.
 
-                var updatedModel = updateResult.Models.FirstOrDefault();
+                var parameters = new Dictionary<string, object>
+                {
+                    { "p_startup_id", sId },
+                    { "p_new_idea", input.IdeaDescription }
+                };
 
-                if (updatedModel == null) return NotFound("Startup not found or update failed");
+                await _supabase.Rpc("update_idea_and_reset", parameters);
 
-                return Ok(new { message = "Idea updated successfully", idea = updatedModel.IdeaDescription });
+                return Ok(new
+                {
+                    message = "Idea updated, history archived, and workflow reset successfully.",
+                    idea = input.IdeaDescription
+                });
             }
             catch (Exception ex)
             {
+                // Log the error here if you have a logger
                 return StatusCode(500, $"Error updating idea: {ex.Message}");
             }
         }
