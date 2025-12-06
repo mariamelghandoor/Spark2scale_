@@ -28,7 +28,8 @@ namespace Spark2Scale_.Server.Controllers
             if (!Guid.TryParse(startupId, out Guid sId)) return BadRequest("Invalid ID");
 
             var result = await _supabase.From<Document>()
-                .Where(x => x.StartupId == sId)
+                // This filter requires IsCurrent to be true
+                .Where(x => x.StartupId == sId && x.IsCurrent == true)
                 .Order("updated_at", Supabase.Postgrest.Constants.Ordering.Descending)
                 .Get();
 
@@ -60,7 +61,8 @@ namespace Spark2Scale_.Server.Controllers
 
             // Fetch all docs for this startup
             var result = await _supabase.From<Document>()
-                .Where(x => x.StartupId == sId)
+                .Where(x => x.StartupId == sId && x.IsCurrent == true)
+                .Order("updated_at", Supabase.Postgrest.Constants.Ordering.Descending)
                 .Get();
 
             var uploadedTypes = result.Models.Select(d => d.Type).ToList();
@@ -118,6 +120,7 @@ namespace Spark2Scale_.Server.Controllers
                 await _supabase.Storage.From("startup-docs").Upload(fileBytes, fileName);
                 var publicUrl = _supabase.Storage.From("startup-docs").GetPublicUrl(fileName);
 
+                // 1. UPDATE EXISTING (Versioning)
                 if (!string.IsNullOrEmpty(form.DocumentId) && Guid.TryParse(form.DocumentId, out Guid dId))
                 {
                     var existingRes = await _supabase.From<Document>().Where(x => x.Did == dId).Get();
@@ -140,12 +143,17 @@ namespace Spark2Scale_.Server.Controllers
                         currentDoc.CurrentPath = publicUrl;
                         currentDoc.CurrentVersion = newVer;
                         currentDoc.UpdatedAt = DateTime.UtcNow;
+
+                        // FIX: Ensure it stays visible if it was archived
+                        currentDoc.IsCurrent = true;
+
                         await _supabase.From<Document>().Upsert(currentDoc);
 
                         return Ok(new { message = "Version updated", version = newVer, url = publicUrl });
                     }
                 }
 
+                // 2. CREATE NEW
                 var newDoc = new Document
                 {
                     Did = Guid.NewGuid(),
@@ -156,7 +164,10 @@ namespace Spark2Scale_.Server.Controllers
                     CurrentVersion = 1,
                     CanAccess = 1,
                     UpdatedAt = DateTime.UtcNow,
-                    CreatedAt = DateTime.UtcNow
+                    CreatedAt = DateTime.UtcNow,
+
+                    // FIX: CRITICAL CHANGE HERE
+                    IsCurrent = true
                 };
 
                 var inserted = await _supabase.From<Document>().Insert(newDoc);
@@ -192,13 +203,14 @@ namespace Spark2Scale_.Server.Controllers
                 string docName = $"{input.Type} (AI Generated)";
 
                 var existingRes = await _supabase.From<Document>()
-                    .Where(x => x.StartupId == input.StartupId && x.Type == input.Type)
+                    .Where(x => x.StartupId == input.StartupId && x.Type == input.Type && x.IsCurrent == true)
                     .Get();
 
                 var currentDoc = existingRes.Models.FirstOrDefault();
 
                 if (currentDoc != null)
                 {
+                    // Versioning logic (same as before)
                     int newVer = currentDoc.CurrentVersion + 1;
                     await _supabase.From<DocumentVersion>().Insert(new DocumentVersion
                     {
@@ -213,12 +225,14 @@ namespace Spark2Scale_.Server.Controllers
                     currentDoc.CurrentPath = mockUrl;
                     currentDoc.CurrentVersion = newVer;
                     currentDoc.UpdatedAt = DateTime.UtcNow;
+                    currentDoc.IsCurrent = true; // Ensure visible
                     await _supabase.From<Document>().Upsert(currentDoc);
 
                     return Ok(new { message = "AI generated new version", version = newVer });
                 }
                 else
                 {
+                    // Create New
                     var newDoc = new Document
                     {
                         Did = Guid.NewGuid(),
@@ -229,7 +243,10 @@ namespace Spark2Scale_.Server.Controllers
                         CurrentVersion = 1,
                         CanAccess = 1,
                         UpdatedAt = DateTime.UtcNow,
-                        CreatedAt = DateTime.UtcNow
+                        CreatedAt = DateTime.UtcNow,
+
+                        // FIX: CRITICAL CHANGE HERE
+                        IsCurrent = true
                     };
 
                     var inserted = await _supabase.From<Document>().Insert(newDoc);
