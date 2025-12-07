@@ -1,10 +1,44 @@
-﻿using Supabase.Postgrest.Attributes;
+﻿// Spark2Scale_.Server/Models/PitchDeck.cs
+using Supabase.Postgrest.Attributes;
 using Supabase.Postgrest.Models;
 using System;
 using System.Collections.Generic;
+using Microsoft.AspNetCore.Http; // Required for IFormFile
 
 namespace Spark2Scale_.Server.Models
 {
+    // --- 1. New Analysis Classes (JSON Structure) ---
+
+    public class AnalysisContent
+    {
+        public ShortAnalysis Short { get; set; }
+        public DetailedAnalysis Detailed { get; set; }
+    }
+
+    public class ShortAnalysis
+    {
+        public int Score { get; set; }
+        public string Summary { get; set; }
+        public List<FeedbackItem> KeyFeedback { get; set; }
+    }
+
+    public class DetailedAnalysis
+    {
+        public string Tone { get; set; }
+        public string Pacing { get; set; }
+        public List<FeedbackItem> Sections { get; set; }
+        public List<string> TranscriptHighlights { get; set; }
+    }
+
+    public class FeedbackItem
+    {
+        public string Aspect { get; set; }
+        public int Score { get; set; }
+        public string Comment { get; set; }
+    }
+
+    // --- 2. Main Database Model ---
+
     [Table("pitchdecks")]
     public class PitchDeck : BaseModel
     {
@@ -13,6 +47,13 @@ namespace Spark2Scale_.Server.Models
 
         [Column("startup_id")]
         public Guid startup_id { get; set; }
+
+        [Column("video_url")]
+        public string video_url { get; set; }
+
+        // Mapped to the new 'jsonb' column in Supabase
+        [Column("analysis")]
+        public AnalysisContent analysis { get; set; }
 
         [Column("tags")]
         public List<string> tags { get; set; } = new List<string>();
@@ -24,21 +65,24 @@ namespace Spark2Scale_.Server.Models
         public DateTime created_at { get; set; }
     }
 
-    // INPUT: Only asks for the startup link and tags
-    public class PitchDeckInsertDto
-    {
-        public Guid startup_id { get; set; }
-        public List<string> tags { get; set; } = new List<string>();
-        public int countlikes { get; set; }
-    }
+    // --- 3. Data Transfer Objects (DTOs) ---
 
-    // OUTPUT: Returns the ID and Timestamp
+    // DTO for returning data to Frontend
     public class PitchDeckResponseDto
     {
         public Guid pitchdeckid { get; set; }
         public Guid startup_id { get; set; }
+        public string video_url { get; set; }
+        public AnalysisContent analysis { get; set; } // Added this so frontend sees the analysis
         public List<string> tags { get; set; }
         public int countlikes { get; set; }
         public DateTime created_at { get; set; }
+    }
+
+    // DTO for Uploading (Input)
+    public class PitchDeckUploadDto
+    {
+        public Guid startup_id { get; set; }
+        public IFormFile file { get; set; }
     }
 }
