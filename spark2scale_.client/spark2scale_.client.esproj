@@ -11,7 +11,6 @@
   <ItemGroup>
     <Folder Include="src\app\contributor\startup\" />
     <Folder Include="src\app\founder\startup\[d]\NewFolder\" />
-    <Folder Include="src\app\founder\startup\[d]\pitch-deck\[pitchId]\" />
     <Folder Include="src\lib\api\" />
   </ItemGroup>
 </Project>
