@@ -28,12 +28,19 @@ namespace Spark2Scale_.Server.Controllers
             if (input.startup_id == Guid.Empty) return BadRequest("Startup ID is required.");
             if (input.file == null || input.file.Length == 0) return BadRequest("No file uploaded.");
 
-            // 1. Upload Video to Supabase Storage
-            var fileName = $"{input.startup_id}/{Guid.NewGuid()}_{input.file.FileName}";
-            string publicUrl = "";
-
             try
             {
+                // 1. UPDATE EXISTING VIDEOS: Set is_current = false for this startup
+                // This ensures only the new one will be true
+                await _supabase.From<PitchDeck>()
+                             .Where(x => x.startup_id == input.startup_id)
+                             .Set(x => x.is_current, false)
+                             .Update();
+
+                // 2. Upload Video to Supabase Storage
+                var fileName = $"{input.startup_id}/{Guid.NewGuid()}_{input.file.FileName}";
+                string publicUrl = "";
+
                 using (var memoryStream = new MemoryStream())
                 {
                     await input.file.CopyToAsync(memoryStream);
@@ -44,35 +51,37 @@ namespace Spark2Scale_.Server.Controllers
 
                     publicUrl = _supabase.Storage.From("pitch-videos").GetPublicUrl(fileName);
                 }
+
+                // 3. Save Metadata to Database (Set is_current = true)
+                var newDeck = new PitchDeck
+                {
+                    startup_id = input.startup_id,
+                    video_url = publicUrl,
+                    tags = new List<string>(),
+                    countlikes = 0,
+                    is_current = true, // <--- Set this to TRUE
+                    created_at = DateTime.UtcNow
+                };
+
+                var result = await _supabase.From<PitchDeck>().Insert(newDeck);
+                var inserted = result.Models.FirstOrDefault();
+
+                if (inserted == null) return StatusCode(500, "Failed to save to database");
+
+                return Ok(new PitchDeckResponseDto
+                {
+                    pitchdeckid = inserted.pitchdeckid,
+                    startup_id = inserted.startup_id,
+                    video_url = inserted.video_url,
+                    is_current = inserted.is_current, // Return status
+                    tags = inserted.tags,
+                    created_at = inserted.created_at
+                });
             }
             catch (Exception ex)
             {
-                return StatusCode(500, $"Storage upload failed: {ex.Message}");
+                return StatusCode(500, $"Upload failed: {ex.Message}");
             }
-
-            // 2. Save Metadata to Database
-            var newDeck = new PitchDeck
-            {
-                startup_id = input.startup_id,
-                video_url = publicUrl,
-                tags = new List<string>(),
-                countlikes = 0,
-                created_at = DateTime.UtcNow
-            };
-
-            var result = await _supabase.From<PitchDeck>().Insert(newDeck);
-            var inserted = result.Models.FirstOrDefault();
-
-            if (inserted == null) return StatusCode(500, "Failed to save to database");
-
-            return Ok(new PitchDeckResponseDto
-            {
-                pitchdeckid = inserted.pitchdeckid,
-                startup_id = inserted.startup_id,
-                video_url = inserted.video_url,
-                tags = inserted.tags,
-                created_at = inserted.created_at
-            });
         }
 
         [HttpGet("{startupId}")]
@@ -89,9 +98,10 @@ namespace Spark2Scale_.Server.Controllers
                 pitchdeckid = d.pitchdeckid,
                 startup_id = d.startup_id,
                 video_url = d.video_url,
+                is_current = d.is_current, // Return status
                 tags = d.tags ?? new List<string>(),
                 countlikes = d.countlikes,
-                analysis = d.analysis, // Return analysis if it exists
+                analysis = d.analysis,
                 created_at = d.created_at
             }).OrderByDescending(x => x.created_at).ToList();
 
@@ -147,16 +157,16 @@ namespace Spark2Scale_.Server.Controllers
 
                 if (updatedModel == null)
                 {
-                    Console.WriteLine("[ERROR] Supabase returned no models. ID might be wrong or update failed silently.");
                     return NotFound("Pitch deck not found or update failed.");
                 }
 
-                // 3. MAP TO DTO (Critical Fix for System.NotSupportedException)
+                // 3. MAP TO DTO
                 var responseDto = new PitchDeckResponseDto
                 {
                     pitchdeckid = updatedModel.pitchdeckid,
                     startup_id = updatedModel.startup_id,
                     video_url = updatedModel.video_url,
+                    is_current = updatedModel.is_current,
                     analysis = updatedModel.analysis,
                     tags = updatedModel.tags,
                     countlikes = updatedModel.countlikes,
@@ -168,8 +178,6 @@ namespace Spark2Scale_.Server.Controllers
             catch (Exception ex)
             {
                 Console.WriteLine($"[CRITICAL ERROR] {ex.Message}");
-                if (ex.InnerException != null) Console.WriteLine($"[INNER ERROR] {ex.InnerException.Message}");
-
                 return StatusCode(500, $"Internal Server Error: {ex.Message}");
             }
         }
@@ -184,12 +192,12 @@ namespace Spark2Scale_.Server.Controllers
             var deck = result.Models.FirstOrDefault();
             if (deck == null) return NotFound();
 
-            // Map to DTO here as well to be safe
             var responseDto = new PitchDeckResponseDto
             {
                 pitchdeckid = deck.pitchdeckid,
                 startup_id = deck.startup_id,
                 video_url = deck.video_url,
+                is_current = deck.is_current,
                 analysis = deck.analysis,
                 tags = deck.tags,
                 countlikes = deck.countlikes,
@@ -199,4 +207,5 @@ namespace Spark2Scale_.Server.Controllers
             return Ok(responseDto);
         }
     }
+  
 }

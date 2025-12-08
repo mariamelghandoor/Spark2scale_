@@ -51,7 +51,11 @@ namespace Spark2Scale_.Server.Models
         [Column("video_url")]
         public string video_url { get; set; }
 
-        // Mapped to the new 'jsonb' column in Supabase
+        // NEW: Tracks if this is the latest/active video
+        [Column("is_current")]
+        public bool is_current { get; set; }
+
+        // Mapped to the 'jsonb' column in Supabase
         [Column("analysis")]
         public AnalysisContent analysis { get; set; }
 
@@ -73,7 +77,8 @@ namespace Spark2Scale_.Server.Models
         public Guid pitchdeckid { get; set; }
         public Guid startup_id { get; set; }
         public string video_url { get; set; }
-        public AnalysisContent analysis { get; set; } // Added this so frontend sees the analysis
+        public bool is_current { get; set; } // <--- Added here too
+        public AnalysisContent analysis { get; set; }
         public List<string> tags { get; set; }
         public int countlikes { get; set; }
         public DateTime created_at { get; set; }

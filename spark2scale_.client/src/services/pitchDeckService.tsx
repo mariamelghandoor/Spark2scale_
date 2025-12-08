@@ -35,6 +35,7 @@ export interface PitchDeck {
     pitchdeckid: string;
     startup_id: string;
     video_url: string;
+    is_current: boolean; // <--- Ensure this is defined
     analysis?: AnalysisData;
     created_at: string;
     tags?: string[];
