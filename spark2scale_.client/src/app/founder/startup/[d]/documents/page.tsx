@@ -3,13 +3,13 @@
 import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { ArrowLeft, Upload, FileText, Plus, Eye, Send, Star, Users, Globe, Mail, Edit, Loader2, Trash2, Sparkles, Presentation, Table, Scale, RefreshCw, Bot, MessageSquare, History, X } from "lucide-react";
+import { ArrowLeft, Upload, FileText, Plus, Eye, Send, Star, Users, Edit, Loader2, Trash2, Sparkles, Presentation, Table, Scale, RefreshCw, Bot, History, X } from "lucide-react";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import { useParams, useRouter } from "next/navigation";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 

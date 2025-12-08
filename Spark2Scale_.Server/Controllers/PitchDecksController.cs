@@ -98,7 +98,7 @@ namespace Spark2Scale_.Server.Controllers
                 pitchdeckid = d.pitchdeckid,
                 startup_id = d.startup_id,
                 video_url = d.video_url,
-                is_current = d.is_current, // Return status
+                is_current = d.is_current,
                 pitchname = d.pitchname ?? "Untitled Pitch",
                 tags = d.tags ?? new List<string>(),
                 countlikes = d.countlikes,
@@ -231,6 +231,31 @@ namespace Spark2Scale_.Server.Controllers
             };
 
             return Ok(responseDto);
+        }
+
+
+        // Inside PitchDecksController.cs
+
+        [HttpGet("count/{startupId}")]
+        public async Task<IActionResult> GetPitchCount(Guid startupId)
+        {
+            try
+            {
+                // 1. Select ONLY the ID column (saves bandwidth)
+                var result = await _supabase.From<PitchDeck>()
+                                            .Select("pitchdeckid")
+                                            .Filter("startup_id", Supabase.Postgrest.Constants.Operator.Equals, startupId.ToString())
+                                            .Get();
+
+                // 2. Count the items in the list using standard C# LINQ
+                int count = result.Models.Count;
+
+                return Ok(new { count = count });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, $"Error: {ex.Message}");
+            }
         }
     }
   

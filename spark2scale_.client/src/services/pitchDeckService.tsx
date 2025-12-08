@@ -122,5 +122,26 @@ export const pitchDeckService = {
             const errorText = await response.text();
             throw new Error(errorText || "Failed to update pitch name");
         }
+    },
+
+
+    getPitchCount: async (startupId: string): Promise<number> => {
+        try {
+            const response = await fetch(`${API_BASE_URL}/count/${startupId}`, {
+                method: "GET",
+            });
+
+            if (!response.ok) {
+                // If it fails (e.g., 404), just return 0 so the UI doesn't break
+                console.warn("Failed to fetch pitch count");
+                return 0;
+            }
+
+            const data = await response.json();
+            return data.count; // Matches the backend response: { count: 5 }
+        } catch (error) {
+            console.error(error);
+            return 0; // Return 0 on network error
+        }
     }
 };

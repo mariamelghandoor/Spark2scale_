@@ -19,7 +19,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-
+import { pitchDeckService} from "@/services/pitchDeckService";
 interface WorkflowData {
     startupId: string;
     ideaCheck: boolean;
@@ -47,6 +47,7 @@ export default function StartupDashboard() {
 
     const [currentMonth] = useState(new Date());
     const monthName = currentMonth.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+    const [videoCount, setVideoCount] = useState(0);
 
     // Updated Data Fetching
     useEffect(() => {
@@ -97,6 +98,8 @@ export default function StartupDashboard() {
         fetchDashboardData();
     }, [params]);
 
+   
+
     // ... (Keep existing Calendar, Events, and Stages logic exactly the same) ...
     // Sample calendar events
     const events = [
@@ -111,6 +114,14 @@ export default function StartupDashboard() {
         recommendation: false, documents: false, pitchDeck: false
     };
     const startupId = params?.d ? String(params.d) : "";
+
+    useEffect(() => {
+        const fetchCount = async () => {
+            const count = await pitchDeckService.getPitchCount(startupId);
+            setVideoCount(count);
+        };
+        fetchCount();
+    }, [startupId]);
 
     const stages = [
         { id: 1, name: "Idea Check", icon: Lightbulb, completed: currentData.ideaCheck, hasError: false, path: `/founder/startup/${startupId}/idea-check` },
@@ -267,7 +278,7 @@ export default function StartupDashboard() {
                                                 <h4 className="text-xl font-bold text-[#576238] mb-1">Pitches</h4>
                                                 <p className="text-sm text-muted-foreground">View all pitch videos & slides</p>
                                                 <div className="mt-2 flex items-center gap-2">
-                                                    <span className="text-xs bg-[#576238] text-white px-2 py-1 rounded-full">6 videos</span>
+                                                    <span className="text-xs bg-[#576238] text-white px-2 py-1 rounded-full">{videoCount} videos</span>
                                                 </div>
                                             </div>
                                         </div>
