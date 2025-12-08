@@ -51,6 +51,9 @@ namespace Spark2Scale_.Server.Models
         [Column("video_url")]
         public string video_url { get; set; }
 
+        [Column("pitchname")]
+        public string pitchname { get; set; }
+
         // NEW: Tracks if this is the latest/active video
         [Column("is_current")]
         public bool is_current { get; set; }
@@ -77,6 +80,9 @@ namespace Spark2Scale_.Server.Models
         public Guid pitchdeckid { get; set; }
         public Guid startup_id { get; set; }
         public string video_url { get; set; }
+
+        public string pitchname { get; set; }
+
         public bool is_current { get; set; } // <--- Added here too
         public AnalysisContent analysis { get; set; }
         public List<string> tags { get; set; }
@@ -89,5 +95,10 @@ namespace Spark2Scale_.Server.Models
     {
         public Guid startup_id { get; set; }
         public IFormFile file { get; set; }
+    }
+
+    public class RenameDto
+    {
+        public string NewTitle { get; set; }
     }
 }

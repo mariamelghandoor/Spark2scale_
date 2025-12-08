@@ -35,7 +35,8 @@ export interface PitchDeck {
     pitchdeckid: string;
     startup_id: string;
     video_url: string;
-    is_current: boolean; // <--- Ensure this is defined
+    pitchname: string; // <--- NEW PROPERTY
+    is_current: boolean;
     analysis?: AnalysisData;
     created_at: string;
     tags?: string[];
@@ -105,5 +106,21 @@ export const pitchDeckService = {
         if (!response.ok) throw new Error("Failed to fetch pitch details");
 
         return await response.json();
+    },
+
+    updatePitchTitle: async (pitchId: string, newTitle: string): Promise<void> => {
+        // Now calls the dedicated rename endpoint
+        const response = await fetch(`${API_BASE_URL}/rename/${pitchId}`, {
+            method: "PATCH",
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ newTitle: newTitle })
+        });
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(errorText || "Failed to update pitch name");
+        }
     }
 };

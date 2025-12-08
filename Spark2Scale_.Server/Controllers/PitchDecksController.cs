@@ -99,6 +99,7 @@ namespace Spark2Scale_.Server.Controllers
                 startup_id = d.startup_id,
                 video_url = d.video_url,
                 is_current = d.is_current, // Return status
+                pitchname = d.pitchname ?? "Untitled Pitch",
                 tags = d.tags ?? new List<string>(),
                 countlikes = d.countlikes,
                 analysis = d.analysis,
@@ -106,6 +107,31 @@ namespace Spark2Scale_.Server.Controllers
             }).OrderByDescending(x => x.created_at).ToList();
 
             return Ok(dtos);
+        }
+
+        [HttpPatch("rename/{pitchDeckId}")]
+        public async Task<IActionResult> RenamePitchDeck(Guid pitchDeckId, [FromBody] RenameDto request)
+        {
+            if (string.IsNullOrWhiteSpace(request.NewTitle))
+                return BadRequest("New title is required.");
+
+            try
+            {
+                var update = await _supabase.From<PitchDeck>()
+                                          .Where(x => x.pitchdeckid == pitchDeckId)
+                                          .Set(x => x.pitchname, request.NewTitle) // Updates specific column
+                                          .Update();
+
+                var result = update.Models.FirstOrDefault();
+
+                if (result == null) return NotFound("Pitch deck not found.");
+
+                return Ok(new { message = "Renamed successfully", pitchname = result.pitchname });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, $"Error renaming: {ex.Message}");
+            }
         }
 
         [HttpPost("analyze/{pitchDeckId}")]

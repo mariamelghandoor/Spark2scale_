@@ -344,7 +344,8 @@ export default function PitchDeckPage() {
                                                         className="flex-1 group"
                                                         asChild
                                                     >
-                                                        <Link href={`/founder/startup/${startupId}/pitches/${latestPitch.pitchdeckid}/details`}>
+                                                         <Link href={`/founder/startup/${startupId}/pitches/${latestPitch.pitchdeckid}/details?source=workflow`}>
+                                                                    
                                                             View Full Report <ArrowRight className="ml-2 h-4 w-4 group-hover:translate-x-1 transition-transform" />
                                                         </Link>
                                                     </Button>

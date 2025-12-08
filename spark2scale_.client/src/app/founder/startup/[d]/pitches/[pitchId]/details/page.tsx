@@ -1,7 +1,7 @@
 ﻿"use client";
 
 import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation"; // Added useSearchParams
 import { pitchDeckService, PitchDeck } from "@/services/pitchDeckService";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -10,11 +10,22 @@ import Link from "next/link";
 
 export default function PitchDetailsPage() {
     const params = useParams();
+    const searchParams = useSearchParams(); // Hook to read ?source=...
 
-    // Extract IDs safely based on your folder structure [d] or [id]
+    // 1. Extract IDs safely
     const rawStartupId = params?.d || params?.id;
     const startupId = Array.isArray(rawStartupId) ? rawStartupId[0] : rawStartupId;
     const pitchId = params?.pitchId as string;
+
+    // 2. Determine Back Link Destination
+    const source = searchParams.get('source');
+    const backLink = source === 'resources'
+        ? `/founder/startup/${startupId}/pitches-page` // Go to Resources Grid
+        : `/founder/startup/${startupId}/pitch-deck`;  // Go to Workflow Stage (Default)
+
+    const backLabel = source === 'resources'
+        ? "Back to All Pitches"
+        : "Back to Dashboard";
 
     const [pitch, setPitch] = useState<PitchDeck | null>(null);
     const [loading, setLoading] = useState(true);
@@ -23,7 +34,6 @@ export default function PitchDetailsPage() {
         const fetchDetails = async () => {
             if (!pitchId) return;
             try {
-                // Fetch the specific pitch data from backend
                 const data = await pitchDeckService.getPitchById(pitchId);
                 setPitch(data);
             } catch (error) {
@@ -35,7 +45,7 @@ export default function PitchDetailsPage() {
         fetchDetails();
     }, [pitchId]);
 
-    // 1. Loading State
+    // --- Loading State ---
     if (loading) {
         return (
             <div className="min-h-screen bg-[#F0EADC]/30 flex flex-col items-center justify-center gap-4">
@@ -45,26 +55,27 @@ export default function PitchDetailsPage() {
         );
     }
 
-    // 2. Data Normalization (Handle Lowercase/Uppercase Backend Data)
+    // --- Data Normalization (Fix for Casing Issues) ---
     const analysis = pitch?.analysis;
+    // Cast to 'any' to safely check both 'detailed' and 'Detailed' without TS errors
     const rawDetailed = (analysis?.detailed || analysis?.Detailed) as any;
 
-    // 3. Error/Empty State
+    // --- Error State ---
     if (!pitch || !rawDetailed) {
         return (
             <div className="min-h-screen bg-[#F0EADC]/30 flex flex-col items-center justify-center p-8">
                 <div className="text-center space-y-4">
                     <h2 className="text-2xl font-bold text-[#576238]">Analysis Not Found</h2>
                     <p className="text-muted-foreground">We couldn't find the detailed report for this video.</p>
-                    <Link href={`/founder/startup/${startupId}/pitch-deck`}>
-                        <Button className="bg-[#576238] hover:bg-[#6b7c3f]">Back to Dashboard</Button>
+                    <Link href={backLink}>
+                        <Button className="bg-[#576238] hover:bg-[#6b7c3f]">{backLabel}</Button>
                     </Link>
                 </div>
             </div>
         );
     }
 
-    // 4. Safe Data Extraction
+    // --- Safe Data Extraction ---
     const tone = rawDetailed.Tone || rawDetailed.tone || "N/A";
     const pacing = rawDetailed.Pacing || rawDetailed.pacing || "N/A";
     const sections = rawDetailed.Sections || rawDetailed.sections || [];
@@ -77,11 +88,14 @@ export default function PitchDetailsPage() {
                 {/* Header */}
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
                     <div className="flex items-center gap-4">
-                        <Link href={`/founder/startup/${startupId}/pitch-deck`}>
-                            <Button variant="ghost" size="icon">
-                                <ArrowLeft className="h-5 w-5" />
+                        {/* Dynamic Back Link */}
+                        <Link href={backLink}>
+                            <Button variant="ghost" size="sm">
+                                <ArrowLeft className="mr-2 h-4 w-4" />
+                                {backLabel}
                             </Button>
                         </Link>
+
                         <div>
                             <h1 className="text-2xl font-bold text-[#576238]">Deep Dive Analysis</h1>
                             <p className="text-sm text-muted-foreground">
@@ -121,7 +135,6 @@ export default function PitchDetailsPage() {
                         </CardContent>
                     </Card>
 
-                    {/* Placeholder for future metric */}
                     <Card className="bg-white border-[#576238]/20 shadow-sm">
                         <CardHeader className="pb-2">
                             <CardTitle className="text-sm font-medium text-muted-foreground">Clarity Score</CardTitle>
@@ -144,7 +157,6 @@ export default function PitchDetailsPage() {
                     </CardHeader>
                     <CardContent className="space-y-4 pt-6">
                         {sections.map((section: any, idx: number) => {
-                            // Extract values safely inside map
                             const aspect = section.Aspect || section.aspect;
                             const comment = section.Comment || section.comment;
                             const score = section.Score || section.score;
