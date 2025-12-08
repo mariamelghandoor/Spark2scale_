@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { ArrowLeft, Play, Eye, Download, Edit2, Loader2, Calendar } from "lucide-react";
+import { ArrowLeft, Play, Eye, Download, Edit2, Loader2, Calendar, X } from "lucide-react";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { useParams, useRouter } from "next/navigation";
@@ -36,6 +36,11 @@ export default function PitchesPage() {
     const [selectedPitchId, setSelectedPitchId] = useState<string | null>(null);
     const [newPitchName, setNewPitchName] = useState("");
 
+    // Video Preview Dialog State
+    const [previewDialog, setPreviewDialog] = useState(false);
+    const [selectedVideoUrl, setSelectedVideoUrl] = useState<string | null>(null);
+    const [selectedVideoTitle, setSelectedVideoTitle] = useState("");
+
     // Fetch Pitches on Load
     useEffect(() => {
         if (startupId) {
@@ -57,7 +62,6 @@ export default function PitchesPage() {
     // Rename Handler: Open Dialog
     const handleRename = (pitchId: string, currentName: string) => {
         setSelectedPitchId(pitchId);
-        // FIX: Use the actual pitchname or a fallback
         setNewPitchName(currentName || "Untitled Pitch");
         setRenameDialog(true);
     };
@@ -66,16 +70,12 @@ export default function PitchesPage() {
     const handleSaveRename = async () => {
         if (selectedPitchId && newPitchName.trim()) {
             try {
-                // 1. Call Backend to update DB
                 await pitchDeckService.updatePitchTitle(selectedPitchId, newPitchName);
-
-                // 2. Update Local State (So UI reflects change immediately)
                 setPitches(pitches.map(p =>
                     p.pitchdeckid === selectedPitchId
-                        ? { ...p, pitchname: newPitchName } // FIX: Update 'pitchname' property
+                        ? { ...p, pitchname: newPitchName }
                         : p
                 ));
-
                 setRenameDialog(false);
                 setSelectedPitchId(null);
                 setNewPitchName("");
@@ -86,9 +86,11 @@ export default function PitchesPage() {
         }
     };
 
-    const handleViewDetails = (pitchId: string) => {
-        // Pass source=resources so the details page knows to come back here
-        router.push(`/founder/startup/${startupId}/pitches/${pitchId}/details?source=resources`);
+    // Open Video Popup
+    const handleViewVideo = (videoUrl: string, title: string) => {
+        setSelectedVideoUrl(videoUrl);
+        setSelectedVideoTitle(title || "Pitch Video");
+        setPreviewDialog(true);
     };
 
     return (
@@ -156,8 +158,11 @@ export default function PitchesPage() {
                             >
                                 <Card className={`overflow-hidden hover:shadow-lg transition-all cursor-pointer border-2 ${pitch.is_current ? 'border-green-500 ring-1 ring-green-500' : 'hover:border-[#FFD95D]'} bg-white`}>
 
-                                    {/* Thumbnail / Video Preview */}
-                                    <div className="relative bg-black h-48 flex items-center justify-center group">
+                                    {/* Thumbnail / Video Preview - Click to open Popup */}
+                                    <div
+                                        className="relative bg-black h-48 flex items-center justify-center group"
+                                        onClick={() => handleViewVideo(pitch.video_url, pitch.pitchname)}
+                                    >
                                         <video
                                             src={pitch.video_url}
                                             className="w-full h-full object-cover opacity-80 group-hover:opacity-60 transition-opacity"
@@ -179,7 +184,6 @@ export default function PitchesPage() {
                                     <div className="p-4">
                                         <div className="flex items-start justify-between mb-3">
                                             <div className="flex-grow">
-                                                {/* FIX: Use pitchname here! */}
                                                 <h3 className="font-bold text-[#576238] mb-1 line-clamp-2">
                                                     {pitch.pitchname || "Untitled Pitch"}
                                                 </h3>
@@ -188,7 +192,6 @@ export default function PitchesPage() {
                                                         <Calendar className="h-3 w-3" />
                                                         {new Date(pitch.created_at).toLocaleDateString()}
                                                     </span>
-                                                    {/* Safely check for score */}
                                                     {(pitch.analysis?.Short?.Score || pitch.analysis?.short?.score) && (
                                                         <span className="bg-[#F0EADC] text-[#576238] px-1.5 py-0.5 rounded font-medium">
                                                             Score: {pitch.analysis?.Short?.Score || pitch.analysis?.short?.score}
@@ -205,10 +208,10 @@ export default function PitchesPage() {
                                                     variant="outline"
                                                     size="sm"
                                                     className="flex-1"
-                                                    onClick={() => handleViewDetails(pitch.pitchdeckid)}
+                                                    onClick={() => handleViewVideo(pitch.video_url, pitch.pitchname)}
                                                 >
                                                     <Eye className="h-3 w-3 mr-1" />
-                                                    Details
+                                                    View
                                                 </Button>
                                                 <Button
                                                     variant="default"
@@ -226,7 +229,6 @@ export default function PitchesPage() {
                                                 variant="ghost"
                                                 size="sm"
                                                 className="w-full"
-                                                // FIX: Pass pitchname to handler
                                                 onClick={() => handleRename(pitch.pitchdeckid, pitch.pitchname)}
                                             >
                                                 <Edit2 className="h-3 w-3 mr-1" />
@@ -241,13 +243,42 @@ export default function PitchesPage() {
                 )}
             </main>
 
+            {/* Video Preview Dialog */}
+            <Dialog open={previewDialog} onOpenChange={setPreviewDialog}>
+                <DialogContent className="sm:max-w-[800px] p-0 overflow-hidden bg-black/95 border-0">
+                    <div className="relative">
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            className="absolute top-2 right-2 text-white hover:bg-white/20 z-10 rounded-full"
+                            onClick={() => setPreviewDialog(false)}
+                        >
+                            <X className="h-5 w-5" />
+                        </Button>
+                        {selectedVideoUrl && (
+                            <div className="w-full aspect-video flex items-center justify-center">
+                                <video
+                                    src={selectedVideoUrl}
+                                    controls
+                                    autoPlay
+                                    className="w-full h-full max-h-[80vh]"
+                                />
+                            </div>
+                        )}
+                        <div className="p-4 bg-white">
+                            <h3 className="font-bold text-lg text-[#576238]">{selectedVideoTitle}</h3>
+                        </div>
+                    </div>
+                </DialogContent>
+            </Dialog>
+
             {/* Rename Dialog */}
             <Dialog open={renameDialog} onOpenChange={setRenameDialog}>
                 <DialogContent className="sm:max-w-[500px]">
                     <DialogHeader>
                         <DialogTitle className="text-[#576238]">Rename Pitch</DialogTitle>
                         <DialogDescription>
-                            Enter a new name for your pitch presentation to identify it easily.
+                            Enter a new name for your pitch presentation.
                         </DialogDescription>
                     </DialogHeader>
                     <div className="grid gap-4 py-4">
