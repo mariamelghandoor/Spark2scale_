@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { ArrowLeft, Play, Eye, Download, Edit2, Loader2, Calendar, X } from "lucide-react";
+import { ArrowLeft, Play, Eye, Download, Edit2, Loader2, Calendar, X, Users } from "lucide-react";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { useParams, useRouter } from "next/navigation";
@@ -36,6 +36,10 @@ export default function PitchesPage() {
     const [selectedPitchId, setSelectedPitchId] = useState<string | null>(null);
     const [newPitchName, setNewPitchName] = useState("");
 
+    // Manage Access Dialog State
+    const [accessDialog, setAccessDialog] = useState(false);
+    const [inviteEmail, setInviteEmail] = useState("");
+
     // Video Preview Dialog State
     const [previewDialog, setPreviewDialog] = useState(false);
     const [selectedVideoUrl, setSelectedVideoUrl] = useState<string | null>(null);
@@ -59,14 +63,13 @@ export default function PitchesPage() {
         }
     };
 
-    // Rename Handler: Open Dialog
+    // --- Rename Handlers ---
     const handleRename = (pitchId: string, currentName: string) => {
         setSelectedPitchId(pitchId);
         setNewPitchName(currentName || "Untitled Pitch");
         setRenameDialog(true);
     };
 
-    // Rename Handler: Save Changes
     const handleSaveRename = async () => {
         if (selectedPitchId && newPitchName.trim()) {
             try {
@@ -86,11 +89,28 @@ export default function PitchesPage() {
         }
     };
 
-    // Open Video Popup
+    // --- Manage Access Handlers ---
+    const handleManageAccess = (pitchId: string) => {
+        setSelectedPitchId(pitchId);
+        setAccessDialog(true);
+        setInviteEmail(""); // Reset field
+    };
+
+    const handleInvite = () => {
+        // Logic to send invite to backend would go here
+        alert(`Invited ${inviteEmail} to view pitch!`);
+        setAccessDialog(false);
+    };
+
+    // --- Video Preview ---
     const handleViewVideo = (videoUrl: string, title: string) => {
         setSelectedVideoUrl(videoUrl);
         setSelectedVideoTitle(title || "Pitch Video");
         setPreviewDialog(true);
+    };
+
+    const handleViewDetails = (pitchId: string) => {
+        router.push(`/founder/startup/${startupId}/pitches/${pitchId}/details?source=resources`);
     };
 
     return (
@@ -158,7 +178,7 @@ export default function PitchesPage() {
                             >
                                 <Card className={`overflow-hidden hover:shadow-lg transition-all cursor-pointer border-2 ${pitch.is_current ? 'border-green-500 ring-1 ring-green-500' : 'hover:border-[#FFD95D]'} bg-white`}>
 
-                                    {/* Thumbnail / Video Preview - Click to open Popup */}
+                                    {/* Thumbnail / Video Preview */}
                                     <div
                                         className="relative bg-black h-48 flex items-center justify-center group"
                                         onClick={() => handleViewVideo(pitch.video_url, pitch.pitchname)}
@@ -201,40 +221,60 @@ export default function PitchesPage() {
                                             </div>
                                         </div>
 
-                                        {/* Actions */}
-                                        <div className="flex flex-col gap-2 mt-4">
-                                            <div className="flex gap-2">
-                                                <Button
-                                                    variant="outline"
-                                                    size="sm"
-                                                    className="flex-1"
-                                                    onClick={() => handleViewVideo(pitch.video_url, pitch.pitchname)}
-                                                >
-                                                    <Eye className="h-3 w-3 mr-1" />
-                                                    View
-                                                </Button>
-                                                <Button
-                                                    variant="default"
-                                                    size="sm"
-                                                    className="flex-1 bg-[#576238] hover:bg-[#6b7c3f] text-white"
-                                                    asChild
-                                                >
-                                                    <a href={pitch.video_url} download target="_blank" rel="noopener noreferrer">
-                                                        <Download className="h-3 w-3 mr-1" />
-                                                        Download
-                                                    </a>
-                                                </Button>
-                                            </div>
+                                        {/* Actions Grid (2x2) */}
+                                        <div className="grid grid-cols-2 gap-2 mt-4">
+                                            <Button
+                                                variant="outline"
+                                                size="sm"
+                                                onClick={() => handleViewVideo(pitch.video_url, pitch.pitchname)}
+                                            >
+                                                <Eye className="h-3 w-3 mr-1" />
+                                                View
+                                            </Button>
+
+                                            <Button
+                                                variant="default"
+                                                size="sm"
+                                                className="bg-[#576238] hover:bg-[#6b7c3f] text-white"
+                                                asChild
+                                            >
+                                                <a href={pitch.video_url} download target="_blank" rel="noopener noreferrer">
+                                                    <Download className="h-3 w-3 mr-1" />
+                                                    Save
+                                                </a>
+                                            </Button>
+
                                             <Button
                                                 variant="ghost"
                                                 size="sm"
-                                                className="w-full"
+                                                className="border border-gray-200"
                                                 onClick={() => handleRename(pitch.pitchdeckid, pitch.pitchname)}
                                             >
                                                 <Edit2 className="h-3 w-3 mr-1" />
                                                 Rename
                                             </Button>
+
+                                            {/* NEW: Manage Access Button */}
+                                            <Button
+                                                variant="ghost"
+                                                size="sm"
+                                                className="border border-gray-200 text-[#576238]"
+                                                onClick={() => handleManageAccess(pitch.pitchdeckid)}
+                                            >
+                                                <Users className="h-3 w-3 mr-1" />
+                                                Access
+                                            </Button>
                                         </div>
+
+                                        {/* Full Width Details Button */}
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            className="w-full mt-2"
+                                            onClick={() => handleViewDetails(pitch.pitchdeckid)}
+                                        >
+                                            View Analysis Report &rarr;
+                                        </Button>
                                     </div>
                                 </Card>
                             </motion.div>
@@ -310,6 +350,41 @@ export default function PitchesPage() {
                             Save Changes
                         </Button>
                     </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* Manage Access Dialog */}
+            <Dialog open={accessDialog} onOpenChange={setAccessDialog}>
+                <DialogContent className="sm:max-w-[500px]">
+                    <DialogHeader>
+                        <DialogTitle className="text-[#576238]">Manage Access</DialogTitle>
+                        <DialogDescription>
+                            Share this pitch video with investors or team members.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="grid gap-4 py-4">
+                        <div className="grid gap-2">
+                            <Label className="text-[#576238]">Invite via Email</Label>
+                            <div className="flex gap-2">
+                                <Input
+                                    placeholder="investor@example.com"
+                                    value={inviteEmail}
+                                    onChange={(e) => setInviteEmail(e.target.value)}
+                                    className="border-[#576238]/30 focus:border-[#576238]"
+                                />
+                                <Button onClick={handleInvite} className="bg-[#576238] text-white hover:bg-[#6b7c3f]">
+                                    Invite
+                                </Button>
+                            </div>
+                        </div>
+                        <div className="text-sm text-muted-foreground mt-2">
+                            <p className="font-semibold mb-2">People with access:</p>
+                            <div className="flex items-center gap-2 p-2 bg-gray-50 rounded border">
+                                <div className="bg-[#576238] text-white rounded-full w-6 h-6 flex items-center justify-center text-xs">You</div>
+                                <span>You (Owner)</span>
+                            </div>
+                        </div>
+                    </div>
                 </DialogContent>
             </Dialog>
         </div>
