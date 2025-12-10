@@ -6,6 +6,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Calendar, X, Heart, Eye } from "lucide-react";
 import Link from "next/link";
 import { motion, useMotionValue, useTransform } from "framer-motion";
+import NotificationsDropdown from "@/components/shared/NotificationsDropdown";
 
 export default function InvestorFeed() {
     const [userName] = useState("Sarah");
@@ -62,9 +63,10 @@ export default function InvestorFeed() {
         }
     };
 
+    const currentStartup = startups[currentIndex];
+
     return (
-        // Added text-slate-900 to ensure text is dark by default
-        <div className="min-h-screen bg-gradient-to-br from-[#F0EADC] via-[#fff] to-[#FFD95D]/20 text-slate-900">
+        <div className="min-h-screen bg-gradient-to-br from-[#F0EADC] via-[#fff] to-[#FFD95D]/20">
             {/* Top Navigation Bar */}
             <div className="border-b bg-white/80 backdrop-blur-lg">
                 <div className="container mx-auto px-4 py-4 flex justify-between items-center">
@@ -72,11 +74,12 @@ export default function InvestorFeed() {
                         Hello {userName} 👋
                     </h1>
                     <div className="flex items-center gap-4">
-                        <Link href="/investor/schedule">
-                            <Button variant="ghost" size="icon" className="hover:bg-gray-100">
-                                <Calendar className="h-5 w-5 text-gray-700" />
+                        <Link href="/schedule">
+                            <Button variant="ghost" size="icon">
+                                <Calendar className="h-5 w-5" />
                             </Button>
                         </Link>
+                        <NotificationsDropdown />
                         <Link href="/profile">
                             <Button variant="ghost" size="icon">
                                 <div className="w-8 h-8 rounded-full bg-[#576238] flex items-center justify-center text-white text-sm font-semibold">
@@ -129,8 +132,7 @@ export default function InvestorFeed() {
                                     }}
                                     className="absolute inset-0"
                                 >
-                                    {/* Added bg-white explicitly here */}
-                                    <Card className="h-full border-2 overflow-hidden shadow-xl bg-white">
+                                    <Card className="h-full border-2 overflow-hidden shadow-xl">
                                         {/* Image */}
                                         <div className="relative h-64 overflow-hidden">
                                             <img
@@ -189,7 +191,7 @@ export default function InvestorFeed() {
                                                         <Button
                                                             variant="outline"
                                                             size="sm"
-                                                            className="border-[#576238] text-[#576238] hover:bg-[#576238] hover:text-white bg-white"
+                                                            className="border-[#576238] text-[#576238] hover:bg-[#576238] hover:text-white"
                                                         >
                                                             <Eye className="mr-2 h-4 w-4" />
                                                             View Profile
@@ -203,8 +205,7 @@ export default function InvestorFeed() {
                             ))}
                         </div>
                     ) : (
-                        // Added bg-white explicitly here
-                        <Card className="p-12 text-center border-2 bg-white">
+                        <Card className="p-12 text-center border-2">
                             <div className="text-6xl mb-4">🎉</div>
                             <h3 className="text-2xl font-bold text-[#576238] mb-2">
                                 That's All for Now!
@@ -233,7 +234,7 @@ export default function InvestorFeed() {
                                 onClick={() => handleSwipe("left")}
                                 size="lg"
                                 variant="outline"
-                                className="rounded-full w-16 h-16 border-2 border-red-500 text-red-500 hover:bg-red-50 bg-white"
+                                className="rounded-full w-16 h-16 border-2 border-red-500 text-red-500 hover:bg-red-50"
                             >
                                 <X className="h-6 w-6" />
                             </Button>

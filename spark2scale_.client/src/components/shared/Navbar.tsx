@@ -11,7 +11,7 @@ export default function Navbar() {
             animate={{ y: 0, opacity: 1 }}
             className="sticky top-0 z-50 w-full border-b bg-white/80 backdrop-blur-lg"
         >
-            <div className="container flex h-16 items-center justify-between">
+            <div className="w-full flex h-16 items-center justify-between px-4 md:px-6 lg:px-8">
                 <Link href="/" className="flex items-center space-x-2">
                     <div className="flex items-center gap-2">
                         <div className="w-8 h-8 bg-[#576238] rounded-md flex items-center justify-center">
@@ -24,7 +24,7 @@ export default function Navbar() {
                     </div>
                 </Link>
 
-                <div className="flex items-center gap-4">
+                <div className="flex items-center gap-3 md:gap-4">
                     <Link href="/plans">
                         <Button variant="outline" className="font-semibold">
                             Plans
