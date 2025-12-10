@@ -291,23 +291,6 @@ export default function DocumentsPage() {
                                     </Card>
                                 </motion.div>
                             ))}
-
-                            {/* Add New Document Card */}
-                            <motion.div
-                                initial={{ opacity: 0, y: 20 }}
-                                animate={{ opacity: 1, y: 0 }}
-                                transition={{ delay: documents.length * 0.1 }}
-                            >
-                                <Card className="p-6 h-full flex flex-col items-center justify-center border-2 border-dashed border-[#576238] bg-white/50 hover:bg-[#F0EADC]/30 transition-all cursor-pointer min-h-[150px]">
-                                    <div className="text-5xl mb-4">➕</div>
-                                    <h3 className="font-bold text-[#576238] mb-2">
-                                        Add Document
-                                    </h3>
-                                    <p className="text-xs text-muted-foreground text-center">
-                                        Upload or generate a new document
-                                    </p>
-                                </Card>
-                            </motion.div>
                         </div>
 
                         {/* Generation Options */}

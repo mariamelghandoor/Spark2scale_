@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { ArrowLeft, Upload, Video, Play, CheckCircle } from "lucide-react";
+import { ArrowLeft, Upload, Play, CheckCircle } from "lucide-react";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { useParams } from "next/navigation";
@@ -52,7 +52,7 @@ export default function PitchDeckPage() {
 
             <main className="container mx-auto px-4 py-8">
                 <div className="max-w-4xl mx-auto">
-                    {/* Upload/Record Section */}
+                    {/* Upload Section */}
                     <motion.div
                         initial={{ opacity: 0, y: 20 }}
                         animate={{ opacity: 1, y: 0 }}
@@ -60,30 +60,21 @@ export default function PitchDeckPage() {
                         <Card className="mb-6 border-2 border-[#FFD95D]">
                             <CardHeader className="bg-gradient-to-r from-[#FFD95D]/20 to-transparent">
                                 <CardTitle className="text-[#576238]">
-                                    Record or Upload Pitch Video
+                                    Upload Pitch Video
                                 </CardTitle>
                                 <CardDescription>
-                                    Get AI-powered feedback on your presentation
+                                    Get AI-powered feedback and analysis on your presentation
                                 </CardDescription>
                             </CardHeader>
                             <CardContent className="pt-6">
-                                <div className="grid md:grid-cols-2 gap-4">
-                                    <Button
-                                        className="h-32 flex-col gap-3 bg-[#576238] hover:bg-[#6b7c3f]"
-                                        size="lg"
-                                    >
-                                        <Video className="h-8 w-8" />
-                                        <span>Record Live Pitch</span>
-                                    </Button>
-                                    <Button
-                                        className="h-32 flex-col gap-3"
-                                        variant="outline"
-                                        size="lg"
-                                    >
-                                        <Upload className="h-8 w-8" />
-                                        <span>Upload Video</span>
-                                    </Button>
-                                </div>
+                                <Button
+                                    className="w-full h-32 flex-col gap-3"
+                                    variant="outline"
+                                    size="lg"
+                                >
+                                    <Upload className="h-8 w-8" />
+                                    <span>Upload Video</span>
+                                </Button>
                             </CardContent>
                         </Card>
                     </motion.div>
@@ -189,7 +180,7 @@ export default function PitchDeckPage() {
                                                         className="flex-1"
                                                         asChild
                                                     >
-                                                        <Link href={`/founder/startup/${params.id}/pitches/pitchId/details`}>
+                                                        <Link href={`/founder/startup/${params.id}/pitches/${pitch.id}/details`}>
                                                             View Details
                                                         </Link>
                                                     </Button>
