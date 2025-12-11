@@ -5,7 +5,14 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+    Card,
+    CardContent,
+    CardDescription,
+    CardFooter,
+    CardHeader,
+    CardTitle,
+} from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import Link from "next/link";
 import { motion } from "framer-motion";
@@ -17,19 +24,18 @@ interface SignUpFormData {
     phone: string;
     password: string;
     confirmPassword: string;
-    userType: 'founder' | 'investor' | 'contributor';
+    user_type: "founder" | "investor" | "contributor";
     tags?: string[];
 }
 
 interface ApiResponse {
     message: string;
     requiresConfirmation?: boolean;
-    userId?: string;
-    email?: string;
-    userType?: string;
-    timestamp?: string;
     detail?: string;
 }
+
+const API_BASE_URL =
+    process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:5231";
 
 export default function SignupPage() {
     const router = useRouter();
@@ -39,12 +45,12 @@ export default function SignupPage() {
         phone: "",
         password: "",
         confirmPassword: "",
-        userType: "founder",
-        tags: []
+        user_type: "founder",
+        tags: [],
     });
 
     const [status, setStatus] = useState<{
-        type: 'success' | 'error' | 'info' | null;
+        type: "success" | "error" | "info" | null;
         message: string;
         details?: string;
     }>({ type: null, message: "" });
@@ -54,29 +60,41 @@ export default function SignupPage() {
 
     const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const { id, value } = e.target;
-        setFormData(prev => ({ ...prev, [id]: value }));
+        setFormData((prev) => ({ ...prev, [id]: value }));
     };
 
-    const handleUserTypeChange = (type: 'founder' | 'investor' | 'contributor') => {
-        setFormData(prev => ({ ...prev, userType: type }));
-        setShowInvestorTags(type === 'investor');
+    const handleUserTypeChange = (
+        type: "founder" | "investor" | "contributor"
+    ) => {
+        setFormData((prev) => ({ ...prev, user_type: type }));
+        setShowInvestorTags(type === "investor");
     };
 
     const handleTagsChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const tags = e.target.value.split(',').map(tag => tag.trim()).filter(tag => tag);
-        setFormData(prev => ({ ...prev, tags }));
+        const tags = e.target.value
+            .split(",")
+            .map((tag) => tag.trim())
+            .filter((tag) => tag);
+        setFormData((prev) => ({ ...prev, tags }));
     };
 
     const validateForm = (): string | null => {
         if (!formData.name.trim()) return "Full name is required";
         if (!formData.email.trim()) return "Email is required";
-        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) return "Invalid email format";
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email))
+            return "Invalid email format";
         if (!formData.phone.trim()) return "Phone number is required";
-        if (!formData.phone.replace(/\D/g, '').match(/^[0-9]{10,}$/)) return "Enter a valid phone number (at least 10 digits)";
+        if (!formData.phone.replace(/\D/g, "").match(/^[0-9]{10,}$/))
+            return "Enter a valid phone number (at least 10 digits)";
         if (!formData.password) return "Password is required";
-        if (formData.password.length < 8) return "Password must be at least 8 characters";
-        if (formData.password !== formData.confirmPassword) return "Passwords do not match";
-        if (formData.userType === 'investor' && (!formData.tags || formData.tags.length === 0)) {
+        if (formData.password.length < 8)
+            return "Password must be at least 8 characters";
+        if (formData.password !== formData.confirmPassword)
+            return "Passwords do not match";
+        if (
+            formData.user_type === "investor" &&
+            (!formData.tags || formData.tags.length === 0)
+        ) {
             return "Please enter at least one investment interest tag (comma-separated)";
         }
         return null;
@@ -88,8 +106,8 @@ export default function SignupPage() {
         const validationError = validateForm();
         if (validationError) {
             setStatus({
-                type: 'error',
-                message: validationError
+                type: "error",
+                message: validationError,
             });
             return;
         }
@@ -98,69 +116,77 @@ export default function SignupPage() {
         setStatus({ type: null, message: "" });
 
         try {
-            const response = await fetch("/api/Auth/signup", {
+            const response = await fetch(`${API_BASE_URL}/api/Auth/signup`, {
                 method: "POST",
                 headers: {
-                    "Content-Type": "application/json"
+                    "Content-Type": "application/json",
                 },
                 body: JSON.stringify({
-                    ...formData,
+                    name: formData.name.trim(),
                     email: formData.email.toLowerCase().trim(),
                     phone: formData.phone.trim(),
-                    name: formData.name.trim()
+                    password: formData.password,
+                    confirmPassword: formData.confirmPassword,
+
+                    // Backend expects "userType" in JSON
+                    userType: formData.user_type,
+
+                    // Always send an array
+                    tags: formData.tags ?? [],
                 }),
             });
 
-            const data: ApiResponse = await response.json();
+            const data: ApiResponse = await response.json().catch(() => ({
+                message: "Invalid server response",
+            }));
 
             if (response.ok) {
                 if (data.requiresConfirmation) {
                     setStatus({
-                        type: 'info',
+                        type: "info",
                         message: "Registration successful! ✅",
-                        details: "Please check your email to confirm your account before logging in. The confirmation link may take a few minutes to arrive."
+                        details:
+                            "Please check your email to confirm your account before logging in. The confirmation link may take a few minutes to arrive.",
                     });
 
-                    // Clear form on success
                     setFormData({
                         name: "",
                         email: "",
                         phone: "",
                         password: "",
                         confirmPassword: "",
-                        userType: "founder",
-                        tags: []
+                        user_type: "founder",
+                        tags: [],
                     });
 
-                    // Redirect to signin after 8 seconds (gives time to read message)
                     setTimeout(() => {
                         router.push("/signin");
                     }, 8000);
                 } else {
                     setStatus({
-                        type: 'success',
+                        type: "success",
                         message: "Account created successfully! 🎉",
-                        details: "You can now sign in to your account."
+                        details: "You can now sign in to your account.",
                     });
 
-                    // Redirect immediately
                     setTimeout(() => {
                         router.push("/signin");
                     }, 3000);
                 }
             } else {
                 setStatus({
-                    type: 'error',
+                    type: "error",
                     message: data.message || `Registration failed (${response.status})`,
-                    details: data.detail
+                    details: data.detail,
                 });
             }
         } catch (error) {
             console.error("Signup error:", error);
             setStatus({
-                type: 'error',
+                type: "error",
                 message: "Network Error",
-                details: "Could not connect to the server. Please check your internet connection and make sure the backend is running."
+                details:
+                    "Could not connect to the server. Please check your internet connection and make sure the backend is running.",
             });
         } finally {
             setIsLoading(false);
@@ -170,7 +196,6 @@ export default function SignupPage() {
     return (
         <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-[#F0EADC] via-[#fff] to-[#FFD95D]/20">
             <div className="w-full max-w-6xl grid md:grid-cols-2 gap-8 items-center">
-                {/* Left side - Branding */}
                 <motion.div
                     initial={{ opacity: 0, x: -50 }}
                     animate={{ opacity: 1, x: 0 }}
@@ -210,7 +235,6 @@ export default function SignupPage() {
                     </div>
                 </motion.div>
 
-                {/* Right side - Signup Form */}
                 <motion.div
                     initial={{ opacity: 0, x: 50 }}
                     animate={{ opacity: 1, x: 0 }}
@@ -227,23 +251,30 @@ export default function SignupPage() {
                         </CardHeader>
 
                         <CardContent>
-                            {/* Status Message */}
                             {status.type && (
                                 <Alert
                                     variant={
-                                        status.type === 'error' ? 'destructive' :
-                                            status.type === 'success' ? 'default' :
-                                                'default'
+                                        status.type === "error"
+                                            ? "destructive"
+                                            : status.type === "success"
+                                                ? "default"
+                                                : "default"
                                     }
                                     className="mb-4"
                                 >
-                                    {status.type === 'success' && <CheckCircle className="h-4 w-4 mr-2" />}
-                                    {status.type === 'error' && <AlertCircle className="h-4 w-4 mr-2" />}
+                                    {status.type === "success" && (
+                                        <CheckCircle className="h-4 w-4 mr-2" />
+                                    )}
+                                    {status.type === "error" && (
+                                        <AlertCircle className="h-4 w-4 mr-2" />
+                                    )}
                                     <AlertDescription>
                                         <div>
                                             <strong>{status.message}</strong>
                                             {status.details && (
-                                                <p className="mt-1 text-sm opacity-90">{status.details}</p>
+                                                <p className="mt-1 text-sm opacity-90">
+                                                    {status.details}
+                                                </p>
                                             )}
                                         </div>
                                     </AlertDescription>
@@ -251,13 +282,14 @@ export default function SignupPage() {
                             )}
 
                             <form onSubmit={handleSubmit} className="space-y-4">
-                                {/* User Type Selection */}
                                 <div>
                                     <Label className="mb-2 block">I am a:</Label>
                                     <div className="grid grid-cols-3 gap-2">
                                         <Button
                                             type="button"
-                                            variant={formData.userType === "founder" ? "default" : "outline"}
+                                            variant={
+                                                formData.user_type === "founder" ? "default" : "outline"
+                                            }
                                             className="w-full bg-[#576238] hover:bg-[#6b7c3f] text-white"
                                             onClick={() => handleUserTypeChange("founder")}
                                             disabled={isLoading}
@@ -266,7 +298,11 @@ export default function SignupPage() {
                                         </Button>
                                         <Button
                                             type="button"
-                                            variant={formData.userType === "investor" ? "default" : "outline"}
+                                            variant={
+                                                formData.user_type === "investor"
+                                                    ? "default"
+                                                    : "outline"
+                                            }
                                             className="w-full bg-[#576238] hover:bg-[#6b7c3f] text-white"
                                             onClick={() => handleUserTypeChange("investor")}
                                             disabled={isLoading}
@@ -275,7 +311,11 @@ export default function SignupPage() {
                                         </Button>
                                         <Button
                                             type="button"
-                                            variant={formData.userType === "contributor" ? "default" : "outline"}
+                                            variant={
+                                                formData.user_type === "contributor"
+                                                    ? "default"
+                                                    : "outline"
+                                            }
                                             className="w-full bg-[#576238] hover:bg-[#6b7c3f] text-white"
                                             onClick={() => handleUserTypeChange("contributor")}
                                             disabled={isLoading}
@@ -285,7 +325,6 @@ export default function SignupPage() {
                                     </div>
                                 </div>
 
-                                {/* Investor Tags (Conditional) */}
                                 {showInvestorTags && (
                                     <div className="space-y-2">
                                         <Label htmlFor="tags">
@@ -303,7 +342,6 @@ export default function SignupPage() {
                                     </div>
                                 )}
 
-                                {/* Name */}
                                 <div className="space-y-2">
                                     <Label htmlFor="name">Full Name *</Label>
                                     <Input
@@ -316,7 +354,6 @@ export default function SignupPage() {
                                     />
                                 </div>
 
-                                {/* Email */}
                                 <div className="space-y-2">
                                     <Label htmlFor="email">Email *</Label>
                                     <Input
@@ -330,7 +367,6 @@ export default function SignupPage() {
                                     />
                                 </div>
 
-                                {/* Phone */}
                                 <div className="space-y-2">
                                     <Label htmlFor="phone">Phone Number *</Label>
                                     <Input
@@ -344,7 +380,6 @@ export default function SignupPage() {
                                     />
                                 </div>
 
-                                {/* Password */}
                                 <div className="space-y-2">
                                     <Label htmlFor="password">Password *</Label>
                                     <Input
@@ -361,9 +396,10 @@ export default function SignupPage() {
                                     </p>
                                 </div>
 
-                                {/* Confirm Password */}
                                 <div className="space-y-2">
-                                    <Label htmlFor="confirmPassword">Confirm Password *</Label>
+                                    <Label htmlFor="confirmPassword">
+                                        Confirm Password *
+                                    </Label>
                                     <Input
                                         id="confirmPassword"
                                         type="password"
@@ -375,7 +411,6 @@ export default function SignupPage() {
                                     />
                                 </div>
 
-                                {/* Submit Button */}
                                 <Button
                                     type="submit"
                                     className="w-full bg-[#576238] hover:bg-[#6b7c3f] text-white font-semibold"
@@ -392,14 +427,16 @@ export default function SignupPage() {
                                     )}
                                 </Button>
 
-                                {/* Terms and Conditions */}
                                 <p className="text-xs text-center text-muted-foreground mt-4">
                                     By creating an account, you agree to our{" "}
                                     <Link href="/terms" className="text-[#576238] hover:underline">
                                         Terms of Service
                                     </Link>{" "}
                                     and{" "}
-                                    <Link href="/privacy" className="text-[#576238] hover:underline">
+                                    <Link
+                                        href="/privacy"
+                                        className="text-[#576238] hover:underline"
+                                    >
                                         Privacy Policy
                                     </Link>
                                 </p>
