@@ -51,7 +51,7 @@ namespace Spark2Scale_.Server.Controllers
                 var auth = await _supabase.Auth.SignUp(email, request.Password);
 
                 // Email confirmation ON → auth.User may be null
-                var authUserId = auth.User?.Id ?? auth.Session?.User?.Id;
+                var authUserId = auth.User?.Id;
 
                 if (authUserId == null)
                 {
@@ -121,7 +121,8 @@ namespace Spark2Scale_.Server.Controllers
             }
             catch (PostgrestException ex)
             {
-                if (ex.Code == "23505")
+                // Check for unique constraint violation (duplicate email)
+                if (ex.Message?.Contains("23505") == true || ex.Message?.Contains("duplicate") == true)
                 {
                     return BadRequest(new
                     {
@@ -213,7 +214,7 @@ namespace Spark2Scale_.Server.Controllers
 
             await _supabase.Auth.ResetPasswordForEmail(
                 request.Email.Trim().ToLower(),
-                redirectTo
+                new AuthOptions { RedirectTo = redirectTo }
             );
 
             return Ok(new
@@ -234,7 +235,9 @@ namespace Spark2Scale_.Server.Controllers
                 return BadRequest(new { message = "Missing reset token." });
             }
 
-            await _supabase.Auth.SetSession(request.AccessToken.Trim());
+            // Set session with access token (refresh token not required for password reset flow)
+            // The access token from the reset link is sufficient
+            await _supabase.Auth.SetSession(request.AccessToken.Trim(), string.Empty, false);
 
             await _supabase.Auth.Update(new UserAttributes
             {
