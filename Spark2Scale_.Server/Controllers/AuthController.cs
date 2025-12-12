@@ -91,7 +91,7 @@ namespace Spark2Scale_.Server.Controllers
                     email = email,
                     fname = names[0],
                     lname = names.Length > 1 ? names[1] : "",
-                    password_hash = HashPassword(req.Password),
+                    //password_hash = HashPassword(req.Password),
                     phone_number = req.Phone,
                     created_at = DateTime.UtcNow
                 });
