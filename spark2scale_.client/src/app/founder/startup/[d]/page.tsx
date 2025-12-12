@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { ArrowLeft, Share2, FolderOpen, Video, Calendar as CalendarIcon, ChevronLeft, ChevronRight, Bell, User, Lightbulb, FileText, BarChart3, Target, RefreshCw, Presentation, Check, AlertCircle, Clock, Link as LinkIcon } from "lucide-react";
+import { ArrowLeft, Share2, FolderOpen, Video, Calendar as CalendarIcon, ChevronLeft, ChevronRight, Bell, User, Lightbulb, FileText, BarChart3, Target, RefreshCw, Presentation, Check, AlertCircle, Clock, Link as LinkIcon, AlertOctagon, Timer } from "lucide-react";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import LegoProgress from "@/components/lego/LegoProgress";
@@ -57,7 +57,7 @@ export default function StartupDashboard() {
     // Meeting & Calendar State
     const [currentMonthDate, setCurrentMonthDate] = useState(new Date());
     const [meetings, setMeetings] = useState<Meeting[]>([]);
-    const [currentUserId, setCurrentUserId] = useState<string>(""); // Needs to be set by your Auth logic
+    const [currentUserId, setCurrentUserId] = useState<string>("");
 
     const [inviteDialogOpen, setInviteDialogOpen] = useState(false);
     const [inviteEmail, setInviteEmail] = useState("");
@@ -73,8 +73,6 @@ export default function StartupDashboard() {
             const cleanId = decodeURIComponent(rawId).replace(/\s/g, '');
 
             // --- MOCK AUTH: REPLACE THIS WITH YOUR ACTUAL AUTH CONTEXT ---
-            // We need the UserID to fetch meetings. 
-            // For now, I'm simulating fetching a user ID. 
             const mockUserId = "3e59c30f-e3d2-43d2-ba48-818e69b7a9fd"; // Replace with real ID
             setCurrentUserId(mockUserId);
 
@@ -173,14 +171,10 @@ export default function StartupDashboard() {
 
         const firstDayOfMonth = new Date(year, month, 1);
         const daysInMonth = new Date(year, month + 1, 0).getDate();
-
-        // 0 = Sunday, 1 = Monday, etc.
         const startDayIndex = firstDayOfMonth.getDay();
 
         const days = [];
-        // Add empty slots for days before the 1st
         for (let i = 0; i < startDayIndex; i++) days.push(null);
-        // Add actual days
         for (let i = 1; i <= daysInMonth; i++) days.push(i);
 
         return days;
@@ -202,32 +196,45 @@ export default function StartupDashboard() {
         });
     };
 
-    // Split meetings into Upcoming and Past
+    // --- SORTING LOGIC START ---
     const now = new Date();
 
     const sortedMeetings = [...meetings].sort((a, b) => {
         return new Date(a.meeting_date).getTime() - new Date(b.meeting_date).getTime();
     });
 
-    const upcomingMeetings = sortedMeetings.filter(m => {
-        // Simple date comparison (ignoring exact time for list, or being precise)
+    // 1. Get ALL upcoming (future or today)
+    const allUpcoming = sortedMeetings.filter(m => {
         const mDate = new Date(m.meeting_date);
-        // Reset times for date-only comparison if preferred, or keep exact
         return mDate >= now || (mDate.getDate() === now.getDate() && mDate.getMonth() === now.getMonth() && mDate.getFullYear() === now.getFullYear());
     });
 
+    // 2. Filter Upcoming: Only ACCEPTED goes to the top list
+    const acceptedUpcoming = allUpcoming.filter(m => m.status === 'accepted');
+
+    // 3. Filter Upcoming: PENDING or CANCELLED or REJECTED
+    const otherUpcoming = allUpcoming.filter(m => m.status !== 'accepted');
+
+    // 4. Past Meetings
     const pastMeetings = sortedMeetings.filter(m => {
         const mDate = new Date(m.meeting_date);
         return mDate < now && !(mDate.getDate() === now.getDate() && mDate.getMonth() === now.getMonth());
-    }).reverse(); // Most recent past first
+    }).reverse();
+
+    // 5. Combine "Other" (Pending/Cancelled) + "Past" into one History/Activity list
+    const otherMeetings = [...otherUpcoming, ...pastMeetings].sort((a, b) => {
+        // Sort descending (newest first) for history list
+        return new Date(b.meeting_date).getTime() - new Date(a.meeting_date).getTime();
+    });
+    // --- SORTING LOGIC END ---
 
     // Color helper
     const getStatusColor = (status: string) => {
         switch (status.toLowerCase()) {
-            case 'accepted': return "bg-[#576238] text-white"; // Greenish
-            case 'pending': return "bg-[#FFD95D] text-[#576238]"; // Yellow
+            case 'accepted': return "bg-[#576238] text-white";
+            case 'pending': return "bg-[#FFD95D] text-[#576238]";
             case 'rejected':
-            case 'canceled': return "bg-red-500 text-white"; // Red
+            case 'canceled': return "bg-red-500 text-white";
             default: return "bg-gray-200 text-gray-600";
         }
     };
@@ -245,13 +252,17 @@ export default function StartupDashboard() {
 
     // --- CALENDAR LOGIC END ---
 
-
     // Invite logic
     const handleSendInvite = () => {
         console.log("Inviting:", inviteEmail, "as", inviteRole);
         setInviteEmail("");
         setInviteRole("contributor");
         setInviteDialogOpen(false);
+    };
+
+    // Handle clicking a card
+    const handleEventClick = () => {
+        router.push('/founder/schedule');
     };
 
     return (
@@ -412,7 +423,7 @@ export default function StartupDashboard() {
                                             <div
                                                 key={index}
                                                 className={`
-                                                    aspect-square flex flex-col items-center justify-center text-sm rounded-lg cursor-pointer transition-all relative 
+                                                    group relative aspect-square flex flex-col items-center justify-center text-sm rounded-lg cursor-pointer transition-all 
                                                     ${!day ? "bg-transparent" : isToday ? "bg-[#576238] text-white font-bold" : hasMeetings ? "bg-[#FFD95D]/30 hover:bg-[#FFD95D]/50" : "hover:bg-[#F0EADC]"}
                                                 `}
                                             >
@@ -422,8 +433,27 @@ export default function StartupDashboard() {
                                                 {hasMeetings && (
                                                     <div className="flex gap-1 mt-1">
                                                         {dayMeetings.slice(0, 3).map((m, i) => (
-                                                            <div key={i} className={`w-1.5 h-1.5 rounded-full ${isToday ? "bg-white" : getDotColor(m.status)}`} title={m.status} />
+                                                            <div key={i} className={`w-1.5 h-1.5 rounded-full ${isToday ? "bg-white" : getDotColor(m.status)}`} />
                                                         ))}
+                                                    </div>
+                                                )}
+
+                                                {/* TOOLTIP ON HOVER */}
+                                                {hasMeetings && (
+                                                    <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 w-48 bg-white border border-gray-200 p-3 rounded-lg shadow-xl opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity z-50">
+                                                        <div className="text-xs font-bold text-[#576238] mb-1 border-b pb-1">
+                                                            {day} {currentMonthDate.toLocaleDateString('en-US', { month: 'short' })}
+                                                        </div>
+                                                        <div className="space-y-1">
+                                                            {dayMeetings.map((m, i) => (
+                                                                <div key={i} className="flex items-center justify-between text-[10px] text-gray-600">
+                                                                    <span className="truncate max-w-[80px] font-medium">{m.with_whom_name}</span>
+                                                                    <span className={`px-1 rounded-sm text-[9px] text-white ${getStatusColor(m.status)}`}>{m.meeting_time.slice(0, 5)}</span>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                        {/* Tooltip arrow */}
+                                                        <div className="absolute top-full left-1/2 -translate-x-1/2 -mt-1 border-4 border-transparent border-t-white"></div>
                                                     </div>
                                                 )}
                                             </div>
@@ -431,21 +461,25 @@ export default function StartupDashboard() {
                                     })}
                                 </div>
 
-                                {/* Meetings List (Upcoming separated) */}
+                                {/* Meetings List Container */}
                                 <div className="mt-8 grid md:grid-cols-2 gap-8 pt-6 border-t">
 
-                                    {/* UPCOMING MEETINGS */}
+                                    {/* COLUMN 1: UPCOMING & ACCEPTED (The actionable ones) */}
                                     <div>
                                         <h5 className="font-bold text-[#576238] mb-3 flex items-center gap-2">
                                             <CalendarIcon className="h-4 w-4" /> Upcoming Events
                                         </h5>
                                         <div className="space-y-3">
-                                            {upcomingMeetings.length === 0 ? (
-                                                <p className="text-sm text-gray-400 italic">No upcoming meetings.</p>
+                                            {acceptedUpcoming.length === 0 ? (
+                                                <p className="text-sm text-gray-400 italic">No upcoming accepted meetings.</p>
                                             ) : (
-                                                upcomingMeetings.slice(0, 4).map((meeting) => (
-                                                    <div key={meeting.meeting_id} className="flex items-start gap-3 p-3 rounded-lg bg-[#F0EADC]/50 border border-[#F0EADC] hover:border-[#576238]/30 transition-all">
-                                                        <div className="text-center min-w-[50px] bg-white rounded-md p-1 border">
+                                                acceptedUpcoming.slice(0, 4).map((meeting) => (
+                                                    <div
+                                                        key={meeting.meeting_id}
+                                                        onClick={handleEventClick} // <-- CLICK REDIRECT
+                                                        className="cursor-pointer flex items-start gap-3 p-3 rounded-lg bg-[#F0EADC]/50 border border-[#F0EADC] hover:border-[#576238]/30 hover:bg-[#F0EADC] transition-all group"
+                                                    >
+                                                        <div className="text-center min-w-[50px] bg-white rounded-md p-1 border group-hover:border-[#576238]/30 transition-colors">
                                                             <div className="text-xs text-red-500 font-bold uppercase">{new Date(meeting.meeting_date).toLocaleDateString('en-US', { month: 'short' })}</div>
                                                             <div className="text-xl font-bold text-[#576238]">{new Date(meeting.meeting_date).getDate()}</div>
                                                         </div>
@@ -461,6 +495,7 @@ export default function StartupDashboard() {
                                                                 <a
                                                                     href={meeting.meeting_link}
                                                                     target="_blank"
+                                                                    onClick={(e) => e.stopPropagation()} // <-- PREVENT REDIRECT WHEN CLICKING JOIN
                                                                     className="inline-flex items-center gap-1.5 px-3 py-1 mt-1 bg-blue-50 text-blue-600 text-xs font-medium rounded-full border border-blue-100 hover:bg-blue-100 transition-colors"
                                                                 >
                                                                     <LinkIcon className="w-3 h-3" />
@@ -478,26 +513,37 @@ export default function StartupDashboard() {
                                         </div>
                                     </div>
 
-                                    {/* PAST MEETINGS (Shown differently/dimmed) */}
+                                    {/* COLUMN 2: ACTIVITY & HISTORY (Pending, Cancelled, Past) */}
                                     <div>
                                         <h5 className="font-bold text-gray-500 mb-3 flex items-center gap-2">
-                                            <RefreshCw className="h-4 w-4" /> Past Events
+                                            <RefreshCw className="h-4 w-4" /> Activity & History
                                         </h5>
-                                        <div className="space-y-2 opacity-75">
-                                            {pastMeetings.length === 0 ? (
-                                                <p className="text-sm text-gray-400 italic">No past history.</p>
+                                        <div className="space-y-2 opacity-90">
+                                            {otherMeetings.length === 0 ? (
+                                                <p className="text-sm text-gray-400 italic">No activity history.</p>
                                             ) : (
-                                                pastMeetings.slice(0, 3).map((meeting) => (
-                                                    <div key={meeting.meeting_id} className="flex items-center gap-3 p-2 rounded-lg hover:bg-gray-50 transition-colors">
-                                                        <div className="text-sm font-bold text-gray-400">
-                                                            {new Date(meeting.meeting_date).toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' })}
+                                                otherMeetings.slice(0, 4).map((meeting) => {
+                                                    const isPast = new Date(meeting.meeting_date) < now && meeting.status === 'accepted';
+                                                    return (
+                                                        <div key={meeting.meeting_id} className="flex items-center gap-3 p-2 rounded-lg hover:bg-gray-50 transition-colors border border-transparent hover:border-gray-100">
+                                                            <div className="text-xs font-bold text-gray-400 min-w-[40px]">
+                                                                {new Date(meeting.meeting_date).toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' })}
+                                                            </div>
+                                                            <div className="flex-grow">
+                                                                <div className="text-sm text-gray-700 font-medium">
+                                                                    {meeting.with_whom_name}
+                                                                </div>
+                                                                <div className="flex items-center gap-2 text-[10px] text-gray-400">
+                                                                    {meeting.status === 'pending' && <Timer className="w-3 h-3" />}
+                                                                    {meeting.status === 'canceled' && <AlertOctagon className="w-3 h-3" />}
+                                                                    <span className="capitalize">{meeting.status}</span>
+                                                                    {isPast && <span>• Past Event</span>}
+                                                                </div>
+                                                            </div>
+                                                            <div className={`w-2 h-2 rounded-full ${getDotColor(meeting.status)}`} />
                                                         </div>
-                                                        <div className="flex-grow text-sm text-gray-600">
-                                                            {meeting.with_whom_name}
-                                                        </div>
-                                                        <div className={`w-2 h-2 rounded-full ${getDotColor(meeting.status)}`} />
-                                                    </div>
-                                                ))
+                                                    );
+                                                })
                                             )}
                                         </div>
                                     </div>
