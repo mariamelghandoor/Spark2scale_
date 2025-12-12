@@ -104,7 +104,6 @@ namespace Spark2Scale_.Server.Controllers
             return Ok(dtos);
         }
 
-        // POST: api/documents/upload
         [HttpPost("upload")]
         public async Task<IActionResult> UploadDocument([FromForm] DocumentUploadDto form)
         {
@@ -113,14 +112,16 @@ namespace Spark2Scale_.Server.Controllers
 
             try
             {
+                // 1. Upload to Storage
                 var fileName = $"{sId}/{DateTime.Now.Ticks}_{form.File.FileName}";
                 byte[] fileBytes;
                 using (var ms = new MemoryStream()) { await form.File.CopyToAsync(ms); fileBytes = ms.ToArray(); }
 
                 await _supabase.Storage.From("startup-docs").Upload(fileBytes, fileName);
                 var publicUrl = _supabase.Storage.From("startup-docs").GetPublicUrl(fileName);
+                var now = DateTime.UtcNow;
 
-                // 1. UPDATE EXISTING (Versioning)
+                // 2. SCENARIO A: Update Existing (Logic unchanged)
                 if (!string.IsNullOrEmpty(form.DocumentId) && Guid.TryParse(form.DocumentId, out Guid dId))
                 {
                     var existingRes = await _supabase.From<Document>().Where(x => x.Did == dId).Get();
@@ -130,63 +131,69 @@ namespace Spark2Scale_.Server.Controllers
                     {
                         int newVer = currentDoc.CurrentVersion + 1;
 
+                        // Update Parent
+                        currentDoc.CurrentPath = publicUrl;
+                        currentDoc.CurrentVersion = newVer;
+                        currentDoc.UpdatedAt = now;
+                        currentDoc.IsCurrent = true;
+                        await _supabase.From<Document>().Upsert(currentDoc);
+
+                        // Insert Child (Version)
                         await _supabase.From<DocumentVersion>().Insert(new DocumentVersion
                         {
                             DocumentId = dId,
                             StartupId = sId,
                             VersionNumber = newVer,
                             Path = publicUrl,
-                            CreatedAt = DateTime.UtcNow,
+                            CreatedAt = now,
                             GeneratedBy = "manual"
                         });
 
-                        currentDoc.CurrentPath = publicUrl;
-                        currentDoc.CurrentVersion = newVer;
-                        currentDoc.UpdatedAt = DateTime.UtcNow;
-
-                        // FIX: Ensure it stays visible if it was archived
-                        currentDoc.IsCurrent = true;
-
-                        await _supabase.From<Document>().Upsert(currentDoc);
-
-                        return Ok(new { message = "Version updated", version = newVer, url = publicUrl });
+                        return Ok(new { message = "Version updated", version = newVer });
                     }
                 }
 
-                // 2. CREATE NEW
+                // 3. SCENARIO B: Create New (FIXED)
                 var newDoc = new Document
                 {
-                    Did = Guid.NewGuid(),
+                    // Do NOT set Did here. Let the DB generate it.
                     StartupId = sId,
                     DocumentName = form.DocName,
                     Type = form.Type,
                     CurrentPath = publicUrl,
                     CurrentVersion = 1,
                     CanAccess = 1,
-                    UpdatedAt = DateTime.UtcNow,
-                    CreatedAt = DateTime.UtcNow,
-
-                    // FIX: CRITICAL CHANGE HERE
+                    UpdatedAt = now,
+                    CreatedAt = now,
                     IsCurrent = true
                 };
 
-                var inserted = await _supabase.From<Document>().Insert(newDoc);
-                var createdDid = inserted.Models.First().Did;
+                // Insert Parent and FORCE return of the new row data
+                var insertOptions = new Supabase.Postgrest.QueryOptions { Returning = Supabase.Postgrest.QueryOptions.ReturnType.Representation };
+                var inserted = await _supabase.From<Document>().Insert(newDoc, insertOptions);
 
+                // Safety check to ensure we got the ID back
+                var createdDoc = inserted.Models.FirstOrDefault();
+                if (createdDoc == null) throw new Exception("Database insert failed to return the new ID.");
+
+                var realDbId = createdDoc.Did; // <--- Capture the REAL ID from DB
+
+                // Insert Child using the Real ID
                 await _supabase.From<DocumentVersion>().Insert(new DocumentVersion
                 {
-                    DocumentId = createdDid,
+                    DocumentId = realDbId,
                     StartupId = sId,
                     VersionNumber = 1,
                     Path = publicUrl,
-                    CreatedAt = DateTime.UtcNow,
+                    CreatedAt = now,
                     GeneratedBy = "manual"
                 });
 
-                return Ok(new { message = "File created", version = 1, url = publicUrl });
+                return Ok(new { message = "File created", version = 1 });
             }
             catch (Exception ex)
             {
+                // Log the inner exception for more detail if needed
                 return StatusCode(500, $"Upload failed: {ex.Message}");
             }
         }
