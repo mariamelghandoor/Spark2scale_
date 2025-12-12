@@ -72,22 +72,101 @@ export default function AuthCallbackPage() {
                     }
                     localStorage.setItem("user", JSON.stringify(data.user));
 
-                    setStatus({
-                        type: "success",
-                        message: "Email verified successfully! Redirecting to dashboard...",
-                    });
+                    // Get full user data from /me endpoint to ensure we have user_type
+                    try {
+                        const meResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/Auth/me`, {
+                            method: "GET",
+                            headers: {
+                                "Authorization": `Bearer ${data.token || finalAccessToken}`,
+                                "Content-Type": "application/json",
+                            },
+                        });
 
-                    // Redirect based on user type or needsProfile
-                    setTimeout(() => {
-                        if (data.user.needsProfile) {
-                            // Profile not created yet, redirect to complete profile
-                            router.push("/signup?complete=true");
-                        } else if (data.user.userType) {
-                            router.push(`/${data.user.userType}/dashboard`);
+                        if (meResponse.ok) {
+                            const meData = await meResponse.json();
+                            // Update localStorage with full user data
+                            localStorage.setItem("user", JSON.stringify(meData.user));
+                            localStorage.setItem("roleData", JSON.stringify(meData.roleData || null));
+
+                            // Get user type from full profile data
+                            const userType = meData.user?.user_type || data.user.userType || "";
+
+                            setStatus({
+                                type: "success",
+                                message: "Email verified successfully! Redirecting...",
+                            });
+
+                            // Redirect based on user type
+                            setTimeout(() => {
+                                if (meData.user?.needsProfile) {
+                                    // Profile not created yet, redirect to complete profile
+                                    router.push("/signup?complete=true");
+                                } else if (userType) {
+                                    const userTypeLower = userType.toLowerCase();
+                                    if (userTypeLower === "founder") {
+                                        router.push("/founder/dashboard");
+                                    } else if (userTypeLower === "contributor") {
+                                        router.push("/contributor/dashboard");
+                                    } else if (userTypeLower === "investor") {
+                                        router.push("/investor/feed");
+                                    } else {
+                                        router.push("/signin");
+                                    }
+                                } else {
+                                    router.push("/signin");
+                                }
+                            }, 2000);
                         } else {
-                            router.push("/signin");
+                            // Fallback to using data from verify-email response
+                            const userType = data.user.userType || "";
+                            setStatus({
+                                type: "success",
+                                message: "Email verified successfully! Redirecting...",
+                            });
+
+                            setTimeout(() => {
+                                if (userType) {
+                                    const userTypeLower = userType.toLowerCase();
+                                    if (userTypeLower === "founder") {
+                                        router.push("/founder/dashboard");
+                                    } else if (userTypeLower === "contributor") {
+                                        router.push("/contributor/dashboard");
+                                    } else if (userTypeLower === "investor") {
+                                        router.push("/investor/feed");
+                                    } else {
+                                        router.push("/signin");
+                                    }
+                                } else {
+                                    router.push("/signin");
+                                }
+                            }, 2000);
                         }
-                    }, 2000);
+                    } catch (meError) {
+                        console.error("Error fetching user data:", meError);
+                        // Fallback to using data from verify-email response
+                        const userType = data.user.userType || "";
+                        setStatus({
+                            type: "success",
+                            message: "Email verified successfully! Redirecting...",
+                        });
+
+                        setTimeout(() => {
+                            if (userType) {
+                                const userTypeLower = userType.toLowerCase();
+                                if (userTypeLower === "founder") {
+                                    router.push("/founder/dashboard");
+                                } else if (userTypeLower === "contributor") {
+                                    router.push("/contributor/dashboard");
+                                } else if (userTypeLower === "investor") {
+                                    router.push("/investor/feed");
+                                } else {
+                                    router.push("/signin");
+                                }
+                            } else {
+                                router.push("/signin");
+                            }
+                        }, 2000);
+                    }
                 } else {
                     setStatus({
                         type: "error",

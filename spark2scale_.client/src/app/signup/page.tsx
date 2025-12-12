@@ -144,7 +144,7 @@ export default function SignupPage() {
                         type: "info",
                         message: "Registration successful! ✅",
                         details:
-                            "Please check your email to confirm your account before logging in. The confirmation link may take a few minutes to arrive.",
+                            `Please check your email (${formData.email}) to verify your account. The confirmation link may take a few minutes to arrive.`,
                     });
 
                     setFormData({
@@ -157,9 +157,7 @@ export default function SignupPage() {
                         tags: [],
                     });
 
-                    setTimeout(() => {
-                        router.push("/signin");
-                    }, 8000);
+                    // NO auto-redirect - user stays on page to see the message
                 } else {
                     setStatus({
                         type: "success",
@@ -167,9 +165,7 @@ export default function SignupPage() {
                         details: "You can now sign in to your account.",
                     });
 
-                    setTimeout(() => {
-                        router.push("/signin");
-                    }, 3000);
+                    // NO auto-redirect - user can manually go to sign in if needed
                 }
             } else {
                 setStatus({
@@ -263,6 +259,9 @@ export default function SignupPage() {
                                     {status.type === "success" && (
                                         <CheckCircle className="h-4 w-4 mr-2" />
                                     )}
+                                    {status.type === "info" && (
+                                        <CheckCircle className="h-4 w-4 mr-2 text-green-600" />
+                                    )}
                                     {status.type === "error" && (
                                         <AlertCircle className="h-4 w-4 mr-2" />
                                     )}
@@ -279,7 +278,9 @@ export default function SignupPage() {
                                 </Alert>
                             )}
 
-                            <form onSubmit={handleSubmit} className="space-y-4">
+                            {/* Hide form when success or info message is shown */}
+                            {status.type !== "success" && status.type !== "info" && (
+                                <form onSubmit={handleSubmit} className="space-y-4">
                                 <div>
                                     <Label className="mb-2 block">I am a:</Label>
                                     <div className="grid grid-cols-3 gap-2">
@@ -439,6 +440,22 @@ export default function SignupPage() {
                                     </Link>
                                 </p>
                             </form>
+                            )}
+
+                            {/* Show sign in link when form is hidden */}
+                            {(status.type === "success" || status.type === "info") && (
+                                <div className="text-center mt-4">
+                                    <p className="text-sm text-muted-foreground">
+                                        Already have an account?{" "}
+                                        <Link
+                                            href="/signin"
+                                            className="text-[#576238] hover:text-[#6b7c3f] font-semibold underline-offset-4 hover:underline"
+                                        >
+                                            Sign in
+                                        </Link>
+                                    </p>
+                                </div>
+                            )}
                         </CardContent>
 
                         <CardFooter className="flex justify-center border-t pt-6">
