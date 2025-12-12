@@ -3,15 +3,23 @@
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { motion } from "framer-motion";
+import NotificationsDropdown from "@/components/shared/NotificationsDropdown";
+import { usePathname } from "next/navigation";
 
 export default function Navbar() {
+    const pathname = usePathname();
+
+    const showNotifications = pathname?.startsWith("/founder") ||
+        pathname?.startsWith("/investor") ||
+        pathname?.startsWith("/contributor");
+
     return (
         <motion.nav
             initial={{ y: -20, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
             className="sticky top-0 z-50 w-full border-b bg-white/80 backdrop-blur-lg"
         >
-            <div className="container flex h-16 items-center justify-between">
+            <div className="w-full flex h-16 items-center justify-between px-4 md:px-6 lg:px-8">
                 <Link href="/" className="flex items-center space-x-2">
                     <div className="flex items-center gap-2">
                         <div className="w-8 h-8 bg-[#576238] rounded-md flex items-center justify-center">
@@ -24,12 +32,16 @@ export default function Navbar() {
                     </div>
                 </Link>
 
-                <div className="flex items-center gap-4">
+                <div className="flex items-center gap-3 md:gap-4">
                     <Link href="/plans">
-                        <Button variant="outline" className="font-semibold">
+                        <Button variant="ghost" className="font-semibold text-[#576238]">
                             Plans
                         </Button>
                     </Link>
+
+                    {/* Simplified: Removed the wrapper div that might block clicks */}
+                    {showNotifications && <NotificationsDropdown />}
+
                     <Link href="/signup">
                         <Button
                             variant="default"
@@ -39,7 +51,7 @@ export default function Navbar() {
                         </Button>
                     </Link>
                     <Link href="/contact">
-                        <Button variant="outline" className="font-semibold">
+                        <Button variant="outline" className="font-semibold border-[#576238] text-[#576238]">
                             Contact Us
                         </Button>
                     </Link>

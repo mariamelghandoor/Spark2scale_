@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -23,6 +23,7 @@ export default function ContributorDashboard() {
             id: 2,
             name: "HealthAI Platform",
             region: "Europe",
+
             field: "Healthcare Tech",
             invitedBy: "Maria Santos",
             role: "Contributor",
@@ -36,7 +37,7 @@ export default function ContributorDashboard() {
                 <div className="container mx-auto px-4 py-4 flex justify-between items-center">
                     <div>
                         <h1 className="text-2xl font-bold text-[#576238]">
-                            Hello {userName} ??
+                            Hello {userName} 👋
                         </h1>
                         <p className="text-sm text-muted-foreground">Contributor Dashboard</p>
                     </div>
@@ -87,7 +88,7 @@ export default function ContributorDashboard() {
                                                     {startup.name}
                                                 </CardTitle>
                                                 <CardDescription>
-                                                    {startup.field} � {startup.region}
+                                                    {startup.field} • {startup.region}
                                                 </CardDescription>
                                             </div>
                                             <span className="text-xs px-2 py-1 rounded-full bg-[#FFD95D] text-[#576238] font-semibold">
@@ -126,7 +127,7 @@ export default function ContributorDashboard() {
                                                 size="sm"
                                                 className="w-full bg-[#576238] hover:bg-[#6b7c3f] text-white"
                                             >
-                                                View Resources ?
+                                                View Resources →
                                             </Button>
                                         </div>
                                     </CardContent>
