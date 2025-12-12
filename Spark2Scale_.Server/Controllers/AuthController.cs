@@ -5,6 +5,8 @@ using Supabase;
 using Supabase.Gotrue;
 using Supabase.Gotrue.Exceptions;
 using Supabase.Postgrest.Exceptions;
+using System;
+using System.Linq;
 
 using PublicUser = Spark2Scale_.Server.Models.User;
 
