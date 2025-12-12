@@ -89,7 +89,7 @@
                         // 2️⃣ Create profile (check if it already exists)
                         var existingProfile = await _supabase
                             .From<PublicUser>()
-                            .Filter("uid", Supabase.Postgrest.Constants.Operator.Equals, uid)
+                            .Filter("uid", Supabase.Postgrest.Constants.Operator.Equals, uid.ToString())
                             .Get();
 
                         if (existingProfile.Models.Count == 0)
@@ -116,7 +116,7 @@
                                 case "founder":
                                     var founderCheck = await _supabase
                                         .From<Founder>()
-                                        .Filter("user_id", Supabase.Postgrest.Constants.Operator.Equals, uid)
+                                        .Filter("user_id", Supabase.Postgrest.Constants.Operator.Equals, uid.ToString())
                                         .Get();
                                     if (founderCheck.Models.Count == 0)
                                     {
@@ -127,7 +127,7 @@
                                 case "investor":
                                     var investorCheck = await _supabase
                                         .From<Investor>()
-                                        .Filter("user_id", Supabase.Postgrest.Constants.Operator.Equals, uid)
+                                        .Filter("user_id", Supabase.Postgrest.Constants.Operator.Equals, uid.ToString())
                                         .Get();
                                     if (investorCheck.Models.Count == 0)
                                     {
@@ -142,7 +142,7 @@
                                 case "contributor":
                                     var contributorCheck = await _supabase
                                         .From<Contributor>()
-                                        .Filter("user_id", Supabase.Postgrest.Constants.Operator.Equals, uid)
+                                        .Filter("user_id", Supabase.Postgrest.Constants.Operator.Equals, uid.ToString())
                                         .Get();
                                     if (contributorCheck.Models.Count == 0)
                                     {
@@ -218,7 +218,7 @@
 
                     var profileResult = await _supabase
                         .From<PublicUser>()
-                        .Filter("uid", Supabase.Postgrest.Constants.Operator.Equals, uid)
+                        .Filter("uid", Supabase.Postgrest.Constants.Operator.Equals, uid.ToString())
                         .Get();
 
                     var profile = profileResult.Models.FirstOrDefault();
@@ -369,7 +369,7 @@
                 // Check if profile already exists
                 var profileResult = await _supabase
                     .From<PublicUser>()
-                    .Filter("uid", Supabase.Postgrest.Constants.Operator.Equals, uid)
+                    .Filter("uid", Supabase.Postgrest.Constants.Operator.Equals, uid.ToString())
                     .Get();
 
                 var existingProfile = profileResult.Models.FirstOrDefault();
@@ -404,7 +404,7 @@
                             // Profile might have been created by another process
                             var retryProfile = await _supabase
                                 .From<PublicUser>()
-                                .Filter("uid", Supabase.Postgrest.Constants.Operator.Equals, uid)
+                                .Filter("uid", Supabase.Postgrest.Constants.Operator.Equals, uid.ToString())
                                 .Get();
                             existingProfile = retryProfile.Models.FirstOrDefault();
                         }
@@ -413,18 +413,18 @@
                     // Ensure default role exists
                     var founderCheck = await _supabase
                         .From<Founder>()
-                        .Filter("user_id", Supabase.Postgrest.Constants.Operator.Equals, uid)
+                        .Filter("user_id", Supabase.Postgrest.Constants.Operator.Equals, uid.ToString())
                         .Get();
                     if (founderCheck.Models.Count == 0)
                     {
                         // Check other roles too
                         var investorCheck = await _supabase
                             .From<Investor>()
-                            .Filter("user_id", Supabase.Postgrest.Constants.Operator.Equals, uid)
+                            .Filter("user_id", Supabase.Postgrest.Constants.Operator.Equals, uid.ToString())
                             .Get();
                         var contributorCheck = await _supabase
                             .From<Contributor>()
-                            .Filter("user_id", Supabase.Postgrest.Constants.Operator.Equals, uid)
+                            .Filter("user_id", Supabase.Postgrest.Constants.Operator.Equals, uid.ToString())
                             .Get();
 
                         if (investorCheck.Models.Count == 0 && contributorCheck.Models.Count == 0)
