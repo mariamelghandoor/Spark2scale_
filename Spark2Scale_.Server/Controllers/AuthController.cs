@@ -67,28 +67,17 @@
                     else
                     {
                         // Email confirmation ON - user exists but needs verification
-                        // Query auth.users by email to get the user ID (using service role key)
+                        // When email confirmation is required, auth.User is null
+                        // We can't get the user ID until email is verified
+                        // Profile will be created in verify-email callback
                         requiresEmailConfirmation = true;
                         
-                        // Try to get user from session if available
-                        if (auth.Session != null && auth.Session.User != null)
+                        // Return success - profile will be created after email verification
+                        return Ok(new
                         {
-                            authUserId = auth.Session.User.Id;
-                        }
-                        else
-                        {
-                            // If session is null, user was created but we can't get ID yet
-                            // Store signup data in a temporary table to use during email verification
-                            // We'll use the email as the key to retrieve it later
-                            // For now, we'll create profile in verify-email callback
-                            // Store signup data in a simple key-value table or use email as identifier
-                            // Since we can't easily query auth.users, we'll handle this in verify-email
-                            return Ok(new
-                            {
-                                message = "Signup successful. Please verify your email.",
-                                requiresConfirmation = true
-                            });
-                        }
+                            message = "Signup successful. Please verify your email.",
+                            requiresConfirmation = true
+                        });
                     }
 
                     // If we have user ID, create profile immediately
