@@ -120,8 +120,6 @@ namespace Spark2Scale_.Server.Controllers
 
             try
             {
-                // We use RPC (Remote Procedure Call) to execute the SQL function we created.
-                // This ensures the Update, Archiving, and Reset happen together safely.
 
                 var parameters = new Dictionary<string, object>
                 {
