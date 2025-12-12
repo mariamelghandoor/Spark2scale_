@@ -71,11 +71,7 @@ export default function ResetPasswordPage() {
             if (refreshTokenFromHash) {
                 setRefreshToken(refreshTokenFromHash);
             }
-            setStatus({
-                type: "info",
-                message: "Reset token detected",
-                details: "Enter your new password below.",
-            });
+            // Token detected - no message needed, form is ready to use
         }, 0);
     }, []);
 
