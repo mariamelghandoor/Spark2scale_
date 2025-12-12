@@ -139,7 +139,16 @@ export default function SignupPage() {
             }));
 
             if (response.ok) {
-                if (data.requiresConfirmation) {
+                // Always show email verification message (email confirmation is always required)
+                // Only show "success" message if explicitly told no confirmation is needed
+                if (data.requiresConfirmation === false) {
+                    setStatus({
+                        type: "success",
+                        message: "Account created successfully! 🎉",
+                        details: "You can now sign in to your account.",
+                    });
+                } else {
+                    // Default: Show email verification message
                     setStatus({
                         type: "info",
                         message: "Registration successful! ✅",
@@ -156,17 +165,9 @@ export default function SignupPage() {
                         user_type: "founder",
                         tags: [],
                     });
-
-                    // NO auto-redirect - user stays on page to see the message
-                } else {
-                    setStatus({
-                        type: "success",
-                        message: "Account created successfully! 🎉",
-                        details: "You can now sign in to your account.",
-                    });
-
-                    // NO auto-redirect - user can manually go to sign in if needed
                 }
+
+                // NO auto-redirect - user stays on page to see the message
             } else {
                 setStatus({
                     type: "error",
@@ -254,10 +255,14 @@ export default function SignupPage() {
                                                 ? "default"
                                                 : "default"
                                     }
-                                    className="mb-4"
+                                    className={`mb-4 ${
+                                        status.type === "info"
+                                            ? "border-green-500 bg-green-50 dark:bg-green-950"
+                                            : ""
+                                    }`}
                                 >
                                     {status.type === "success" && (
-                                        <CheckCircle className="h-4 w-4 mr-2" />
+                                        <CheckCircle className="h-4 w-4 mr-2 text-green-600" />
                                     )}
                                     {status.type === "info" && (
                                         <CheckCircle className="h-4 w-4 mr-2 text-green-600" />
@@ -265,11 +270,17 @@ export default function SignupPage() {
                                     {status.type === "error" && (
                                         <AlertCircle className="h-4 w-4 mr-2" />
                                     )}
-                                    <AlertDescription>
+                                    <AlertDescription
+                                        className={
+                                            status.type === "info"
+                                                ? "text-green-800 dark:text-green-200"
+                                                : ""
+                                        }
+                                    >
                                         <div>
-                                            <strong>{status.message}</strong>
+                                            <strong className="text-base">{status.message}</strong>
                                             {status.details && (
-                                                <p className="mt-1 text-sm opacity-90">
+                                                <p className="mt-2 text-sm opacity-90">
                                                     {status.details}
                                                 </p>
                                             )}
