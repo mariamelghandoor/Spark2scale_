@@ -1,3 +1,4 @@
+using Spark2Scale_.Server.Services;
 using Supabase;
 
 // 1. Load the .env file
@@ -46,6 +47,7 @@ await supabase.InitializeAsync();
 // Register as Singleton (One instance for the whole app)
 builder.Services.AddSingleton(supabase);
 
+builder.Services.AddTransient<EmailService>();
 var app = builder.Build();
 
 app.UseDefaultFiles();
