@@ -20,8 +20,8 @@ namespace Spark2Scale_.Server.Models
         [Column("email")]
         public string email { get; set; } = string.Empty;
 
-        [Column("password_hash")]
-        public string password_hash { get; set; } = string.Empty;
+        // REMOVED: [Column("password_hash")] to rely solely on Supabase Auth (GoTrue)
+        // public string password_hash { get; set; } = string.Empty;
 
         [Column("phone_number")]
         public string phone_number { get; set; } = string.Empty;

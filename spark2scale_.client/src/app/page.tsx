@@ -7,8 +7,22 @@ import Link from "next/link";
 import Navbar from "@/components/shared/Navbar";
 import LegoProgress from "@/components/lego/LegoProgress";
 import { Check } from "lucide-react";
+import { useEffect } from "react";
+import { useRouter } from "next/navigation";
 
 export default function Home() {
+    const router = useRouter();
+
+    // Handle email verification redirect from Supabase
+    useEffect(() => {
+        // Check if we have access_token in URL hash (Supabase email verification)
+        const hash = window.location.hash.replace("#", "");
+        if (hash.includes("access_token")) {
+            // Redirect to callback page to handle verification
+            router.push("/auth/callback" + window.location.hash);
+            return;
+        }
+    }, [router]);
     const plans = [
         {
             name: "Starter",

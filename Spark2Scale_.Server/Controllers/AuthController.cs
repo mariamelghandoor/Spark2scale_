@@ -92,41 +92,88 @@
                             .Filter("uid", Supabase.Postgrest.Constants.Operator.Equals, uid.ToString())
                             .Get();
 
-                        if (existingProfile.Models.Count == 0)
+                        // Check if profile exists or needs update
+                        PublicUser? finalProfile = existingProfile;
+                        string userType = request.UserType.ToLower();
+                        
+                        if (existingProfile == null || string.IsNullOrEmpty(existingProfile.fname))
                         {
-                            var profile = new PublicUser
+                            if (existingProfile == null)
                             {
-                                uid = uid,
-                                fname = fname,
-                                lname = lname,
-                                email = email,
-                                phone_number = request.Phone ?? "",
-                                address_region = request.AddressRegion ?? "",
-                                avatar_url = "",
-                                created_at = DateTime.UtcNow,
-                                user_type = request.UserType.ToLower()
-                            };
+                                // Create new profile
+                                var profile = new PublicUser
+                                {
+                                    uid = uid,
+                                    fname = fname,
+                                    lname = lname,
+                                    email = email,
+                                    phone_number = request.Phone ?? "",
+                                    address_region = request.AddressRegion ?? "",
+                                    avatar_url = "",
+                                    created_at = DateTime.UtcNow,
+                                    user_type = request.UserType.ToLower()
+                                };
 
-                            try
-                            {
-                                var insertResult = await _supabase.From<PublicUser>().Insert(profile);
-                                Console.WriteLine($"Profile created successfully for user {uid}");
+                                try
+                                {
+                                    var insertResult = await _supabase.From<PublicUser>().Insert(profile);
+                                    Console.WriteLine($"Profile created successfully for user {uid} with name: {fname} {lname}");
+                                    finalProfile = profile;
+                                }
+                                catch (PostgrestException ex)
+                                {
+                                    // If insert fails, try to update existing profile using Upsert
+                                    Console.WriteLine($"Profile insert failed: {ex.Message}. Attempting upsert...");
+                                    try
+                                    {
+                                        // Use Upsert which will update if exists, insert if not
+                                        await _supabase.From<PublicUser>().Upsert(profile);
+                                        Console.WriteLine($"Profile upserted successfully for user {uid}");
+                                        finalProfile = profile;
+                                    }
+                                    catch (Exception updateEx)
+                                    {
+                                        Console.WriteLine($"Profile upsert also failed: {updateEx.Message}");
+                                        throw; // Re-throw if both insert and upsert fail
+                                    }
+                                }
+                                catch (Exception ex)
+                                {
+                                    Console.WriteLine($"Unexpected error creating profile: {ex.Message}");
+                                    throw; // Re-throw unexpected errors
+                                }
                             }
-                            catch (PostgrestException ex)
+                            else
                             {
-                                // If insert fails (e.g., profile already exists), log and continue
-                                Console.WriteLine($"Profile insert warning: {ex.Message}. Profile may already exist.");
-                                // Don't throw - profile might have been created by another process
+                                // Profile exists but has NULL values - update it using Upsert
+                                try
+                                {
+                                    // Update existing profile with signup data
+                                    existingProfile.fname = fname;
+                                    existingProfile.lname = lname;
+                                    existingProfile.phone_number = request.Phone ?? "";
+                                    existingProfile.address_region = request.AddressRegion ?? "";
+                                    existingProfile.user_type = request.UserType.ToLower();
+                                    
+                                    await _supabase.From<PublicUser>().Upsert(existingProfile);
+                                    Console.WriteLine($"Profile updated with signup data for user {uid}");
+                                    finalProfile = existingProfile;
+                                }
+                                catch (Exception updateEx)
+                                {
+                                    Console.WriteLine($"Failed to update existing profile: {updateEx.Message}");
+                                    // Don't throw - profile exists, just missing some data
+                                    finalProfile = existingProfile;
+                                }
                             }
-                            catch (Exception ex)
-                            {
-                                Console.WriteLine($"Unexpected error creating profile: {ex.Message}");
-                                throw; // Re-throw unexpected errors
-                            }
+                        }
 
-                            // 3️⃣ Role table (check if it already exists)
-                            var roleExists = false;
-                            switch (profile.user_type)
+                        // 3️⃣ Role table (check if it already exists)
+                        if (finalProfile != null)
+                        {
+                            userType = finalProfile.user_type;
+                            
+                            switch (userType)
                             {
                                 case "founder":
                                     var founderCheck = await _supabase
