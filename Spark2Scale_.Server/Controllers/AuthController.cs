@@ -100,14 +100,29 @@
                                 fname = fname,
                                 lname = lname,
                                 email = email,
-                                phone_number = request.Phone,
+                                phone_number = request.Phone ?? "",
                                 address_region = request.AddressRegion ?? "",
                                 avatar_url = "",
                                 created_at = DateTime.UtcNow,
                                 user_type = request.UserType.ToLower()
                             };
 
-                            await _supabase.From<PublicUser>().Insert(profile);
+                            try
+                            {
+                                var insertResult = await _supabase.From<PublicUser>().Insert(profile);
+                                Console.WriteLine($"Profile created successfully for user {uid}");
+                            }
+                            catch (PostgrestException ex)
+                            {
+                                // If insert fails (e.g., profile already exists), log and continue
+                                Console.WriteLine($"Profile insert warning: {ex.Message}. Profile may already exist.");
+                                // Don't throw - profile might have been created by another process
+                            }
+                            catch (Exception ex)
+                            {
+                                Console.WriteLine($"Unexpected error creating profile: {ex.Message}");
+                                throw; // Re-throw unexpected errors
+                            }
 
                             // 3️⃣ Role table (check if it already exists)
                             var roleExists = false;
