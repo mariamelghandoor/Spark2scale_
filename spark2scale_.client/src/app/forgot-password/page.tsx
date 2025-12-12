@@ -39,7 +39,7 @@ export default function ForgotPasswordPage() {
         setStatus({ type: null, message: "" });
 
         try {
-            const response = await fetch("/api/Auth/forgot-password", {
+            const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/Auth/forgot-password`, {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",

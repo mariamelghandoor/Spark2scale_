@@ -65,7 +65,7 @@ export default function SigninPage() {
         setStatus({ type: null, message: "" });
 
         try {
-            const response = await fetch("/api/Auth/signin", {
+            const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/Auth/signin`, {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
@@ -77,37 +77,33 @@ export default function SigninPage() {
             });
 
             const data: ApiResponse = await response.json();
-
             if (response.ok && data.token && data.user) {
                 setStatus({
                     type: "success",
                     message: "Login successful! Redirecting...",
                 });
 
-                // Save auth info
                 localStorage.setItem("auth_token", data.token);
                 localStorage.setItem("user", JSON.stringify(data.user));
 
+                const userType = data.user.userType; 
+
                 setTimeout(() => {
-                    const hasProfile = data.user?.hasProfile;
-
-                    if (!hasProfile) {
-                        // No profile yet -> go complete profile
-                        router.push("/complete-profile");
-                        return;
-                    }
-
-                    const userType = data.user?.userType;
-
-                    if (userType === "founder") {
-                        router.push("/founder/dashboard");
-                    } else if (userType === "investor") {
-                        router.push("/investor/dashboard");
-                    } else if (userType === "contributor") {
-                        router.push("/contributor/dashboard");
-                    } else {
-                        // Fallback if something is missing
-                        router.push("/complete-profile");
+                    switch (userType) {
+                        case "founder":
+                            router.push("/founder/dashboard");
+                            break;
+                        case "investor":
+                            router.push("/investor/dashboard");
+                            break;
+                        case "contributor":
+                            router.push("/contributor/dashboard");
+                            break;
+                        default:
+                            setStatus({
+                                type: "error",
+                                message: "Invalid account role.",
+                            });
                     }
                 }, 1500);
             } else {

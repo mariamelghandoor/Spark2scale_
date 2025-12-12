@@ -117,7 +117,7 @@ export default function ResetPasswordPage() {
                 confirmPassword: formData.confirmPassword,
             };
 
-            const response = await fetch("/api/Auth/reset-password", {
+            const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/Auth/reset-password`, {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",

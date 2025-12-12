@@ -116,7 +116,7 @@ export default function SignupPage() {
         setStatus({ type: null, message: "" });
 
         try {
-            const response = await fetch(`${API_BASE_URL}/api/Auth/signup`, {
+            const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/Auth/signup`, {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
