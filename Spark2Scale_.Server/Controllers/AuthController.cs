@@ -47,37 +47,85 @@ namespace Spark2Scale_.Server.Controllers
         // 1) Creates user in Supabase Auth (auth.users)
         // 2) Supabase sends verification email (if configured)
         // 3) We DO NOT touch public.users here.
+        /// <summary>
+        /// Creates an auth user AND full profile in ONE step.
+        /// Sends verification email automatically.
+        /// </summary>
         [HttpPost("signup")]
-        public async Task<IActionResult> SignUp([FromBody] SignUpRequest request)
+        public async Task<IActionResult> SignUp([FromBody] FullSignUpRequest request)
         {
             if (request == null ||
                 string.IsNullOrWhiteSpace(request.Email) ||
                 string.IsNullOrWhiteSpace(request.Password) ||
                 request.Password != request.ConfirmPassword)
             {
-                return BadRequest(new { message = "Invalid data or passwords do not match." });
+                return BadRequest(new { message = "Invalid signup data." });
             }
 
             try
             {
                 var email = request.Email.Trim().ToLower();
 
-                // Create auth user
+                // 1) Create auth.users entry
                 var authResponse = await _supabase.Auth.SignUp(email, request.Password);
 
-                // Supabase handles email sending.
-                // Even if authResponse.User is null (email confirmation required),
-                // we can just instruct user to check email.
+                if (authResponse?.User == null)
+                {
+                    return Ok(new
+                    {
+                        message = "Signup complete. Check your email to activate your account.",
+                        requiresConfirmation = true
+                    });
+                }
+
+                Guid uid = Guid.Parse(authResponse.User.Id);
+
+                // 2) Insert profile into public.users
+                var profile = new PublicUser
+                {
+                    uid = uid,
+                    fname = request.FirstName,
+                    lname = request.LastName,
+                    email = email,
+                    password_hash = HashPassword(request.Password),
+                    phone_number = request.Phone,
+                    address_region = request.AddressRegion,
+                    avatar_url = "",
+                    created_at = DateTime.UtcNow,
+                    user_type = request.UserType?.ToLower() ?? "founder"
+                };
+
+                await _supabase.From<PublicUser>().Insert(profile);
+
+                // 3) Insert role record
+                switch (profile.user_type)
+                {
+                    case "founder":
+                        await _supabase.From<Founder>().Insert(new Founder { user_id = uid });
+                        break;
+
+                    case "investor":
+                        await _supabase.From<Investor>().Insert(new Investor
+                        {
+                            user_id = uid,
+                            tags = request.Tags ?? Array.Empty<string>()
+                        });
+                        break;
+
+                    case "contributor":
+                        await _supabase.From<Contributor>().Insert(new Contributor { user_id = uid });
+                        break;
+                }
+
                 return Ok(new
                 {
-                    message = "Signup successful. Please check your email to confirm your account before logging in.",
+                    message = "Signup complete. Check your email to verify your account.",
                     requiresConfirmation = true
                 });
             }
-            catch (GotrueException gex)
+            catch (GotrueException ex)
             {
-                // e.g. "User already registered"
-                return BadRequest(new { message = $"Auth error: {gex.Message}" });
+                return BadRequest(new { message = $"Auth error: {ex.Message}" });
             }
             catch (Exception ex)
             {
@@ -164,146 +212,6 @@ namespace Spark2Scale_.Server.Controllers
             }
         }
 
-        // ============================================================
-        // COMPLETE PROFILE
-        // ============================================================
-        // Called AFTER login, when user fills profile form.
-        // - Creates/updates public.users
-        // - Inserts role record (founder/investor/contributor)
-        [HttpPost("complete-profile")]
-        public async Task<IActionResult> CompleteProfile([FromBody] CompleteProfileRequest request)
-        {
-            if (request == null || request.UserId == Guid.Empty)
-            {
-                return BadRequest(new { message = "Missing or invalid userId." });
-            }
-
-            if (string.IsNullOrWhiteSpace(request.UserType))
-            {
-                return BadRequest(new { message = "UserType is required." });
-            }
-
-            var userType = request.UserType.Trim().ToLowerInvariant();
-            if (userType != "founder" && userType != "investor" && userType != "contributor")
-            {
-                return BadRequest(new { message = "Invalid userType. Must be 'founder', 'investor', or 'contributor'." });
-            }
-
-            try
-            {
-                var table = _supabase.From<PublicUser>();
-
-                // Check if profile already exists
-                var existingResult = await table
-                    .Filter("uid", Supabase.Postgrest.Constants.Operator.Equals, request.UserId)
-                    .Get();
-
-                var existing = existingResult.Models.FirstOrDefault();
-
-                // Build user row
-                var userRow = new PublicUser
-                {
-                    uid = request.UserId,
-                    fname = request.FirstName?.Trim() ?? string.Empty,
-                    lname = request.LastName?.Trim() ?? string.Empty,
-                    email = existing?.email ?? string.Empty,  // we don't change email here
-                    password_hash = existing?.password_hash ?? string.Empty, // not used
-                    phone_number = request.Phone?.Trim() ?? string.Empty,
-                    address_region = request.AddressRegion?.Trim() ?? string.Empty,
-                    created_at = existing?.created_at ?? DateTime.UtcNow,
-                    avatar_url = existing?.avatar_url ?? string.Empty,
-                    user_type = userType
-                };
-
-                if (existing == null)
-                {
-                    // Insert new profile row
-                    await table.Insert(userRow);
-                }
-                else
-                {
-                    // Update existing profile row
-                    await table.Update(userRow);
-                }
-
-                // Role-specific record
-                switch (userType)
-                {
-                    case "founder":
-                        {
-                            var founderRes = await _supabase
-                                .From<Founder>()
-                                .Filter("user_id", Supabase.Postgrest.Constants.Operator.Equals, request.UserId)
-                                .Get();
-
-                            if (!founderRes.Models.Any())
-                            {
-                                await _supabase.From<Founder>().Insert(new Founder
-                                {
-                                    user_id = request.UserId
-                                });
-                            }
-
-                            break;
-                        }
-                    case "investor":
-                        {
-                            var investorRes = await _supabase
-                                .From<Investor>()
-                                .Filter("user_id", Supabase.Postgrest.Constants.Operator.Equals, request.UserId)
-                                .Get();
-
-                            if (!investorRes.Models.Any())
-                            {
-                                await _supabase.From<Investor>().Insert(new Investor
-                                {
-                                    user_id = request.UserId,
-                                    tags = request.Tags ?? Array.Empty<string>()
-                                });
-                            }
-                            else
-                            {
-                                var investor = investorRes.Models.First();
-                                investor.tags = request.Tags ?? Array.Empty<string>();
-                                await _supabase.From<Investor>().Update(investor);
-                            }
-
-                            break;
-                        }
-                    case "contributor":
-                        {
-                            var contribRes = await _supabase
-                                .From<Contributor>()
-                                .Filter("user_id", Supabase.Postgrest.Constants.Operator.Equals, request.UserId)
-                                .Get();
-
-                            if (!contribRes.Models.Any())
-                            {
-                                await _supabase.From<Contributor>().Insert(new Contributor
-                                {
-                                    user_id = request.UserId
-                                });
-                            }
-
-                            break;
-                        }
-                }
-
-                return Ok(new
-                {
-                    message = "Profile saved successfully.",
-                    userType = userType
-                });
-            }
-            catch (PostgrestException pex)
-            {
-                return StatusCode(500, new { message = "Database error while saving profile.", detail = pex.Message });
-            }
-            catch (Exception ex)
-            {
-                return StatusCode(500, new { message = "Failed to complete profile.", detail = ex.Message });
-            }
-        }
 
         // ============================================================
         // FORGOT PASSWORD
