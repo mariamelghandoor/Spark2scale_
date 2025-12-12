@@ -139,35 +139,23 @@ export default function SignupPage() {
             }));
 
             if (response.ok) {
-                // Always show email verification message (email confirmation is always required in our system)
-                // Only show "success" message if explicitly told no confirmation is needed AND it's false
-                const needsConfirmation = data.requiresConfirmation !== false; // Default to true if not specified
-                
-                if (!needsConfirmation) {
-                    setStatus({
-                        type: "success",
-                        message: "Account created successfully! 🎉",
-                        details: "You can now sign in to your account.",
-                    });
-                } else {
-                    // Default: Show email verification message (this is the normal flow)
-                    setStatus({
-                        type: "info",
-                        message: "Registration successful! ✅",
-                        details:
-                            `Please check your email (${formData.email}) to verify your account. The confirmation link may take a few minutes to arrive.`,
-                    });
+                // Always show email verification message (email confirmation is always required)
+                setStatus({
+                    type: "info",
+                    message: "Registration successful! ✅",
+                    details:
+                        `Please check your email (${formData.email}) to verify your account. The confirmation link may take a few minutes to arrive.`,
+                });
 
-                    setFormData({
-                        name: "",
-                        email: "",
-                        phone: "",
-                        password: "",
-                        confirmPassword: "",
-                        user_type: "founder",
-                        tags: [],
-                    });
-                }
+                setFormData({
+                    name: "",
+                    email: "",
+                    phone: "",
+                    password: "",
+                    confirmPassword: "",
+                    user_type: "founder",
+                    tags: [],
+                });
 
                 // NO auto-redirect - user stays on page to see the message
             } else {
@@ -471,17 +459,20 @@ export default function SignupPage() {
                             )}
                         </CardContent>
 
-                        <CardFooter className="flex justify-center border-t pt-6">
-                            <p className="text-sm text-muted-foreground">
-                                Already have an account?{" "}
-                                <Link
-                                    href="/signin"
-                                    className="text-[#576238] hover:text-[#6b7c3f] font-semibold underline-offset-4 hover:underline"
-                                >
-                                    Sign in
-                                </Link>
-                            </p>
-                        </CardFooter>
+                        {/* Only show footer link when form is visible (not when success/info message is shown) */}
+                        {status.type !== "success" && status.type !== "info" && (
+                            <CardFooter className="flex justify-center border-t pt-6">
+                                <p className="text-sm text-muted-foreground">
+                                    Already have an account?{" "}
+                                    <Link
+                                        href="/signin"
+                                        className="text-[#576238] hover:text-[#6b7c3f] font-semibold underline-offset-4 hover:underline"
+                                    >
+                                        Sign in
+                                    </Link>
+                                </p>
+                            </CardFooter>
+                        )}
                     </Card>
                 </motion.div>
             </div>
