@@ -104,6 +104,36 @@ namespace Spark2Scale_.Server.Controllers
             return Ok(dtos);
         }
 
+        // GET: api/documents/all?startupId=...
+        // --- NEW ENDPOINT: Fetches EVERYTHING (Current + Archived) ---
+        [HttpGet("all")]
+        public async Task<IActionResult> GetAllDocuments(string startupId)
+        {
+            if (!Guid.TryParse(startupId, out Guid sId)) return BadRequest("Invalid ID");
+
+            var result = await _supabase.From<Document>()
+                // REMOVED "x.IsCurrent == true" to show everything
+                .Where(x => x.StartupId == sId)
+                .Order("updated_at", Supabase.Postgrest.Constants.Ordering.Descending)
+                .Get();
+
+            var dtos = result.Models.Select(d => new
+            {
+                did = d.Did,
+                startup_id = d.StartupId,
+                document_name = d.DocumentName,
+                type = d.Type,
+                current_path = d.CurrentPath,
+                current_version = d.CurrentVersion,
+                canaccess = d.CanAccess,
+                updated_at = d.UpdatedAt,
+                created_at = d.CreatedAt,
+                is_current = d.IsCurrent // Added this so frontend knows which are archived
+            });
+
+            return Ok(dtos);
+        }
+
         [HttpPost("upload")]
         public async Task<IActionResult> UploadDocument([FromForm] DocumentUploadDto form)
         {
