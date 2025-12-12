@@ -87,10 +87,12 @@ namespace Spark2Scale_.Server.Controllers
                     var (fname, lname) = SplitName(request.Name);
 
                     // 2️⃣ Create profile (check if it already exists)
-                    var existingProfile = await _supabase
+                    var existingProfileResult = await _supabase
                         .From<PublicUser>()
                         .Filter("uid", Supabase.Postgrest.Constants.Operator.Equals, uid.ToString())
                         .Get();
+
+                    var existingProfile = existingProfileResult.Models.FirstOrDefault();
 
                     // Check if profile exists or needs update
                     PublicUser? finalProfile = existingProfile;
