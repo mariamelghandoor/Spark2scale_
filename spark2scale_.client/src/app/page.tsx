@@ -13,13 +13,39 @@ import { useRouter } from "next/navigation";
 export default function Home() {
     const router = useRouter();
 
-    // Handle email verification redirect from Supabase
+    // Handle email verification and password reset redirects from Supabase
     useEffect(() => {
-        // Check if we have access_token in URL hash (Supabase email verification)
         const hash = window.location.hash.replace("#", "");
+        const hashParams = new URLSearchParams(hash);
+        const queryParams = new URLSearchParams(window.location.search);
+        
+        // Check if we have access_token in URL hash (Supabase email verification or password reset)
         if (hash.includes("access_token")) {
-            // Redirect to callback page to handle verification
-            router.push("/auth/callback" + window.location.hash);
+            // Check if this is a password reset (type=recovery)
+            const type = hashParams.get("type") || queryParams.get("type");
+            
+            if (type === "recovery") {
+                // Password reset - redirect to reset password page
+                router.push("/reset-password" + window.location.hash);
+            } else {
+                // Email verification - redirect to callback page
+                router.push("/auth/callback" + window.location.hash);
+            }
+            return;
+        }
+        
+        // Also check query params for tokens (some Supabase configurations use query params)
+        const tokenFromQuery = queryParams.get("token");
+        const typeFromQuery = queryParams.get("type");
+        
+        if (tokenFromQuery) {
+            if (typeFromQuery === "recovery") {
+                // Password reset - redirect to reset password page with token
+                router.push(`/reset-password?token=${tokenFromQuery}&type=recovery`);
+            } else {
+                // Email verification - redirect to callback page
+                router.push(`/auth/callback?token=${tokenFromQuery}`);
+            }
             return;
         }
     }, [router]);
