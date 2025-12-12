@@ -15,7 +15,7 @@ import LegoLoader from "@/components/lego/LegoLoader";
 import LegoAddTrigger from "@/components/lego/LegoAddTrigger";
 import NotificationsDropdown from "@/components/shared/NotificationsDropdown";
 
-const TEST_USER_ID = "400b330f-fc83-43d5-b9b2-74a4fe0696e3";
+const TEST_USER_ID = "645bde5c-ab6e-47bc-ba8d-cd6f5500bc30";
 const CACHE_KEY = `dashboard_data_${TEST_USER_ID}`;
 
 export default function FounderDashboard() {

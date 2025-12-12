@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { ArrowLeft, Calendar, Clock, ExternalLink, User, Video, Plus, Link as LinkIcon, RefreshCw, Mail, AlertTriangle, Trash2, X, Check } from "lucide-react";
+import { ArrowLeft, Calendar, Clock, ExternalLink, User, Video, Plus, Link as LinkIcon, RefreshCw, Mail, AlertTriangle, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import { meetingService, MeetingDto } from "@/services/meetingService";
@@ -12,7 +12,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
-const TEST_USER_ID = "400b330f-fc83-43d5-b9b2-74a4fe0696e3";
+const TEST_USER_ID = "645bde5c-ab6e-47bc-ba8d-cd6f5500bc30";
 
 export default function SchedulePage() {
     const [userName] = useState("Alex");
@@ -24,8 +24,7 @@ export default function SchedulePage() {
     const [isScheduling, setIsScheduling] = useState(false);
     const [errorMessage, setErrorMessage] = useState("");
 
-    // CANCEL STATE (Inline)
-    // specific ID of the meeting currently asking "Are you sure?"
+    // CANCEL STATE
     const [confirmCancelId, setConfirmCancelId] = useState<string | null>(null);
     const [isCanceling, setIsCanceling] = useState(false);
 
@@ -66,10 +65,12 @@ export default function SchedulePage() {
             return;
         }
 
-        const selectedDate = new Date(newMeeting.date);
-        const now = new Date();
-        now.setHours(0, 0, 0, 0);
-        if (selectedDate < now) {
+        // Fix validation to use local time comparison
+        const inputDate = new Date(newMeeting.date + "T00:00:00");
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        if (inputDate < today) {
             setErrorMessage("Cannot schedule in the past.");
             return;
         }
@@ -77,7 +78,7 @@ export default function SchedulePage() {
         setIsScheduling(true);
         try {
             await meetingService.createMeeting({
-                founder_id: TEST_USER_ID,
+                sender_id: TEST_USER_ID,
                 invitee_email: newMeeting.investorEmail,
                 meeting_date: newMeeting.date,
                 meeting_time: newMeeting.time + ":00",
@@ -86,27 +87,30 @@ export default function SchedulePage() {
 
             await fetchMeetings();
             setNewMeeting({ date: "", time: "", link: "", investorEmail: "" });
+            setErrorMessage("");
             setIsDialogOpen(false);
 
         } catch (error: any) {
             console.error("Error scheduling:", error);
-            if (error.response && error.response.data && typeof error.response.data === 'string') {
-                setErrorMessage(error.response.data);
+            if (error.response && error.response.data) {
+                const msg = typeof error.response.data === 'string'
+                    ? error.response.data
+                    : error.response.data.title || "Failed to schedule.";
+                setErrorMessage(msg);
             } else {
-                setErrorMessage("Failed to schedule. Check details.");
+                setErrorMessage("Network error. Please try again later.");
             }
         } finally {
             setIsScheduling(false);
         }
     };
 
-    // EXECUTE CANCEL
     const handleConfirmCancel = async (id: string) => {
         setIsCanceling(true);
         try {
             await meetingService.cancelMeeting(id);
             await fetchMeetings();
-            setConfirmCancelId(null); // Reset UI
+            setConfirmCancelId(null);
         } catch (error) {
             console.error("Failed to cancel", error);
             alert("Could not cancel meeting.");
@@ -120,9 +124,24 @@ export default function SchedulePage() {
         if (!open) setErrorMessage("");
     };
 
+    // --- FIX: ABSOLUTE DATE PARSING ---
+    // Instead of letting 'new Date()' shift the timezone, we explicitly read the string parts.
     const formatDate = (dateString: string) => {
-        const date = new Date(dateString);
-        return date.toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
+        if (!dateString) return "Invalid Date";
+
+        // dateString is usually "YYYY-MM-DD" or "YYYY-MM-DDT00:00:00"
+        const cleanDate = dateString.split('T')[0]; // Get "2025-12-13"
+        const [year, month, day] = cleanDate.split('-').map(Number);
+
+        // Use constructor (year, monthIndex, day) - month is 0-indexed
+        const date = new Date(year, month - 1, day);
+
+        return date.toLocaleDateString("en-US", {
+            weekday: "long",
+            year: "numeric",
+            month: "long",
+            day: "numeric"
+        });
     };
 
     const formatTime = (timeString: string) => {
@@ -133,10 +152,29 @@ export default function SchedulePage() {
         return date.toLocaleTimeString("en-US", { hour: 'numeric', minute: '2-digit', hour12: true });
     };
 
+    // Sort Helpers
+    const getMeetingDateTime = (m: MeetingDto) => {
+        const datePart = m.meeting_date.split('T')[0];
+        return new Date(`${datePart}T${m.meeting_time}`);
+    };
+
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    const upcomingMeetings = meetings.filter(m => new Date(m.meeting_date) >= today && m.status !== 'canceled' && m.status !== 'rejected');
-    const pastMeetings = meetings.filter(m => new Date(m.meeting_date) < today || m.status === 'canceled' || m.status === 'rejected');
+
+    const upcomingMeetings = meetings
+        .filter(m => {
+            // Compare purely based on date string to avoid timezone issues
+            const mDate = new Date(m.meeting_date.split('T')[0] + "T00:00:00");
+            return mDate >= today && m.status !== 'canceled' && m.status !== 'rejected';
+        })
+        .sort((a, b) => getMeetingDateTime(a).getTime() - getMeetingDateTime(b).getTime());
+
+    const pastMeetings = meetings
+        .filter(m => {
+            const mDate = new Date(m.meeting_date.split('T')[0] + "T00:00:00");
+            return mDate < today || m.status === 'canceled' || m.status === 'rejected';
+        })
+        .sort((a, b) => getMeetingDateTime(b).getTime() - getMeetingDateTime(a).getTime());
 
     return (
         <div className="min-h-screen bg-gradient-to-br from-[#F0EADC] via-[#fff] to-[#FFD95D]/20">
@@ -176,20 +214,12 @@ export default function SchedulePage() {
                                 </DialogHeader>
 
                                 <div className="grid gap-4 py-4">
-                                    {/* ERROR MESSAGE - Clean & Visible */}
-                                    <AnimatePresence>
-                                        {errorMessage && (
-                                            <motion.div
-                                                initial={{ opacity: 0, height: 0 }}
-                                                animate={{ opacity: 1, height: "auto" }}
-                                                exit={{ opacity: 0, height: 0 }}
-                                                className="bg-red-50 border-l-4 border-red-500 text-red-700 p-3 rounded text-sm flex items-start gap-2"
-                                            >
-                                                <AlertTriangle className="h-4 w-4 mt-0.5" />
-                                                <p>{errorMessage}</p>
-                                            </motion.div>
-                                        )}
-                                    </AnimatePresence>
+                                    {errorMessage && (
+                                        <div className="bg-red-50 text-red-600 p-3 rounded-md text-sm border border-red-200 flex items-center gap-2">
+                                            <AlertTriangle className="h-4 w-4" />
+                                            {errorMessage}
+                                        </div>
+                                    )}
 
                                     <div className="space-y-2">
                                         <Label htmlFor="email">Invitee Email</Label>
@@ -203,6 +233,9 @@ export default function SchedulePage() {
                                                 setErrorMessage("");
                                             }}
                                         />
+                                        <p className="text-[10px] text-muted-foreground">
+                                            User must be a registered <strong>Investor</strong> on the platform.
+                                        </p>
                                     </div>
 
                                     <div className="grid grid-cols-2 gap-4">
@@ -305,7 +338,6 @@ export default function SchedulePage() {
                                             >
                                                 <Card className="p-6 hover:shadow-lg transition-all border-2 hover:border-[#FFD95D] bg-white overflow-hidden">
                                                     <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                                                        {/* Meeting Info */}
                                                         <div className="flex-grow">
                                                             <div className="flex items-center gap-3 mb-3">
                                                                 <div className="bg-[#576238] p-3 rounded-full">
@@ -339,11 +371,9 @@ export default function SchedulePage() {
                                                             </div>
                                                         </div>
 
-                                                        {/* INLINE ACTION BUTTONS */}
                                                         <div className="flex flex-col gap-2 md:items-end min-w-[140px]">
                                                             <AnimatePresence mode="wait">
                                                                 {confirmCancelId === meeting.meeting_id ? (
-                                                                    /* CONFIRMATION STATE */
                                                                     <motion.div
                                                                         key="confirm"
                                                                         initial={{ opacity: 0, x: 20 }}
@@ -372,7 +402,6 @@ export default function SchedulePage() {
                                                                         </div>
                                                                     </motion.div>
                                                                 ) : (
-                                                                    /* DEFAULT STATE */
                                                                     <motion.div
                                                                         key="default"
                                                                         initial={{ opacity: 0 }}
@@ -457,13 +486,9 @@ export default function SchedulePage() {
                                                         </div>
                                                         <div className="flex flex-col gap-2 md:items-end">
                                                             {meeting.status === 'canceled' ? (
-                                                                <span className="px-4 py-2 bg-red-100 text-red-700 rounded-full text-sm font-semibold">
-                                                                    ✕ Canceled
-                                                                </span>
+                                                                <span className="px-4 py-2 bg-red-100 text-red-700 rounded-full text-sm font-semibold">✕ Canceled</span>
                                                             ) : (
-                                                                <span className="px-4 py-2 bg-green-100 text-green-700 rounded-full text-sm font-semibold">
-                                                                    ✓ Completed
-                                                                </span>
+                                                                <span className="px-4 py-2 bg-green-100 text-green-700 rounded-full text-sm font-semibold">✓ Completed</span>
                                                             )}
                                                         </div>
                                                     </div>

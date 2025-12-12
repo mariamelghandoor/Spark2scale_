@@ -2,20 +2,20 @@ import apiClient from '@/lib/apiClient';
 
 export interface MeetingDto {
     meeting_id: string;
-    founder_id: string | null;
-    investor_id: string | null;
+    sender_id: string;
+    receiver_id: string;
     startup_id: string | null;
     meeting_date: string;
     meeting_time: string;
     meeting_link: string | null;
     created_at: string;
     with_whom_name: string;
-    status: string; // 'pending', 'accepted', 'rejected', 'canceled'
+    status: string;
 }
 
 export interface MeetingInsertDto {
-    founder_id?: string;
-    invitee_email?: string;
+    sender_id: string; // CHANGED from founder_id
+    invitee_email: string;
     meeting_date: string;
     meeting_time: string;
     meeting_link: string;
@@ -40,7 +40,6 @@ export const meetingService = {
         await apiClient.post(`/api/Meetings/reject/${id}`);
     },
 
-    // NEW
     cancelMeeting: async (id: string) => {
         await apiClient.post(`/api/Meetings/cancel/${id}`);
     }

@@ -11,11 +11,11 @@ namespace Spark2Scale_.Server.Models
         [PrimaryKey("meeting_id", false)]
         public Guid MeetingId { get; set; }
 
-        [Column("founder_id")]
-        public Guid? FounderId { get; set; }
+        [Column("sender_id")]
+        public Guid SenderId { get; set; }
 
-        [Column("investor_id")]
-        public Guid? InvestorId { get; set; }
+        [Column("receiver_id")]
+        public Guid ReceiverId { get; set; }
 
         [Column("startup_id")]
         public Guid? StartupId { get; set; }
@@ -38,11 +38,8 @@ namespace Spark2Scale_.Server.Models
 
     public class MeetingInsertDto
     {
-        public Guid? founder_id { get; set; }
-
-        // CHANGED: We now accept email instead of just ID
-        public string? invitee_email { get; set; }
-
+        public Guid sender_id { get; set; } // The person sending the invite
+        public string? invitee_email { get; set; } // Email of the person to invite
         public Guid? startup_id { get; set; }
         public DateTime meeting_date { get; set; }
         public TimeSpan meeting_time { get; set; }
@@ -52,8 +49,8 @@ namespace Spark2Scale_.Server.Models
     public class MeetingResponseDto
     {
         public Guid meeting_id { get; set; }
-        public Guid? founder_id { get; set; }
-        public Guid? investor_id { get; set; }
+        public Guid sender_id { get; set; }
+        public Guid receiver_id { get; set; }
         public Guid? startup_id { get; set; }
         public DateTime meeting_date { get; set; }
         public TimeSpan meeting_time { get; set; }

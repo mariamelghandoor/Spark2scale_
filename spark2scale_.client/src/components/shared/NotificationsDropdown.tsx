@@ -15,7 +15,7 @@ import { meetingService } from "@/services/meetingService";
 import { motion, AnimatePresence } from "framer-motion";
 import LegoNotificationEmpty from "@/components/lego/LegoNotificationEmpty";
 
-const TEST_USER_ID = "60ee9d09-e1d0-4e01-ba90-4fb087fc2ec8";
+const TEST_USER_ID = "3e59c30f-e3d2-43d2-ba48-818e69b7a9fd";
 const INITIAL_COUNT = 5;
 
 export default function NotificationsDropdown() {
