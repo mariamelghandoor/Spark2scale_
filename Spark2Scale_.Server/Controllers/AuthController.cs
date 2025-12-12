@@ -475,6 +475,7 @@ namespace Spark2Scale_.Server.Controllers
                 }
 
                 var uid = Guid.Parse(user.Id);
+                var userEmail = user.Email ?? "";
 
                 // Check if profile already exists
                 var profileResult = await _supabase
@@ -484,64 +485,302 @@ namespace Spark2Scale_.Server.Controllers
 
                 var existingProfile = profileResult.Models.FirstOrDefault();
 
-                // If profile doesn't exist or has NULL values, create/update it
-                // This happens when email confirmation was required during signup
-                if (existingProfile == null || string.IsNullOrEmpty(existingProfile.fname))
+                // Retrieve temporary signup data BEFORE creating profile (we'll need it for role creation)
+                TempSignupData? tempData = null;
+                try
                 {
+                    var tempDataResult = await _supabase
+                        .From<TempSignupData>()
+                        .Filter("email", Supabase.Postgrest.Constants.Operator.Equals, userEmail)
+                        .Get();
+
+                    tempData = tempDataResult.Models.FirstOrDefault();
+                }
+                catch (PostgrestException ex)
+                {
+                    // Handle case where table doesn't exist (PGRST205 error)
+                    var errorMessage = ex.Message ?? "";
+                    if (errorMessage.Contains("PGRST205") ||
+                        errorMessage.Contains("Could not find the table") ||
+                        (errorMessage.Contains("temp_signup_data") && errorMessage.Contains("not found")))
+                    {
+                        Console.WriteLine($"Warning: temp_signup_data table not found. Proceeding with default values. Error: {errorMessage}");
+                    }
+                    else
+                    {
+                        Console.WriteLine($"Warning: Failed to retrieve temp signup data: {errorMessage}. Proceeding with default values.");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    var errorMessage = ex.Message ?? "";
+                    if (errorMessage.Contains("temp_signup_data") ||
+                        errorMessage.Contains("PGRST205") ||
+                        errorMessage.Contains("Could not find the table"))
+                    {
+                        Console.WriteLine($"Warning: temp_signup_data table not found. Proceeding with default values. Error: {errorMessage}");
+                    }
+                    else
+                    {
+                        Console.WriteLine($"Warning: Failed to retrieve temp signup data: {errorMessage}. Proceeding with default values.");
+                    }
+                }
+
+                // Track if we need to update an existing incomplete profile
+                bool needsProfileUpdate = existingProfile != null && 
+                    (string.IsNullOrWhiteSpace(existingProfile.fname) || 
+                     string.IsNullOrWhiteSpace(existingProfile.lname) || 
+                     string.IsNullOrWhiteSpace(existingProfile.phone_number) || 
+                     string.IsNullOrWhiteSpace(existingProfile.address_region) || 
+                     string.IsNullOrWhiteSpace(existingProfile.user_type));
+
+                // If profile doesn't exist OR has incomplete data, create/update it using signup data
+                if (existingProfile == null || needsProfileUpdate)
+                {
+                    // Split name into first and last
+                    var (fname, lname) = tempData != null
+                        ? SplitName(tempData.name)
+                        : existingProfile != null && !string.IsNullOrWhiteSpace(existingProfile.fname) && !string.IsNullOrWhiteSpace(existingProfile.lname)
+                            ? (existingProfile.fname, existingProfile.lname)
+                            : ("", "");
+
+                    // Prepare profile data - use temp data if available, otherwise keep existing values
+                    var profileData = new PublicUser
+                    {
+                        uid = uid,
+                        fname = !string.IsNullOrWhiteSpace(fname) ? fname : (existingProfile?.fname ?? ""),
+                        lname = !string.IsNullOrWhiteSpace(lname) ? lname : (existingProfile?.lname ?? ""),
+                        email = userEmail,
+                        phone_number = !string.IsNullOrWhiteSpace(tempData?.phone) ? tempData.phone : (existingProfile?.phone_number ?? ""),
+                        address_region = !string.IsNullOrWhiteSpace(tempData?.address_region) ? tempData.address_region : (existingProfile?.address_region ?? ""),
+                        avatar_url = existingProfile?.avatar_url ?? "",
+                        created_at = existingProfile?.created_at ?? DateTime.UtcNow,
+                        user_type = !string.IsNullOrWhiteSpace(tempData?.user_type) ? tempData.user_type : (existingProfile?.user_type ?? "founder")
+                    };
+
                     if (existingProfile == null)
                     {
-                        // Create new profile with email (user can complete profile later)
-                        var newProfile = new PublicUser
-                        {
-                            uid = uid,
-                            fname = "",
-                            lname = "",
-                            email = user.Email ?? "",
-                            phone_number = "",
-                            address_region = "",
-                            avatar_url = "",
-                            created_at = DateTime.UtcNow,
-                            user_type = "founder" // Default, user can update later
-                        };
+                        // Create new profile
+                        var newProfile = profileData;
 
                         try
                         {
                             await _supabase.From<PublicUser>().Insert(newProfile);
                             existingProfile = newProfile;
+                            Console.WriteLine($"Profile created for user {uid} after email verification with data: fname={newProfile.fname}, lname={newProfile.lname}, phone={newProfile.phone_number}, region={newProfile.address_region}, type={newProfile.user_type}");
                         }
                         catch (PostgrestException ex)
                         {
-                            // Profile might have been created by another process
-                            var retryProfile = await _supabase
+                            // Handle duplicate key error (23505) - profile might have been created by another request
+                            if (ex.Message?.Contains("23505") == true || ex.Message?.Contains("duplicate key") == true)
+                            {
+                                Console.WriteLine($"Profile already exists for user {uid} (duplicate key - fetching existing profile)");
+                            }
+                            else
+                            {
+                                Console.WriteLine($"Profile insert failed: {ex.Message}");
+                            }
+                            
+                            // Try to get existing profile
+                            try
+                            {
+                                var retryProfile = await _supabase
+                                    .From<PublicUser>()
+                                    .Filter("uid", Supabase.Postgrest.Constants.Operator.Equals, uid.ToString())
+                                    .Get();
+                                existingProfile = retryProfile.Models.FirstOrDefault();
+                            }
+                            catch (Exception retryEx)
+                            {
+                                Console.WriteLine($"Failed to retry profile fetch: {retryEx.Message}");
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine($"Unexpected error creating profile: {ex.Message}");
+                            // Try one more time to get existing profile
+                            try
+                            {
+                                var retryProfile = await _supabase
+                                    .From<PublicUser>()
+                                    .Filter("uid", Supabase.Postgrest.Constants.Operator.Equals, uid.ToString())
+                                    .Get();
+                                existingProfile = retryProfile.Models.FirstOrDefault();
+                            }
+                            catch
+                            {
+                                // If we still can't get the profile, continue with null
+                            }
+                        }
+                    }
+                    else if (needsProfileUpdate)
+                    {
+                        // Update existing incomplete profile
+                        try
+                        {
+                            var updateData = new PublicUser
+                            {
+                                uid = uid,
+                                fname = !string.IsNullOrWhiteSpace(profileData.fname) ? profileData.fname : existingProfile.fname,
+                                lname = !string.IsNullOrWhiteSpace(profileData.lname) ? profileData.lname : existingProfile.lname,
+                                phone_number = !string.IsNullOrWhiteSpace(profileData.phone_number) ? profileData.phone_number : existingProfile.phone_number,
+                                address_region = !string.IsNullOrWhiteSpace(profileData.address_region) ? profileData.address_region : existingProfile.address_region,
+                                user_type = !string.IsNullOrWhiteSpace(profileData.user_type) ? profileData.user_type : existingProfile.user_type,
+                                email = existingProfile.email,
+                                avatar_url = existingProfile.avatar_url ?? "",
+                                created_at = existingProfile.created_at
+                            };
+
+                            await _supabase.From<PublicUser>()
+                                .Filter("uid", Supabase.Postgrest.Constants.Operator.Equals, uid.ToString())
+                                .Update(updateData);
+
+                            // Refresh the profile
+                            var updatedProfileResult = await _supabase
                                 .From<PublicUser>()
                                 .Filter("uid", Supabase.Postgrest.Constants.Operator.Equals, uid.ToString())
                                 .Get();
-                            existingProfile = retryProfile.Models.FirstOrDefault();
+                            existingProfile = updatedProfileResult.Models.FirstOrDefault();
+                            
+                            Console.WriteLine($"Profile updated for user {uid} with missing data: fname={updateData.fname}, lname={updateData.lname}, phone={updateData.phone_number}, region={updateData.address_region}, type={updateData.user_type}");
+                        }
+                        catch (Exception updateEx)
+                        {
+                            Console.WriteLine($"Warning: Failed to update incomplete profile: {updateEx.Message}");
                         }
                     }
+                }
 
-                    // Ensure default role exists
-                    var founderCheck = await _supabase
-                        .From<Founder>()
-                        .Filter("user_id", Supabase.Postgrest.Constants.Operator.Equals, uid.ToString())
-                        .Get();
-                    if (founderCheck.Models.Count == 0)
-                    {
-                        // Check other roles too
+                // Create role-specific entry based on user type (use tempData for tags if available)
+                var userType = existingProfile?.user_type ?? tempData?.user_type ?? "founder";
+                switch (userType.ToLower())
+                {
+                    case "founder":
+                        var founderCheck = await _supabase
+                            .From<Founder>()
+                            .Filter("user_id", Supabase.Postgrest.Constants.Operator.Equals, uid.ToString())
+                            .Get();
+                        if (founderCheck.Models.Count == 0)
+                        {
+                            try
+                            {
+                                await _supabase.From<Founder>().Insert(new Founder { user_id = uid });
+                                Console.WriteLine($"Founder role created for user {uid}");
+                            }
+                            catch (PostgrestException ex)
+                            {
+                                if (ex.Message?.Contains("23505") == true || ex.Message?.Contains("duplicate key") == true)
+                                {
+                                    Console.WriteLine($"Founder role already exists for user {uid} (duplicate key ignored)");
+                                }
+                                else
+                                {
+                                    Console.WriteLine($"Warning: Failed to create founder role: {ex.Message}");
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                Console.WriteLine($"Warning: Failed to create founder role: {ex.Message}");
+                            }
+                        }
+                        break;
+
+                    case "investor":
                         var investorCheck = await _supabase
                             .From<Investor>()
                             .Filter("user_id", Supabase.Postgrest.Constants.Operator.Equals, uid.ToString())
                             .Get();
+                        if (investorCheck.Models.Count == 0)
+                        {
+                            try
+                            {
+                                await _supabase.From<Investor>().Insert(new Investor
+                                {
+                                    user_id = uid,
+                                    tags = tempData?.tags ?? Array.Empty<string>()
+                                });
+                                Console.WriteLine($"Investor role created for user {uid} with tags");
+                            }
+                            catch (PostgrestException ex)
+                            {
+                                if (ex.Message?.Contains("23505") == true || ex.Message?.Contains("duplicate key") == true)
+                                {
+                                    Console.WriteLine($"Investor role already exists for user {uid} (duplicate key ignored)");
+                                }
+                                else
+                                {
+                                    Console.WriteLine($"Warning: Failed to create investor role: {ex.Message}");
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                Console.WriteLine($"Warning: Failed to create investor role: {ex.Message}");
+                            }
+                        }
+                        break;
+
+                    case "contributor":
                         var contributorCheck = await _supabase
                             .From<Contributor>()
                             .Filter("user_id", Supabase.Postgrest.Constants.Operator.Equals, uid.ToString())
                             .Get();
-
-                        if (investorCheck.Models.Count == 0 && contributorCheck.Models.Count == 0)
+                        if (contributorCheck.Models.Count == 0)
                         {
-                            await _supabase.From<Founder>().Insert(new Founder { user_id = uid });
+                            try
+                            {
+                                await _supabase.From<Contributor>().Insert(new Contributor { user_id = uid });
+                                Console.WriteLine($"Contributor role created for user {uid}");
+                            }
+                            catch (PostgrestException ex)
+                            {
+                                if (ex.Message?.Contains("23505") == true || ex.Message?.Contains("duplicate key") == true)
+                                {
+                                    Console.WriteLine($"Contributor role already exists for user {uid} (duplicate key ignored)");
+                                }
+                                else
+                                {
+                                    Console.WriteLine($"Warning: Failed to create contributor role: {ex.Message}");
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                Console.WriteLine($"Warning: Failed to create contributor role: {ex.Message}");
+                            }
+                        }
+                        break;
+                }
+
+                // Delete temporary signup data after successful profile and role creation
+                if (tempData != null)
+                {
+                    try
+                    {
+                        await _supabase.From<TempSignupData>()
+                            .Filter("email", Supabase.Postgrest.Constants.Operator.Equals, userEmail)
+                            .Delete();
+                        Console.WriteLine($"Temporary signup data deleted for {userEmail}");
+                    }
+                    catch (PostgrestException deleteEx)
+                    {
+                        if (deleteEx.Message?.Contains("PGRST205") == true || deleteEx.Message?.Contains("Could not find the table") == true)
+                        {
+                            Console.WriteLine($"Warning: temp_signup_data table not found during cleanup. This is okay if table doesn't exist.");
+                        }
+                        else
+                        {
+                            Console.WriteLine($"Failed to delete temp signup data: {deleteEx.Message}");
                         }
                     }
+                    catch (Exception deleteEx)
+                    {
+                        Console.WriteLine($"Failed to delete temp signup data: {deleteEx.Message}");
+                    }
+                }
+
+                // Ensure we have a profile before returning
+                if (existingProfile == null)
+                {
+                    return StatusCode(500, new { message = "Failed to create user profile. Please contact support." });
                 }
 
                 return Ok(new

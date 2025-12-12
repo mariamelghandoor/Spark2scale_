@@ -139,16 +139,18 @@ export default function SignupPage() {
             }));
 
             if (response.ok) {
-                // Always show email verification message (email confirmation is always required)
-                // Only show "success" message if explicitly told no confirmation is needed
-                if (data.requiresConfirmation === false) {
+                // Always show email verification message (email confirmation is always required in our system)
+                // Only show "success" message if explicitly told no confirmation is needed AND it's false
+                const needsConfirmation = data.requiresConfirmation !== false; // Default to true if not specified
+                
+                if (!needsConfirmation) {
                     setStatus({
                         type: "success",
                         message: "Account created successfully! 🎉",
                         details: "You can now sign in to your account.",
                     });
                 } else {
-                    // Default: Show email verification message
+                    // Default: Show email verification message (this is the normal flow)
                     setStatus({
                         type: "info",
                         message: "Registration successful! ✅",
