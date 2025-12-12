@@ -72,10 +72,53 @@ namespace Spark2Scale_.Server.Controllers
                     // Profile will be created in verify-email callback
                     requiresEmailConfirmation = true;
 
+                    // 2️⃣ Store signup data temporarily for use after email verification
+                    // Profile will be created in verify-email callback, not here
+                    var tempSignupData = new TempSignupData
+                    {
+                        email = email,
+                        name = request.Name,
+                        phone = request.Phone ?? "",
+                        address_region = request.AddressRegion ?? "",
+                        user_type = request.UserType.ToLower(),
+                        tags = request.Tags ?? Array.Empty<string>(),
+                        created_at = DateTime.UtcNow,
+                        expires_at = DateTime.UtcNow.AddHours(24) // Expire after 24 hours
+                    };
+
+                    try
+                    {
+                        // Upsert to handle case where user tries to sign up again
+                        await _supabase.From<TempSignupData>().Upsert(tempSignupData);
+                        Console.WriteLine($"Temporary signup data stored for {email}: name={tempSignupData.name}, phone={tempSignupData.phone}, region={tempSignupData.address_region}, type={tempSignupData.user_type}");
+                    }
+                    catch (PostgrestException ex)
+                    {
+                        // Check if table doesn't exist
+                        var errorMessage = ex.Message ?? "";
+                        if (errorMessage.Contains("PGRST205") || 
+                            errorMessage.Contains("Could not find the table") ||
+                            (errorMessage.Contains("temp_signup_data") && errorMessage.Contains("not found")))
+                        {
+                            Console.WriteLine($"ERROR: temp_signup_data table does not exist! Please run the SQL migration CREATE_TEMP_SIGNUP_DATA_TABLE.sql in Supabase Dashboard.");
+                            Console.WriteLine($"Signup data will be lost: name={tempSignupData.name}, phone={tempSignupData.phone}, region={tempSignupData.address_region}, type={tempSignupData.user_type}");
+                            // Continue anyway - user can still verify email, but profile will have default values
+                        }
+                        else
+                        {
+                            Console.WriteLine($"Failed to store temporary signup data: {errorMessage}");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"Failed to store temporary signup data: {ex.Message}");
+                        // Continue anyway - we can still create profile with minimal data
+                    }
+
                     // Return success - profile will be created after email verification
                     return Ok(new
                     {
-                        message = "Signup successful. Please verify your email.",
+                        message = "Signup successful. Please check your email to verify your account.",
                         requiresConfirmation = true
                     });
                 }
