@@ -18,119 +18,61 @@ namespace Spark2Scale_.Server.Controllers
             _supabase = supabase;
         }
 
+        // POST: api/notifications/add
         [HttpPost("add")]
         public async Task<IActionResult> AddNotification([FromBody] NotificationInsertDto input)
         {
             if (input == null || string.IsNullOrEmpty(input.topic))
                 return BadRequest("Invalid data. Topic is required.");
 
+            // 1. Map Input -> DB Model
             var newNotif = new Notification
             {
+                Nid = Guid.NewGuid(),
                 Sender = input.sender,
                 Receiver = input.receiver,
                 Topic = input.topic,
                 Description = input.description,
-                CreatedAt = DateTime.UtcNow,
-                IsRead = false
+                CreatedAt = DateTime.UtcNow
             };
 
+            // 2. Insert into Supabase
             var result = await _supabase.From<Notification>().Insert(newNotif);
             var inserted = result.Models.FirstOrDefault();
 
             if (inserted == null) return StatusCode(500, "Failed to create notification");
 
-            return Ok(new NotificationResponseDto
+            // 3. Map DB Model -> Output DTO
+            var response = new NotificationResponseDto
             {
                 nid = inserted.Nid,
                 sender = inserted.Sender,
                 receiver = inserted.Receiver,
                 topic = inserted.Topic,
                 description = inserted.Description,
-                created_at = inserted.CreatedAt,
-                is_read = inserted.IsRead,
-                sender_name = "System"
-            });
+                created_at = inserted.CreatedAt
+            };
+
+            return Ok(response);
         }
 
+        // GET: api/notifications
         [HttpGet]
-        public async Task<IActionResult> GetNotifications([FromQuery] Guid? userId)
+        public async Task<IActionResult> GetNotifications()
         {
-            Supabase.Postgrest.Responses.ModeledResponse<Notification> result;
+            var result = await _supabase.From<Notification>().Get();
 
-            if (userId.HasValue)
+            var dtos = result.Models.Select(n => new NotificationResponseDto
             {
-                result = await _supabase.From<Notification>()
-                    .Filter("receiver", Supabase.Postgrest.Constants.Operator.Equals, userId.Value.ToString())
-                    .Order("created_at", Supabase.Postgrest.Constants.Ordering.Descending)
-                    .Get();
-            }
-            else
-            {
-                result = await _supabase.From<Notification>()
-                    .Order("created_at", Supabase.Postgrest.Constants.Ordering.Descending)
-                    .Get();
-            }
-
-            var notifications = result.Models;
-            if (!notifications.Any()) return Ok(new List<NotificationResponseDto>());
-
-            var senderIds = notifications
-                .Where(n => n.Sender != null)
-                .Select(n => n.Sender.Value.ToString())
-                .Distinct()
-                .ToList();
-
-            var usersList = new List<User>();
-            if (senderIds.Any())
-            {
-                var usersResult = await _supabase.From<User>()
-                    .Filter("uid", Supabase.Postgrest.Constants.Operator.In, senderIds)
-                    .Get();
-                usersList = usersResult.Models;
-            }
-
-            var dtos = notifications.Select(n =>
-            {
-                string name = "System Notification";
-
-                if (n.Sender != null)
-                {
-                    var user = usersList.FirstOrDefault(u => u.uid == n.Sender);
-                    if (user != null)
-                    {
-                        name = $"{user.fname} {user.lname}".Trim();
-                        if (string.IsNullOrEmpty(name)) name = user.email;
-                    }
-                    else
-                    {
-                        name = "Unknown User";
-                    }
-                }
-
-                return new NotificationResponseDto
-                {
-                    nid = n.Nid,
-                    sender = n.Sender,
-                    receiver = n.Receiver,
-                    topic = n.Topic,
-                    description = n.Description,
-                    created_at = n.CreatedAt,
-                    is_read = n.IsRead,
-                    sender_name = name
-                };
+                nid = n.Nid,
+                sender = n.Sender,
+                receiver = n.Receiver,
+                topic = n.Topic,
+                description = n.Description,
+                created_at = n.CreatedAt
             }).ToList();
 
             return Ok(dtos);
-        }
-
-        [HttpPost("read/{id}")]
-        public async Task<IActionResult> MarkAsRead(Guid id)
-        {
-            await _supabase.From<Notification>()
-                           .Where(x => x.Nid == id)
-                           .Set(x => x.IsRead, true)
-                           .Update();
-            return Ok();
         }
     }
 }

@@ -71,21 +71,5 @@ namespace Spark2Scale_.Server.Controllers
 
             return Ok(dtos);
         }
-
-        [HttpGet("{id}")]
-        public async Task<IActionResult> GetUser(Guid id)
-        {
-            var result = await _supabase.From<User>()
-                .Where(u => u.uid == id)
-                .Single();
-
-            if (result == null) return NotFound();
-
-            return Ok(new
-            {
-                fname = result.fname,
-                lname = result.lname
-            });
-        }
     }
 }
