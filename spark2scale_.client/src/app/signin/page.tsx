@@ -30,7 +30,8 @@ interface ApiResponse {
     user?: {
         id: string;
         email: string;
-        userType: string;
+        userType?: "founder" | "investor" | "contributor" | null;
+        hasProfile?: boolean;
     };
     message?: string;
 }
@@ -83,18 +84,30 @@ export default function SigninPage() {
                     message: "Login successful! Redirecting...",
                 });
 
+                // Save auth info
                 localStorage.setItem("auth_token", data.token);
                 localStorage.setItem("user", JSON.stringify(data.user));
 
                 setTimeout(() => {
-                    const userType = data.user?.userType || formData.userType;
+                    const hasProfile = data.user?.hasProfile;
+
+                    if (!hasProfile) {
+                        // No profile yet -> go complete profile
+                        router.push("/complete-profile");
+                        return;
+                    }
+
+                    const userType = data.user?.userType;
 
                     if (userType === "founder") {
                         router.push("/founder/dashboard");
                     } else if (userType === "investor") {
                         router.push("/investor/dashboard");
-                    } else {
+                    } else if (userType === "contributor") {
                         router.push("/contributor/dashboard");
+                    } else {
+                        // Fallback if something is missing
+                        router.push("/complete-profile");
                     }
                 }, 1500);
             } else {

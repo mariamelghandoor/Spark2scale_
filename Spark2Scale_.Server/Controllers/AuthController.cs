@@ -4,6 +4,7 @@ using Spark2Scale_.Server.Services;
 using Supabase;
 using Supabase.Gotrue;
 using Supabase.Gotrue.Exceptions;
+using Supabase.Postgrest;
 using Supabase.Postgrest.Exceptions;
 using System;
 using System.Linq;
@@ -31,6 +32,7 @@ namespace Spark2Scale_.Server.Controllers
 
         // ------------------------------------------------------
         // Simple SHA256 hashing for our own "password_hash" column
+        // (we don't use it for real auth; Supabase Auth handles that)
         // ------------------------------------------------------
         private static string HashPassword(string password)
         {
@@ -40,8 +42,11 @@ namespace Spark2Scale_.Server.Controllers
         }
 
         // ============================================================
-        // SIGN UP
+        // SIGN UP (AUTH ONLY)
         // ============================================================
+        // 1) Creates user in Supabase Auth (auth.users)
+        // 2) Supabase sends verification email (if configured)
+        // 3) We DO NOT touch public.users here.
         [HttpPost("signup")]
         public async Task<IActionResult> SignUp([FromBody] SignUpRequest request)
         {
@@ -53,104 +58,39 @@ namespace Spark2Scale_.Server.Controllers
                 return BadRequest(new { message = "Invalid data or passwords do not match." });
             }
 
-            // Normalize and validate user type
-            var userType = (request.UserType ?? "founder").Trim().ToLowerInvariant();
-            if (userType != "founder" && userType != "investor" && userType != "contributor")
-            {
-                return BadRequest(new { message = $"Invalid userType '{request.UserType}'. Must be 'founder', 'investor', or 'contributor'." });
-            }
-
             try
             {
-                // 1) Create auth user in auth.users
-                var authResponse = await _supabase.Auth.SignUp(
-                    request.Email.Trim().ToLower(),
-                    request.Password
-                );
+                var email = request.Email.Trim().ToLower();
 
-                if (authResponse?.User == null)
+                // Create auth user
+                var authResponse = await _supabase.Auth.SignUp(email, request.Password);
+
+                // Supabase handles email sending.
+                // Even if authResponse.User is null (email confirmation required),
+                // we can just instruct user to check email.
+                return Ok(new
                 {
-                    // DO NOT insert public.users row yet.
-                    return Ok(new
-                    {
-                        message = "Signup complete. Please verify your email before continuing.",
-                        requiresConfirmation = true
-                    });
-                }
-
-                // Supabase User.Id is a string (UUID)
-                Guid uid = Guid.Parse(authResponse.User.Id);
-
-                // 2) Insert into public.users
-                var firstName = request.Name.Split(" ", StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? "";
-                var lastName = request.Name.Split(" ", StringSplitOptions.RemoveEmptyEntries).Skip(1).FirstOrDefault() ?? "";
-
-                var newUser = new PublicUser
-                {
-                    uid = uid,
-                    fname = firstName,
-                    lname = lastName,
-                    email = request.Email.Trim().ToLower(),
-                    password_hash = HashPassword(request.Password),
-                    phone_number = request.Phone ?? string.Empty,
-                    address_region = "Unknown",
-                    created_at = DateTime.UtcNow,
-                    avatar_url = "",
-                    user_type = userType         // IMPORTANT: never null
-                };
-
-                // This is where the previous error came from when user_type was null
-                await _supabase.From<PublicUser>().Insert(newUser);
-
-                // 3) Insert into role-specific table
-                switch (userType)
-                {
-                    case "founder":
-                        await _supabase.From<Founder>().Insert(new Founder { user_id = uid });
-                        break;
-
-                    case "investor":
-                        await _supabase.From<Investor>().Insert(new Investor
-                        {
-                            user_id = uid,
-                            tags = request.Tags ?? Array.Empty<string>()
-                        });
-                        break;
-
-                    case "contributor":
-                        await _supabase.From<Contributor>().Insert(new Contributor { user_id = uid });
-                        break;
-                }
-
-                return Ok(new { message = "Signup complete. Please verify your email." });
+                    message = "Signup successful. Please check your email to confirm your account before logging in.",
+                    requiresConfirmation = true
+                });
             }
             catch (GotrueException gex)
             {
-                // Errors from Supabase Auth (duplicate email, etc.)
+                // e.g. "User already registered"
                 return BadRequest(new { message = $"Auth error: {gex.Message}" });
-            }
-            catch (PostgrestException pex)
-            {
-                // Errors from Postgrest (public.users / founders / investors / contributors)
-                return StatusCode(500, new
-                {
-                    message = "Database error while creating user.",
-                    detail = pex.Message
-                });
             }
             catch (Exception ex)
             {
-                return StatusCode(500, new
-                {
-                    message = "Signup failed.",
-                    detail = ex.Message
-                });
+                return StatusCode(500, new { message = "Signup failed.", detail = ex.Message });
             }
         }
 
         // ============================================================
         // SIGN IN
         // ============================================================
+        // 1) Sign in via Supabase Auth
+        // 2) Try to load profile from public.users (may not exist yet)
+        // 3) Return hasProfile flag
         [HttpPost("signin")]
         public async Task<IActionResult> SignIn([FromBody] SignInRequest request)
         {
@@ -163,9 +103,9 @@ namespace Spark2Scale_.Server.Controllers
 
             try
             {
-                var response = await _supabase.Auth.SignIn(
-                    request.Email.Trim().ToLower(),
-                    request.Password);
+                var email = request.Email.Trim().ToLower();
+
+                var response = await _supabase.Auth.SignIn(email, request.Password);
 
                 if (response?.User == null)
                 {
@@ -174,10 +114,24 @@ namespace Spark2Scale_.Server.Controllers
 
                 Guid uid = Guid.Parse(response.User.Id);
 
-                var profile = await _supabase
-                    .From<PublicUser>()
-                    .Filter("uid", Supabase.Postgrest.Constants.Operator.Equals, uid)
-                    .Single();
+                PublicUser profile = null;
+                bool hasProfile = false;
+
+                try
+                {
+                    var dbResult = await _supabase
+                        .From<PublicUser>()
+                        .Filter("uid", Supabase.Postgrest.Constants.Operator.Equals, uid)
+                        .Get();
+
+                    profile = dbResult.Models.FirstOrDefault();
+                    hasProfile = profile != null;
+                }
+                catch (PostgrestException)
+                {
+                    // If RLS or something else fails, just treat as no profile
+                    hasProfile = false;
+                }
 
                 return Ok(new
                 {
@@ -185,15 +139,18 @@ namespace Spark2Scale_.Server.Controllers
                     refreshToken = response.RefreshToken,
                     user = new
                     {
-                        id = profile.uid,
-                        email = profile.email,
-                        fname = profile.fname,
-                        lname = profile.lname,
-                        phone = profile.phone_number,
-                        addressRegion = profile.address_region,
-                        avatarUrl = profile.avatar_url,
-                        userType = profile.user_type,
-                        createdAt = profile.created_at
+                        id = uid,
+                        email = response.User.Email ?? email,
+                        hasProfile,
+
+                        // These will be null on first login (before complete-profile)
+                        fname = profile?.fname,
+                        lname = profile?.lname,
+                        phone = profile?.phone_number,
+                        addressRegion = profile?.address_region,
+                        avatarUrl = profile?.avatar_url,
+                        userType = profile?.user_type,
+                        createdAt = profile?.created_at
                     }
                 });
             }
@@ -204,6 +161,147 @@ namespace Spark2Scale_.Server.Controllers
             catch (Exception ex)
             {
                 return StatusCode(500, new { message = "Unexpected error during login.", detail = ex.Message });
+            }
+        }
+
+        // ============================================================
+        // COMPLETE PROFILE
+        // ============================================================
+        // Called AFTER login, when user fills profile form.
+        // - Creates/updates public.users
+        // - Inserts role record (founder/investor/contributor)
+        [HttpPost("complete-profile")]
+        public async Task<IActionResult> CompleteProfile([FromBody] CompleteProfileRequest request)
+        {
+            if (request == null || request.UserId == Guid.Empty)
+            {
+                return BadRequest(new { message = "Missing or invalid userId." });
+            }
+
+            if (string.IsNullOrWhiteSpace(request.UserType))
+            {
+                return BadRequest(new { message = "UserType is required." });
+            }
+
+            var userType = request.UserType.Trim().ToLowerInvariant();
+            if (userType != "founder" && userType != "investor" && userType != "contributor")
+            {
+                return BadRequest(new { message = "Invalid userType. Must be 'founder', 'investor', or 'contributor'." });
+            }
+
+            try
+            {
+                var table = _supabase.From<PublicUser>();
+
+                // Check if profile already exists
+                var existingResult = await table
+                    .Filter("uid", Supabase.Postgrest.Constants.Operator.Equals, request.UserId)
+                    .Get();
+
+                var existing = existingResult.Models.FirstOrDefault();
+
+                // Build user row
+                var userRow = new PublicUser
+                {
+                    uid = request.UserId,
+                    fname = request.FirstName?.Trim() ?? string.Empty,
+                    lname = request.LastName?.Trim() ?? string.Empty,
+                    email = existing?.email ?? string.Empty,  // we don't change email here
+                    password_hash = existing?.password_hash ?? string.Empty, // not used
+                    phone_number = request.Phone?.Trim() ?? string.Empty,
+                    address_region = request.AddressRegion?.Trim() ?? string.Empty,
+                    created_at = existing?.created_at ?? DateTime.UtcNow,
+                    avatar_url = existing?.avatar_url ?? string.Empty,
+                    user_type = userType
+                };
+
+                if (existing == null)
+                {
+                    // Insert new profile row
+                    await table.Insert(userRow);
+                }
+                else
+                {
+                    // Update existing profile row
+                    await table.Update(userRow);
+                }
+
+                // Role-specific record
+                switch (userType)
+                {
+                    case "founder":
+                        {
+                            var founderRes = await _supabase
+                                .From<Founder>()
+                                .Filter("user_id", Supabase.Postgrest.Constants.Operator.Equals, request.UserId)
+                                .Get();
+
+                            if (!founderRes.Models.Any())
+                            {
+                                await _supabase.From<Founder>().Insert(new Founder
+                                {
+                                    user_id = request.UserId
+                                });
+                            }
+
+                            break;
+                        }
+                    case "investor":
+                        {
+                            var investorRes = await _supabase
+                                .From<Investor>()
+                                .Filter("user_id", Supabase.Postgrest.Constants.Operator.Equals, request.UserId)
+                                .Get();
+
+                            if (!investorRes.Models.Any())
+                            {
+                                await _supabase.From<Investor>().Insert(new Investor
+                                {
+                                    user_id = request.UserId,
+                                    tags = request.Tags ?? Array.Empty<string>()
+                                });
+                            }
+                            else
+                            {
+                                var investor = investorRes.Models.First();
+                                investor.tags = request.Tags ?? Array.Empty<string>();
+                                await _supabase.From<Investor>().Update(investor);
+                            }
+
+                            break;
+                        }
+                    case "contributor":
+                        {
+                            var contribRes = await _supabase
+                                .From<Contributor>()
+                                .Filter("user_id", Supabase.Postgrest.Constants.Operator.Equals, request.UserId)
+                                .Get();
+
+                            if (!contribRes.Models.Any())
+                            {
+                                await _supabase.From<Contributor>().Insert(new Contributor
+                                {
+                                    user_id = request.UserId
+                                });
+                            }
+
+                            break;
+                        }
+                }
+
+                return Ok(new
+                {
+                    message = "Profile saved successfully.",
+                    userType = userType
+                });
+            }
+            catch (PostgrestException pex)
+            {
+                return StatusCode(500, new { message = "Database error while saving profile.", detail = pex.Message });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { message = "Failed to complete profile.", detail = ex.Message });
             }
         }
 
