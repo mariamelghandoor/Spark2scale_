@@ -215,14 +215,20 @@ export default function EvaluatePage() {
                                                     <p className="font-semibold text-[#576238]">
                                                         {evalDoc.document_name}
                                                     </p>
-                                                    <a
-                                                        href={evalDoc.current_path}
-                                                        target="_blank"
-                                                        rel="noopener noreferrer"
-                                                        className="text-xs text-blue-600 hover:underline"
+                                                    <Button
+                                                        variant="outline"
+                                                        size="sm"
+                                                        className="h-6 px-3 text-xs mt-1 border-[#576238]/30 text-[#576238] hover:bg-[#576238]/10 hover:text-[#576238]"
+                                                        asChild
                                                     >
-                                                        View PDF
-                                                    </a>
+                                                        <a
+                                                            href={evalDoc.current_path}
+                                                            target="_blank"
+                                                            rel="noopener noreferrer"
+                                                        >
+                                                            View PDF
+                                                        </a>
+                                                    </Button>
                                                 </div>
                                             </div>
 
