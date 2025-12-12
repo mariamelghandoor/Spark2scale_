@@ -1,18 +1,11 @@
-using Microsoft.AspNetCore.Mvc;
+﻿using Microsoft.AspNetCore.Mvc;
 using Spark2Scale_.Server.Models;
 using Spark2Scale_.Server.Services;
 using Supabase;
 using Supabase.Gotrue;
 using Supabase.Gotrue.Exceptions;
-using Supabase.Postgrest;
 using Supabase.Postgrest.Exceptions;
-using System;
-using System.Linq;
-using System.Security.Cryptography;
-using System.Text;
-using System.Threading.Tasks;
 
-// Alias so we can use our own User model without clashing
 using PublicUser = Spark2Scale_.Server.Models.User;
 
 namespace Spark2Scale_.Server.Controllers
@@ -30,74 +23,63 @@ namespace Spark2Scale_.Server.Controllers
             _emailService = emailService;
         }
 
-        // ------------------------------------------------------
-        // Simple SHA256 hashing for our own "password_hash" column
-        // (we don't use it for real auth; Supabase Auth handles that)
-        // ------------------------------------------------------
-        private static string HashPassword(string password)
+        private static (string first, string last) SplitName(string full)
         {
-            using var sha = SHA256.Create();
-            var bytes = sha.ComputeHash(Encoding.UTF8.GetBytes(password));
-            return Convert.ToBase64String(bytes);
+            var parts = full.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            return parts.Length switch
+            {
+                0 => ("", ""),
+                1 => (parts[0], ""),
+                _ => (parts[0], string.Join(" ", parts.Skip(1)))
+            };
         }
 
-        // ============================================================
-        // SIGN UP (AUTH ONLY)
-        // ============================================================
-        // 1) Creates user in Supabase Auth (auth.users)
-        // 2) Supabase sends verification email (if configured)
-        // 3) We DO NOT touch public.users here.
-        /// <summary>
-        /// Creates an auth user AND full profile in ONE step.
-        /// Sends verification email automatically.
-        /// </summary>
+        // ===================== SIGN UP =====================
         [HttpPost("signup")]
         public async Task<IActionResult> SignUp([FromBody] FullSignUpRequest request)
         {
-            if (request == null ||
-                string.IsNullOrWhiteSpace(request.Email) ||
-                string.IsNullOrWhiteSpace(request.Password) ||
-                request.Password != request.ConfirmPassword)
-            {
-                return BadRequest(new { message = "Invalid signup data." });
-            }
+            if (request.Password != request.ConfirmPassword)
+                return BadRequest(new { message = "Passwords do not match." });
+
+            var email = request.Email.Trim().ToLowerInvariant();
 
             try
             {
-                var email = request.Email.Trim().ToLower();
+                // 1️⃣ Create Auth user
+                var auth = await _supabase.Auth.SignUp(email, request.Password);
 
-                // 1) Create auth.users entry
-                var authResponse = await _supabase.Auth.SignUp(email, request.Password);
+                // Email confirmation ON → auth.User may be null
+                var authUserId = auth.User?.Id ?? auth.Session?.User?.Id;
 
-                if (authResponse?.User == null)
+                if (authUserId == null)
                 {
                     return Ok(new
                     {
-                        message = "Signup complete. Check your email to activate your account.",
+                        message = "Signup successful. Please verify your email.",
                         requiresConfirmation = true
                     });
                 }
 
-                Guid uid = Guid.Parse(authResponse.User.Id);
+                var uid = Guid.Parse(authUserId);
+                var (fname, lname) = SplitName(request.Name);
 
-                // 2) Insert profile into public.users
+                // 2️⃣ Create profile
                 var profile = new PublicUser
                 {
                     uid = uid,
-                    fname = request.FirstName,
-                    lname = request.LastName,
+                    fname = fname,
+                    lname = lname,
                     email = email,
-                    password_hash = HashPassword(request.Password),
                     phone_number = request.Phone,
-                    address_region = request.AddressRegion,
+                    address_region = request.AddressRegion ?? "",
                     avatar_url = "",
                     created_at = DateTime.UtcNow,
-                    user_type = request.UserType?.ToLower() ?? "founder"
+                    user_type = request.UserType.ToLower()
                 };
 
                 await _supabase.From<PublicUser>().Insert(profile);
 
-                // 3) Insert role record
+                // 3️⃣ Role table
                 switch (profile.user_type)
                 {
                     case "founder":
@@ -108,7 +90,7 @@ namespace Spark2Scale_.Server.Controllers
                         await _supabase.From<Investor>().Insert(new Investor
                         {
                             user_id = uid,
-                            tags = request.Tags ?? Array.Empty<string>()
+                            tags = request.Tags
                         });
                         break;
 
@@ -119,180 +101,149 @@ namespace Spark2Scale_.Server.Controllers
 
                 return Ok(new
                 {
-                    message = "Signup complete. Check your email to verify your account.",
-                    requiresConfirmation = true
+                    message = "Account created successfully.",
+                    requiresConfirmation = false
                 });
             }
             catch (GotrueException ex)
             {
-                return BadRequest(new { message = $"Auth error: {ex.Message}" });
+                if (ex.Message.Contains("already registered"))
+                {
+                    return BadRequest(new
+                    {
+                        message = "An account with this email already exists."
+                    });
+                }
+
+                return BadRequest(new { message = ex.Message });
             }
-            catch (Exception ex)
+            catch (PostgrestException ex)
             {
-                return StatusCode(500, new { message = "Signup failed.", detail = ex.Message });
+                if (ex.Code == "23505")
+                {
+                    return BadRequest(new
+                    {
+                        message = "An account with this email already exists."
+                    });
+                }
+
+                throw;
             }
         }
 
-        // ============================================================
-        // SIGN IN
-        // ============================================================
-        // 1) Sign in via Supabase Auth
-        // 2) Try to load profile from public.users (may not exist yet)
-        // 3) Return hasProfile flag
+        // ===================== SIGN IN =====================
         [HttpPost("signin")]
         public async Task<IActionResult> SignIn([FromBody] SignInRequest request)
         {
-            if (request == null ||
-                string.IsNullOrWhiteSpace(request.Email) ||
-                string.IsNullOrWhiteSpace(request.Password))
-            {
-                return BadRequest(new { message = "Email and password are required." });
-            }
-
             try
             {
-                var email = request.Email.Trim().ToLower();
+                var auth = await _supabase.Auth.SignIn(
+                    request.Email.Trim().ToLower(),
+                    request.Password
+                );
 
-                var response = await _supabase.Auth.SignIn(email, request.Password);
-
-                if (response?.User == null)
+                if (auth.User == null)
                 {
-                    return Unauthorized(new { message = "Invalid credentials or email not verified." });
+                    return Unauthorized(new
+                    {
+                        message = "Invalid credentials or email not verified."
+                    });
                 }
 
-                Guid uid = Guid.Parse(response.User.Id);
+                var uid = Guid.Parse(auth.User.Id);
 
-                PublicUser profile = null;
-                bool hasProfile = false;
+                var profileResult = await _supabase
+                    .From<PublicUser>()
+                    .Filter("uid", Supabase.Postgrest.Constants.Operator.Equals, uid)
+                    .Get();
 
-                try
+                var profile = profileResult.Models.FirstOrDefault();
+
+                if (profile == null)
                 {
-                    var dbResult = await _supabase
-                        .From<PublicUser>()
-                        .Filter("uid", Supabase.Postgrest.Constants.Operator.Equals, uid)
-                        .Get();
-
-                    profile = dbResult.Models.FirstOrDefault();
-                    hasProfile = profile != null;
-                }
-                catch (PostgrestException)
-                {
-                    // If RLS or something else fails, just treat as no profile
-                    hasProfile = false;
+                    return StatusCode(500, new
+                    {
+                        message = "Profile record missing for this account. Please contact support."
+                    });
                 }
 
                 return Ok(new
                 {
-                    token = response.AccessToken,
-                    refreshToken = response.RefreshToken,
+                    token = auth.AccessToken,
                     user = new
                     {
                         id = uid,
-                        email = response.User.Email ?? email,
-                        hasProfile,
-
-                        // These will be null on first login (before complete-profile)
-                        fname = profile?.fname,
-                        lname = profile?.lname,
-                        phone = profile?.phone_number,
-                        addressRegion = profile?.address_region,
-                        avatarUrl = profile?.avatar_url,
+                        email = auth.User.Email,
                         userType = profile?.user_type,
-                        createdAt = profile?.created_at
+                        hasProfile = profile != null
                     }
                 });
             }
-            catch (GotrueException)
+            catch (GotrueException ex)
             {
-                return Unauthorized(new { message = "Login failed. Check your email/password or verify your account." });
+                var message = ex.Message ?? "Login failed. Check email and password.";
+
+                if (message.Contains("confirm", StringComparison.OrdinalIgnoreCase))
+                {
+                    return StatusCode(403, new
+                    {
+                        message = "Email not verified. Please confirm your email before signing in."
+                    });
+                }
+
+                return Unauthorized(new { message });
             }
             catch (Exception ex)
             {
-                return StatusCode(500, new { message = "Unexpected error during login.", detail = ex.Message });
+                return Unauthorized(new
+                {
+                    message = "Login failed. Check email and password."
+                });
             }
         }
 
-
-        // ============================================================
-        // FORGOT PASSWORD
-        // ============================================================
+        // ===================== FORGOT PASSWORD =====================
         [HttpPost("forgot-password")]
         public async Task<IActionResult> ForgotPassword([FromBody] ForgotPasswordRequest request)
         {
-            if (request == null || string.IsNullOrWhiteSpace(request.Email))
-            {
-                return BadRequest(new { message = "Email is required." });
-            }
+            var redirectTo = Environment.GetEnvironmentVariable("SUPABASE_RESET_REDIRECT")
+                             ?? "http://localhost:3000/reset-password";
 
-            try
-            {
-                await _supabase.Auth.ResetPasswordForEmail(request.Email.Trim().ToLower());
+            await _supabase.Auth.ResetPasswordForEmail(
+                request.Email.Trim().ToLower(),
+                redirectTo
+            );
 
-                return Ok(new
-                {
-                    message = "If an account with that email exists, a reset link has been sent."
-                });
-            }
-            catch
+            return Ok(new
             {
-                // For security, same message even on error
-                return Ok(new
-                {
-                    message = "If an account with that email exists, a reset link has been sent."
-                });
-            }
+                message = "If the email exists, a reset link has been sent."
+            });
         }
 
-        // ============================================================
-        // RESET PASSWORD
-        // ============================================================
+        // ===================== RESET PASSWORD =====================
         [HttpPost("reset-password")]
         public async Task<IActionResult> ResetPassword([FromBody] ResetPasswordRequest request)
         {
-            if (request == null || string.IsNullOrWhiteSpace(request.AccessToken))
+            if (request.NewPassword != request.ConfirmPassword)
+                return BadRequest(new { message = "Passwords do not match." });
+
+            if (string.IsNullOrWhiteSpace(request.AccessToken))
             {
                 return BadRequest(new { message = "Missing reset token." });
             }
 
-            if (request.NewPassword != request.ConfirmPassword)
-            {
-                return BadRequest(new { message = "Passwords do not match." });
-            }
+            await _supabase.Auth.SetSession(request.AccessToken.Trim());
 
-            try
+            await _supabase.Auth.Update(new UserAttributes
             {
-                // Attach session from the token
-                var session = await _supabase.Auth.SetSession(request.AccessToken, string.Empty);
+                Password = request.NewPassword
+            });
 
-                // Update password in auth.users
-                await _supabase.Auth.Update(new UserAttributes
-                {
-                    Password = request.NewPassword
-                });
-
-                // Optional: email notification
-                if (session.User?.Email != null)
-                {
-                    await _emailService.SendEmailAsync(
-                        session.User.Email,
-                        "Password changed successfully",
-                        "<p>Your password has been updated.</p>");
-                }
-
-                return Ok(new { message = "Password reset successful." });
-            }
-            catch (GotrueException ex)
+            return Ok(new
             {
-                return BadRequest(new
-                {
-                    message = "Reset failed. The link may be invalid or expired.",
-                    detail = ex.Message
-                });
-            }
-            catch (Exception ex)
-            {
-                return BadRequest(new { message = "Reset failed.", detail = ex.Message });
-            }
+                message = "Password reset successful."
+            });
         }
     }
 }
+    
