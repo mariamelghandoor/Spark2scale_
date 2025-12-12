@@ -54,61 +54,129 @@
                     // 1️⃣ Create Auth user
                     var auth = await _supabase.Auth.SignUp(email, request.Password);
 
-                    // Email confirmation ON → auth.User may be null
-                    var authUserId = auth.User?.Id;
+                    // Email confirmation ON → auth.User may be null, but user is still created in auth.users
+                    // We need to get the user ID even if email confirmation is required
+                    string? authUserId = null;
+                    bool requiresEmailConfirmation = false;
 
-                    if (authUserId == null)
+                    if (auth.User != null)
                     {
+                        // Email confirmation OFF - user is immediately available
+                        authUserId = auth.User.Id;
+                    }
+                    else
+                    {
+                        // Email confirmation ON - user exists but needs verification
+                        // Query auth.users by email to get the user ID (using service role key)
+                        requiresEmailConfirmation = true;
+                        
+                        // Try to get user from session if available
+                        if (auth.Session != null && auth.Session.User != null)
+                        {
+                            authUserId = auth.Session.User.Id;
+                        }
+                        else
+                        {
+                            // If session is null, user was created but we can't get ID yet
+                            // Store signup data in a temporary table to use during email verification
+                            // We'll use the email as the key to retrieve it later
+                            // For now, we'll create profile in verify-email callback
+                            // Store signup data in a simple key-value table or use email as identifier
+                            // Since we can't easily query auth.users, we'll handle this in verify-email
+                            return Ok(new
+                            {
+                                message = "Signup successful. Please verify your email.",
+                                requiresConfirmation = true
+                            });
+                        }
+                    }
+
+                    // If we have user ID, create profile immediately
+                    if (!string.IsNullOrEmpty(authUserId))
+                    {
+                        var uid = Guid.Parse(authUserId);
+                        var (fname, lname) = SplitName(request.Name);
+
+                        // 2️⃣ Create profile (check if it already exists)
+                        var existingProfile = await _supabase
+                            .From<PublicUser>()
+                            .Filter("uid", Supabase.Postgrest.Constants.Operator.Equals, uid)
+                            .Get();
+
+                        if (existingProfile.Models.Count == 0)
+                        {
+                            var profile = new PublicUser
+                            {
+                                uid = uid,
+                                fname = fname,
+                                lname = lname,
+                                email = email,
+                                phone_number = request.Phone,
+                                address_region = request.AddressRegion ?? "",
+                                avatar_url = "",
+                                created_at = DateTime.UtcNow,
+                                user_type = request.UserType.ToLower()
+                            };
+
+                            await _supabase.From<PublicUser>().Insert(profile);
+
+                            // 3️⃣ Role table (check if it already exists)
+                            var roleExists = false;
+                            switch (profile.user_type)
+                            {
+                                case "founder":
+                                    var founderCheck = await _supabase
+                                        .From<Founder>()
+                                        .Filter("user_id", Supabase.Postgrest.Constants.Operator.Equals, uid)
+                                        .Get();
+                                    if (founderCheck.Models.Count == 0)
+                                    {
+                                        await _supabase.From<Founder>().Insert(new Founder { user_id = uid });
+                                    }
+                                    break;
+
+                                case "investor":
+                                    var investorCheck = await _supabase
+                                        .From<Investor>()
+                                        .Filter("user_id", Supabase.Postgrest.Constants.Operator.Equals, uid)
+                                        .Get();
+                                    if (investorCheck.Models.Count == 0)
+                                    {
+                                        await _supabase.From<Investor>().Insert(new Investor
+                                        {
+                                            user_id = uid,
+                                            tags = request.Tags
+                                        });
+                                    }
+                                    break;
+
+                                case "contributor":
+                                    var contributorCheck = await _supabase
+                                        .From<Contributor>()
+                                        .Filter("user_id", Supabase.Postgrest.Constants.Operator.Equals, uid)
+                                        .Get();
+                                    if (contributorCheck.Models.Count == 0)
+                                    {
+                                        await _supabase.From<Contributor>().Insert(new Contributor { user_id = uid });
+                                    }
+                                    break;
+                            }
+                        }
+
                         return Ok(new
                         {
-                            message = "Signup successful. Please verify your email.",
-                            requiresConfirmation = true
+                            message = requiresEmailConfirmation 
+                                ? "Account created. Please verify your email before signing in."
+                                : "Account created successfully.",
+                            requiresConfirmation = requiresEmailConfirmation
                         });
                     }
 
-                    var uid = Guid.Parse(authUserId);
-                    var (fname, lname) = SplitName(request.Name);
-
-                    // 2️⃣ Create profile
-                    var profile = new PublicUser
-                    {
-                        uid = uid,
-                        fname = fname,
-                        lname = lname,
-                        email = email,
-                        phone_number = request.Phone,
-                        address_region = request.AddressRegion ?? "",
-                        avatar_url = "",
-                        created_at = DateTime.UtcNow,
-                        user_type = request.UserType.ToLower()
-                    };
-
-                    await _supabase.From<PublicUser>().Insert(profile);
-
-                    // 3️⃣ Role table
-                    switch (profile.user_type)
-                    {
-                        case "founder":
-                            await _supabase.From<Founder>().Insert(new Founder { user_id = uid });
-                            break;
-
-                        case "investor":
-                            await _supabase.From<Investor>().Insert(new Investor
-                            {
-                                user_id = uid,
-                                tags = request.Tags
-                            });
-                            break;
-
-                        case "contributor":
-                            await _supabase.From<Contributor>().Insert(new Contributor { user_id = uid });
-                            break;
-                    }
-
+                    // Fallback: Profile will be created in verify-email callback
                     return Ok(new
                     {
-                        message = "Account created successfully.",
-                        requiresConfirmation = false
+                        message = "Signup successful. Please verify your email.",
+                        requiresConfirmation = true
                     });
                 }
                 catch (GotrueException ex)
@@ -317,24 +385,64 @@
 
                 var existingProfile = profileResult.Models.FirstOrDefault();
 
-                // If profile doesn't exist, we need to create it
+                // If profile doesn't exist or has NULL values, create/update it
                 // This happens when email confirmation was required during signup
-                // Note: We'll need signup data stored temporarily or use a webhook
-                // For now, return success and let frontend handle profile creation if needed
-                if (existingProfile == null)
+                if (existingProfile == null || string.IsNullOrEmpty(existingProfile.fname))
                 {
-                    return Ok(new
+                    if (existingProfile == null)
                     {
-                        message = "Email verified successfully.",
-                        token = request.AccessToken,
-                        user = new
+                        // Create new profile with email (user can complete profile later)
+                        var newProfile = new PublicUser
                         {
-                            id = uid,
-                            email = user.Email,
-                            emailVerified = user.EmailConfirmedAt != null,
-                            needsProfile = true
+                            uid = uid,
+                            fname = "",
+                            lname = "",
+                            email = user.Email ?? "",
+                            phone_number = "",
+                            address_region = "",
+                            avatar_url = "",
+                            created_at = DateTime.UtcNow,
+                            user_type = "founder" // Default, user can update later
+                        };
+
+                        try
+                        {
+                            await _supabase.From<PublicUser>().Insert(newProfile);
+                            existingProfile = newProfile;
                         }
-                    });
+                        catch (PostgrestException ex)
+                        {
+                            // Profile might have been created by another process
+                            var retryProfile = await _supabase
+                                .From<PublicUser>()
+                                .Filter("uid", Supabase.Postgrest.Constants.Operator.Equals, uid)
+                                .Get();
+                            existingProfile = retryProfile.Models.FirstOrDefault();
+                        }
+                    }
+
+                    // Ensure default role exists
+                    var founderCheck = await _supabase
+                        .From<Founder>()
+                        .Filter("user_id", Supabase.Postgrest.Constants.Operator.Equals, uid)
+                        .Get();
+                    if (founderCheck.Models.Count == 0)
+                    {
+                        // Check other roles too
+                        var investorCheck = await _supabase
+                            .From<Investor>()
+                            .Filter("user_id", Supabase.Postgrest.Constants.Operator.Equals, uid)
+                            .Get();
+                        var contributorCheck = await _supabase
+                            .From<Contributor>()
+                            .Filter("user_id", Supabase.Postgrest.Constants.Operator.Equals, uid)
+                            .Get();
+
+                        if (investorCheck.Models.Count == 0 && contributorCheck.Models.Count == 0)
+                        {
+                            await _supabase.From<Founder>().Insert(new Founder { user_id = uid });
+                        }
+                    }
                 }
 
                 return Ok(new
