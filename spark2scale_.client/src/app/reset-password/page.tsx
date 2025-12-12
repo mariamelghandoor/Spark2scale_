@@ -41,10 +41,13 @@ export default function ResetPasswordPage() {
     const [isLoading, setIsLoading] = useState<boolean>(false);
     const [token, setToken] = useState<string | null>(null);
 
+    const [refreshToken, setRefreshToken] = useState<string | null>(null);
+
     useEffect(() => {
         const hash = window.location.hash.replace("#", "");
         const hashParams = new URLSearchParams(hash);
         const accessTokenFromHash = hashParams.get("access_token");
+        const refreshTokenFromHash = hashParams.get("refresh_token");
 
         const queryParams = new URLSearchParams(window.location.search);
         const tokenFromQuery = queryParams.get("token");
@@ -65,6 +68,9 @@ export default function ResetPasswordPage() {
 
         setTimeout(() => {
             setToken(finalToken);
+            if (refreshTokenFromHash) {
+                setRefreshToken(refreshTokenFromHash);
+            }
             setStatus({
                 type: "info",
                 message: "Reset token detected",
@@ -113,6 +119,7 @@ export default function ResetPasswordPage() {
         try {
             const payload = {
                 accessToken: token,
+                refreshToken: refreshToken || "",
                 newPassword: formData.newPassword,
                 confirmPassword: formData.confirmPassword,
             };

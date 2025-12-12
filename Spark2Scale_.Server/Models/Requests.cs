@@ -29,8 +29,15 @@ namespace Spark2Scale_.Server.Models
     public class ResetPasswordRequest
     {
         public string AccessToken { get; set; } = "";
+        public string RefreshToken { get; set; } = "";
         public string NewPassword { get; set; } = "";
         public string ConfirmPassword { get; set; } = "";
+    }
+
+    public class VerifyEmailRequest
+    {
+        public string AccessToken { get; set; } = "";
+        public string RefreshToken { get; set; } = "";
     }
 }
 
