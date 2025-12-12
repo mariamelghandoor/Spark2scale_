@@ -143,6 +143,17 @@ export default function ForgotPasswordPage() {
                                     </p>
                                 </div>
                             </form>
+
+                            {status.type === "success" && (
+                                <div className="mt-4 text-center">
+                                    <Link
+                                        href="/signin"
+                                        className="text-sm text-[#576238] hover:text-[#6b7c3f] font-semibold underline-offset-4 hover:underline"
+                                    >
+                                        ← Back to Sign In
+                                    </Link>
+                                </div>
+                            )}
                         </CardContent>
                     </Card>
                 </motion.div>

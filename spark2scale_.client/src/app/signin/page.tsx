@@ -49,13 +49,45 @@ export default function SigninPage() {
                 throw new Error(data.message || "Login failed");
             }
 
+            // Store token
             localStorage.setItem("auth_token", data.token);
             localStorage.setItem("user", JSON.stringify(data.user));
 
+            // Get full user profile from /me endpoint
+            try {
+                const meResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/Auth/me`, {
+                    method: "GET",
+                    headers: {
+                        "Authorization": `Bearer ${data.token}`,
+                        "Content-Type": "application/json",
+                    },
+                });
+
+                if (meResponse.ok) {
+                    const meData = await meResponse.json();
+                    // Update localStorage with full user data
+                    localStorage.setItem("user", JSON.stringify(meData.user));
+                    localStorage.setItem("roleData", JSON.stringify(meData.roleData || null));
+                }
+            } catch (meError) {
+                console.error("Failed to fetch full user profile:", meError);
+                // Continue with redirect even if /me fails
+            }
+
             setStatus({ type: "success", message: "Login successful! Redirecting..." });
 
+            // Redirect based on user type
             setTimeout(() => {
-                router.push(`/${data.user.userType}/dashboard`);
+                const userType = data.user.userType?.toLowerCase() || "";
+                if (userType === "founder") {
+                    router.push("/founder/dashboard");
+                } else if (userType === "investor") {
+                    router.push("/investor/feed");
+                } else if (userType === "contributor") {
+                    router.push("/contributor/dashboard");
+                } else {
+                    router.push("/signin");
+                }
             }, 1000);
         } catch (err: unknown) {
             const message =
@@ -95,7 +127,15 @@ export default function SigninPage() {
                         </div>
 
                         <div>
-                            <Label>Password</Label>
+                            <div className="flex items-center justify-between mb-2">
+                                <Label>Password</Label>
+                                <Link
+                                    href="/forgot-password"
+                                    className="text-sm text-[#576238] hover:text-[#6b7c3f] hover:underline"
+                                >
+                                    Forgot password?
+                                </Link>
+                            </div>
                             <Input
                                 type="password"
                                 value={password}
@@ -104,16 +144,22 @@ export default function SigninPage() {
                             />
                         </div>
 
-                        <Button className="w-full" disabled={isLoading}>
+                        <Button className="w-full bg-[#576238] hover:bg-[#6b7c3f] text-white font-semibold" disabled={isLoading}>
                             {isLoading ? <Loader2 className="animate-spin mr-2" /> : "Sign In"}
                         </Button>
                     </form>
                 </CardContent>
 
-                <CardFooter className="justify-center">
-                    <Link href="/signup" className="text-sm underline">
-                        Don't have an account? Sign up
-                    </Link>
+                <CardFooter className="justify-center border-t pt-6">
+                    <p className="text-sm text-muted-foreground">
+                        Don't have an account?{" "}
+                        <Link
+                            href="/signup"
+                            className="text-[#576238] hover:text-[#6b7c3f] font-semibold underline-offset-4 hover:underline"
+                        >
+                            Sign up
+                        </Link>
+                    </p>
                 </CardFooter>
             </Card>
         </div>

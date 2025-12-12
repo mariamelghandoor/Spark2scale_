@@ -348,6 +348,8 @@ namespace Spark2Scale_.Server.Controllers
                     {
                         id = uid,
                         email = auth.User.Email,
+                        fname = profile?.fname ?? "",
+                        lname = profile?.lname ?? "",
                         userType = profile?.user_type,
                         hasProfile = profile != null
                     }
@@ -804,6 +806,117 @@ namespace Spark2Scale_.Server.Controllers
             catch (Exception ex)
             {
                 return StatusCode(500, new { message = "An error occurred during email verification." });
+            }
+        }
+
+        // ===================== GET CURRENT USER =====================
+        [HttpGet("me")]
+        public async Task<IActionResult> GetCurrentUser()
+        {
+            try
+            {
+                // Get token from Authorization header
+                var authHeader = Request.Headers["Authorization"].FirstOrDefault();
+                if (string.IsNullOrWhiteSpace(authHeader) || !authHeader.StartsWith("Bearer "))
+                {
+                    return Unauthorized(new { message = "Missing or invalid authorization token." });
+                }
+
+                var token = authHeader.Substring("Bearer ".Length).Trim();
+                if (string.IsNullOrWhiteSpace(token))
+                {
+                    return Unauthorized(new { message = "Missing authorization token." });
+                }
+
+                // Set session with token
+                await _supabase.Auth.SetSession(token, "", false);
+
+                // Get current user from Supabase Auth
+                var currentUser = _supabase.Auth.CurrentUser;
+                if (currentUser == null)
+                {
+                    return Unauthorized(new { message = "Invalid or expired token." });
+                }
+
+                var uid = Guid.Parse(currentUser.Id);
+
+                // Get user profile from public.users
+                var profileResult = await _supabase
+                    .From<PublicUser>()
+                    .Filter("uid", Supabase.Postgrest.Constants.Operator.Equals, uid.ToString())
+                    .Get();
+
+                var profile = profileResult.Models.FirstOrDefault();
+
+                if (profile == null)
+                {
+                    return StatusCode(500, new
+                    {
+                        message = "Profile record missing for this account. Please contact support.",
+                        user = new
+                        {
+                            id = uid,
+                            email = currentUser.Email,
+                            needsProfile = true
+                        }
+                    });
+                }
+
+                // Get role-specific data
+                object? roleData = null;
+                switch (profile.user_type?.ToLower())
+                {
+                    case "founder":
+                        var founderResult = await _supabase
+                            .From<Founder>()
+                            .Filter("user_id", Supabase.Postgrest.Constants.Operator.Equals, uid.ToString())
+                            .Get();
+                        roleData = founderResult.Models.FirstOrDefault();
+                        break;
+
+                    case "investor":
+                        var investorResult = await _supabase
+                            .From<Investor>()
+                            .Filter("user_id", Supabase.Postgrest.Constants.Operator.Equals, uid.ToString())
+                            .Get();
+                        roleData = investorResult.Models.FirstOrDefault();
+                        break;
+
+                    case "contributor":
+                        var contributorResult = await _supabase
+                            .From<Contributor>()
+                            .Filter("user_id", Supabase.Postgrest.Constants.Operator.Equals, uid.ToString())
+                            .Get();
+                        roleData = contributorResult.Models.FirstOrDefault();
+                        break;
+                }
+
+                return Ok(new
+                {
+                    user = new
+                    {
+                        id = uid,
+                        email = profile.email,
+                        fname = profile.fname ?? "",
+                        lname = profile.lname ?? "",
+                        phone_number = profile.phone_number ?? "",
+                        address_region = profile.address_region ?? "",
+                        avatar_url = profile.avatar_url ?? "",
+                        user_type = profile.user_type ?? "founder",
+                        created_at = profile.created_at,
+                        emailVerified = currentUser.EmailConfirmedAt != null,
+                        needsProfile = false
+                    },
+                    roleData = roleData
+                });
+            }
+            catch (GotrueException ex)
+            {
+                return Unauthorized(new { message = "Invalid or expired token." });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { message = "An error occurred while fetching user data." });
             }
         }
     }
