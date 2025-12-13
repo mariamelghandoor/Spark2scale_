@@ -367,7 +367,6 @@ export default function SignupPage() {
                                     </Link>
                                 </p>
                             </form>
-                            )}
 
                             {/* Show sign in link when form is hidden */}
                             {(status.type === "success" || status.type === "info") && (
