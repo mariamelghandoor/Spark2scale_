@@ -4,17 +4,13 @@ using System;
 
 namespace Spark2Scale_.Server.Models
 {
-    [Table("users")]
-    public class User : BaseModel
+    [Table("users")] // maps this class to the 'users' table
+    public class User : BaseModel
     {
-        [PrimaryKey("uid", false)]
-        [Column("uid")]
-        public Guid uid { get; set; }
+        [PrimaryKey("uid")]
+        public Guid uid { get; set; }  // UUID primary key
 
-        [Column("fname")]
-        public string fname { get; set; } = string.Empty;
-
-        [Column("lname")]
+        public string fname { get; set; } = string.Empty;
         public string lname { get; set; } = string.Empty;
 
         [Column("email")]
@@ -28,18 +24,14 @@ namespace Spark2Scale_.Server.Models
 
         [Column("address_region")]
         public string address_region { get; set; } = string.Empty;
+        public DateTime created_at { get; set; }  // timestampz
 
-        [Column("created_at")]
-        public DateTime created_at { get; set; }
-
-        [Column("avatar_url")]
+        // FIX: Added avatar_url to match DB schema
         public string avatar_url { get; set; } = string.Empty;
-
-        [Column("user_type")]
-        public string user_type { get; set; } = string.Empty;
     }
 
-    public class UserDto
+    // DTO for returning data to the client (avoids BaseModel serialization issues)
+    public class UserDto
     {
         public Guid uid { get; set; }
         public string fname { get; set; } = string.Empty;
@@ -49,6 +41,5 @@ namespace Spark2Scale_.Server.Models
         public string address_region { get; set; } = string.Empty;
         public DateTime created_at { get; set; }
         public string avatar_url { get; set; } = string.Empty;
-        public string user_type { get; set; } = string.Empty;
     }
 }

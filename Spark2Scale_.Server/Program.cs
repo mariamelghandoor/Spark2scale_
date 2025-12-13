@@ -11,61 +11,74 @@ Env.Load();
 
 var builder = WebApplication.CreateBuilder(args);
 
-// CORS policy name
+// Define a policy name for CORS
 var MyAllowSpecificOrigins = "_myAllowSpecificOrigins";
 
-// CORS – allow Next.js dev server
+// --- START CORS FIX (1 of 2) ---
 builder.Services.AddCors(options =>
 {
-    options.AddPolicy(name: MyAllowSpecificOrigins, policy =>
-    {
-        policy.WithOrigins("http://localhost:3000", "https://localhost:3000")
-              .AllowAnyHeader()
-              .AllowAnyMethod();
-    });
+    options.AddPolicy(name: MyAllowSpecificOrigins,
+        policy =>
+        {
+            // Allow requests from your frontend port (3000). Adjust if your frontend is on a different port.
+            policy.WithOrigins("http://localhost:3000", "https://localhost:3000")
+                  .AllowAnyHeader()
+                  .AllowAnyMethod();
+        });
 });
+// --- END CORS FIX ---
 
+
+// Add services to the container.
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
-// Email sender service (uses SMTP settings in your env)
+// REGISTER CUSTOM SERVICES:
 builder.Services.AddTransient<EmailService>();
 
-// Supabase URL + API key from environment
+// 2. Get keys from Environment Variables (Loaded from .env)
 var url = Environment.GetEnvironmentVariable("SUPABASE_URL");
 var key = Environment.GetEnvironmentVariable("SUPABASE_KEY");
 
+// >>> CRITICAL FIX: Add check for missing environment variables <<<
 if (string.IsNullOrEmpty(url) || string.IsNullOrEmpty(key))
 {
-    Console.WriteLine("FATAL: SUPABASE_URL or SUPABASE_KEY missing.");
-    throw new InvalidOperationException("Supabase credentials must be set in .env");
+    Console.WriteLine("FATAL ERROR: SUPABASE_URL or SUPABASE_KEY is missing.");
+    throw new InvalidOperationException("Supabase credentials must be set in the .env file for the backend to start.");
 }
+// >>> END CRITICAL FIX <<<
 
+
+// 3. Configure and Initialize Supabase
 var options = new SupabaseOptions
 {
     AutoRefreshToken = true,
-    AutoConnectRealtime = true
+    AutoConnectRealtime = false  // Disable to prevent startup failures if realtime can't connect
 };
 
-var supabaseClient = new Supabase.Client(url, key, options);
+// Create the client instance using the checked variables
+var supabase = new Supabase.Client(url, key, options);
 
-// Initialize client before app starts
+// Await initialization (Important: Ensures connection works before app starts)
 try
 {
-    await supabaseClient.InitializeAsync();
+    await supabase.InitializeAsync();
 }
 catch (Exception ex)
 {
-    Console.WriteLine($"FATAL Supabase init error: {ex.Message}");
-    throw;
+    Console.WriteLine($"FATAL ERROR during Supabase initialization: {ex.Message}");
+    throw new InvalidOperationException("Failed to initialize Supabase client. Check connection settings and network.", ex);
 }
 
 // Single shared Supabase client
-builder.Services.AddSingleton(supabaseClient);
-
+builder.Services.AddSingleton(supabase);
 var app = builder.Build();
 
+app.UseDefaultFiles();
+app.UseStaticFiles();
+
+// Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
@@ -73,7 +86,11 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
+
+// --- APPLY CORS MIDDLEWARE (2 of 2) ---
 app.UseCors(MyAllowSpecificOrigins);
+// --- END CORS MIDDLEWARE ---
+
 app.UseAuthorization();
 app.MapControllers();
 
