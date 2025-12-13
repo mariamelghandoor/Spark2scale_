@@ -1,11 +1,13 @@
 ﻿"use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { CheckCircle, AlertCircle } from "lucide-react";
 import Link from "next/link";
 import LegoIllustration from "@/components/lego/LegoIllustration";
 import { motion } from "framer-motion";
@@ -31,7 +33,8 @@ interface ApiResponse {
 }
 
 export default function SignupPage() {
-    const [formData, setFormData] = useState({
+    const router = useRouter();
+    const [formData, setFormData] = useState<SignUpFormData>({
         name: "",
         email: "",
         phone: "",
