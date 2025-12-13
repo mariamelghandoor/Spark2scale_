@@ -19,6 +19,7 @@ builder.Services.AddCors(options =>
 {
     options.AddPolicy(name: MyAllowSpecificOrigins, policy =>
     {
+        // Note: Using http and https covers you regardless of how you access localhost
         policy.WithOrigins("http://localhost:3000", "https://localhost:3000")
               .AllowAnyHeader()
               .AllowAnyMethod();
@@ -31,6 +32,8 @@ builder.Services.AddSwaggerGen();
 
 // Email sender service (uses SMTP settings in your env)
 builder.Services.AddTransient<EmailService>();
+
+// REMOVED: Duplicate builder.Services.AddControllers();
 
 // Supabase URL + API key from environment
 var url = Environment.GetEnvironmentVariable("SUPABASE_URL");
@@ -66,15 +69,21 @@ builder.Services.AddSingleton(supabaseClient);
 
 var app = builder.Build();
 
+// Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
     app.UseSwaggerUI();
 }
 
-app.UseHttpsRedirection();
+// --- FIX: Apply CORS before other middleware ---
 app.UseCors(MyAllowSpecificOrigins);
+
+// --- FIX: Comment out HTTPS Redirection to solve "Redirect not allowed" error ---
+// app.UseHttpsRedirection(); 
+
 app.UseAuthorization();
+
 app.MapControllers();
 
 app.Run();
