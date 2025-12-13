@@ -111,7 +111,7 @@ namespace Spark2Scale_.Server.Controllers
                     }
                     catch (Exception ex)
                     {
-                        Console.WriteLine($"Failed to store temporary signup data: {ex.Message}");
+                        Console.WriteLine($"Failed to store temporary signup data: {ex.Message ?? "Unknown error"}");
                         // Continue anyway - we can still create profile with minimal data
                     }
 
@@ -171,7 +171,7 @@ namespace Spark2Scale_.Server.Controllers
                             catch (PostgrestException ex)
                             {
                                 // If insert fails, try to update existing profile using Upsert
-                                Console.WriteLine($"Profile insert failed: {ex.Message}. Attempting upsert...");
+                                Console.WriteLine($"Profile insert failed: {ex.Message ?? "Unknown error"}. Attempting upsert...");
                                 try
                                 {
                                     // Use Upsert which will update if exists, insert if not
@@ -181,13 +181,13 @@ namespace Spark2Scale_.Server.Controllers
                                 }
                                 catch (Exception updateEx)
                                 {
-                                    Console.WriteLine($"Profile upsert also failed: {updateEx.Message}");
+                                    Console.WriteLine($"Profile upsert also failed: {updateEx.Message ?? "Unknown error"}");
                                     throw; // Re-throw if both insert and upsert fail
                                 }
                             }
                             catch (Exception ex)
                             {
-                                Console.WriteLine($"Unexpected error creating profile: {ex.Message}");
+                                Console.WriteLine($"Unexpected error creating profile: {ex.Message ?? "Unknown error"}");
                                 throw; // Re-throw unexpected errors
                             }
                         }
@@ -209,7 +209,7 @@ namespace Spark2Scale_.Server.Controllers
                             }
                             catch (Exception updateEx)
                             {
-                                Console.WriteLine($"Failed to update existing profile: {updateEx.Message}");
+                                Console.WriteLine($"Failed to update existing profile: {updateEx.Message ?? "Unknown error"}");
                                 // Don't throw - profile exists, just missing some data
                                 finalProfile = existingProfile;
                             }
@@ -280,7 +280,7 @@ namespace Spark2Scale_.Server.Controllers
             }
             catch (GotrueException ex)
             {
-                if (ex.Message.Contains("already registered"))
+                if (ex.Message?.Contains("already registered") == true)
                 {
                     return BadRequest(new
                     {
@@ -288,7 +288,7 @@ namespace Spark2Scale_.Server.Controllers
                     });
                 }
 
-                return BadRequest(new { message = ex.Message });
+                return BadRequest(new { message = ex.Message ?? "An error occurred during signup." });
             }
             catch (PostgrestException ex)
             {
@@ -543,7 +543,7 @@ namespace Spark2Scale_.Server.Controllers
                     var (fname, lname) = tempData != null
                         ? SplitName(tempData.name)
                         : existingProfile != null && !string.IsNullOrWhiteSpace(existingProfile.fname) && !string.IsNullOrWhiteSpace(existingProfile.lname)
-                            ? (existingProfile.fname, existingProfile.lname)
+                            ? (existingProfile.fname ?? "", existingProfile.lname ?? "")
                             : ("", "");
 
                     // Prepare profile data - use temp data if available, otherwise keep existing values
@@ -580,7 +580,7 @@ namespace Spark2Scale_.Server.Controllers
                             }
                             else
                             {
-                                Console.WriteLine($"Profile insert failed: {ex.Message}");
+                                Console.WriteLine($"Profile insert failed: {ex.Message ?? "Unknown error"}");
                             }
                             
                             // Try to get existing profile
@@ -594,12 +594,12 @@ namespace Spark2Scale_.Server.Controllers
                             }
                             catch (Exception retryEx)
                             {
-                                Console.WriteLine($"Failed to retry profile fetch: {retryEx.Message}");
+                                Console.WriteLine($"Failed to retry profile fetch: {retryEx.Message ?? "Unknown error"}");
                             }
                         }
                         catch (Exception ex)
                         {
-                            Console.WriteLine($"Unexpected error creating profile: {ex.Message}");
+                            Console.WriteLine($"Unexpected error creating profile: {ex.Message ?? "Unknown error"}");
                             // Try one more time to get existing profile
                             try
                             {
@@ -615,7 +615,7 @@ namespace Spark2Scale_.Server.Controllers
                             }
                         }
                     }
-                    else if (needsProfileUpdate)
+                    else if (needsProfileUpdate && existingProfile != null)
                     {
                         // Update existing incomplete profile
                         try
@@ -623,12 +623,12 @@ namespace Spark2Scale_.Server.Controllers
                             var updateData = new PublicUser
                             {
                                 uid = uid,
-                                fname = !string.IsNullOrWhiteSpace(profileData.fname) ? profileData.fname : existingProfile.fname,
-                                lname = !string.IsNullOrWhiteSpace(profileData.lname) ? profileData.lname : existingProfile.lname,
-                                phone_number = !string.IsNullOrWhiteSpace(profileData.phone_number) ? profileData.phone_number : existingProfile.phone_number,
-                                address_region = !string.IsNullOrWhiteSpace(profileData.address_region) ? profileData.address_region : existingProfile.address_region,
-                                user_type = !string.IsNullOrWhiteSpace(profileData.user_type) ? profileData.user_type : existingProfile.user_type,
-                                email = existingProfile.email,
+                                fname = !string.IsNullOrWhiteSpace(profileData.fname) ? profileData.fname : (existingProfile.fname ?? ""),
+                                lname = !string.IsNullOrWhiteSpace(profileData.lname) ? profileData.lname : (existingProfile.lname ?? ""),
+                                phone_number = !string.IsNullOrWhiteSpace(profileData.phone_number) ? profileData.phone_number : (existingProfile.phone_number ?? ""),
+                                address_region = !string.IsNullOrWhiteSpace(profileData.address_region) ? profileData.address_region : (existingProfile.address_region ?? ""),
+                                user_type = !string.IsNullOrWhiteSpace(profileData.user_type) ? profileData.user_type : (existingProfile.user_type ?? "founder"),
+                                email = existingProfile.email ?? userEmail,
                                 avatar_url = existingProfile.avatar_url ?? "",
                                 created_at = existingProfile.created_at
                             };
@@ -648,7 +648,7 @@ namespace Spark2Scale_.Server.Controllers
                         }
                         catch (Exception updateEx)
                         {
-                            Console.WriteLine($"Warning: Failed to update incomplete profile: {updateEx.Message}");
+                            Console.WriteLine($"Warning: Failed to update incomplete profile: {updateEx.Message ?? "Unknown error"}");
                         }
                     }
                 }
@@ -677,12 +677,12 @@ namespace Spark2Scale_.Server.Controllers
                                 }
                                 else
                                 {
-                                    Console.WriteLine($"Warning: Failed to create founder role: {ex.Message}");
+                                    Console.WriteLine($"Warning: Failed to create founder role: {ex.Message ?? "Unknown error"}");
                                 }
                             }
                             catch (Exception ex)
                             {
-                                Console.WriteLine($"Warning: Failed to create founder role: {ex.Message}");
+                                Console.WriteLine($"Warning: Failed to create founder role: {ex.Message ?? "Unknown error"}");
                             }
                         }
                         break;
@@ -711,12 +711,12 @@ namespace Spark2Scale_.Server.Controllers
                                 }
                                 else
                                 {
-                                    Console.WriteLine($"Warning: Failed to create investor role: {ex.Message}");
+                                    Console.WriteLine($"Warning: Failed to create investor role: {ex.Message ?? "Unknown error"}");
                                 }
                             }
                             catch (Exception ex)
                             {
-                                Console.WriteLine($"Warning: Failed to create investor role: {ex.Message}");
+                                Console.WriteLine($"Warning: Failed to create investor role: {ex.Message ?? "Unknown error"}");
                             }
                         }
                         break;
@@ -741,12 +741,12 @@ namespace Spark2Scale_.Server.Controllers
                                 }
                                 else
                                 {
-                                    Console.WriteLine($"Warning: Failed to create contributor role: {ex.Message}");
+                                    Console.WriteLine($"Warning: Failed to create contributor role: {ex.Message ?? "Unknown error"}");
                                 }
                             }
                             catch (Exception ex)
                             {
-                                Console.WriteLine($"Warning: Failed to create contributor role: {ex.Message}");
+                                Console.WriteLine($"Warning: Failed to create contributor role: {ex.Message ?? "Unknown error"}");
                             }
                         }
                         break;
@@ -770,12 +770,12 @@ namespace Spark2Scale_.Server.Controllers
                         }
                         else
                         {
-                            Console.WriteLine($"Failed to delete temp signup data: {deleteEx.Message}");
+                            Console.WriteLine($"Failed to delete temp signup data: {deleteEx.Message ?? "Unknown error"}");
                         }
                     }
                     catch (Exception deleteEx)
                     {
-                        Console.WriteLine($"Failed to delete temp signup data: {deleteEx.Message}");
+                        Console.WriteLine($"Failed to delete temp signup data: {deleteEx.Message ?? "Unknown error"}");
                     }
                 }
 
