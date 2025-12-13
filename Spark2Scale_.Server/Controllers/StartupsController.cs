@@ -1,6 +1,7 @@
 ﻿using Microsoft.AspNetCore.Mvc;
 using Spark2Scale_.Server.Models;
 using System;
+using System.Collections.Generic; // Required for Dictionary
 using System.Linq;
 using System.Threading.Tasks;
 
@@ -72,6 +73,73 @@ namespace Spark2Scale_.Server.Controllers
             }).ToList();
 
             return Ok(dtos);
+        }
+
+        [HttpGet("{id}")]
+        public async Task<IActionResult> GetStartupById(string id)
+        {
+            if (!Guid.TryParse(id, out Guid sId))
+                return BadRequest("Invalid ID format");
+
+            try
+            {
+                var result = await _supabase.From<Startup>()
+                    .Where(s => s.Sid == sId)
+                    .Get();
+
+                var startup = result.Models.FirstOrDefault();
+
+                if (startup == null)
+                    return NotFound("Startup not found");
+
+                var response = new StartupResponseDto
+                {
+                    sid = startup.Sid,
+                    startupname = startup.StartupName,
+                    field = startup.Field,
+                    idea_description = startup.IdeaDescription,
+                    founder_id = startup.FounderId,
+                    created_at = startup.CreatedAt
+                };
+
+                return Ok(response);
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, $"Error: {ex.Message}");
+            }
+        }
+        [HttpPut("update-idea/{id}")]
+        public async Task<IActionResult> UpdateIdea(string id, [FromBody] IdeaUpdateDto input)
+        {
+            if (!Guid.TryParse(id, out Guid sId))
+                return BadRequest("Invalid ID format");
+
+            if (string.IsNullOrWhiteSpace(input.IdeaDescription))
+                return BadRequest("Idea description cannot be empty");
+
+            try
+            {
+
+                var parameters = new Dictionary<string, object>
+                {
+                    { "p_startup_id", sId },
+                    { "p_new_idea", input.IdeaDescription }
+                };
+
+                await _supabase.Rpc("update_idea_and_reset", parameters);
+
+                return Ok(new
+                {
+                    message = "Idea updated, history archived, and workflow reset successfully.",
+                    idea = input.IdeaDescription
+                });
+            }
+            catch (Exception ex)
+            {
+                // Log the error here if you have a logger
+                return StatusCode(500, $"Error updating idea: {ex.Message}");
+            }
         }
     }
 }

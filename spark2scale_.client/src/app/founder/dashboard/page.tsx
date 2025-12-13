@@ -3,20 +3,19 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Calendar, Plus, User } from "lucide-react";
+import { Bell, Calendar, Plus, User } from "lucide-react";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import NotificationsDropdown from "@/components/shared/NotificationsDropdown";
 
 export default function FounderDashboard() {
     const [userName] = useState("Alex");
     const [startups, setStartups] = useState([
         {
-            id: 1,
+            id: "8636e054-890c-4d0b-ac7e-635719692e06",
             name: "EcoTech Solutions",
             region: "North America",
             field: "Green Technology",
@@ -68,7 +67,9 @@ export default function FounderDashboard() {
                                 <Calendar className="h-5 w-5" />
                             </Button>
                         </Link>
-                        <NotificationsDropdown />
+                        <Button variant="ghost" size="icon">
+                            <Bell className="h-5 w-5" />
+                        </Button>
                         <Link href="/profile">
                             <Button variant="ghost" size="icon">
                                 <User className="h-5 w-5" />

@@ -18,7 +18,7 @@ namespace Spark2Scale_.Server.Controllers
             _supabase = supabase;
         }
 
-        // GET: api/Recommendations/{startupId}/{type}
+        // GET: api/Recommendations/{startupId}/{type}.
         [HttpGet("{startupId}/{type}")]
         public async Task<IActionResult> GetRecommendations(string startupId, string type)
         {
@@ -29,15 +29,15 @@ namespace Spark2Scale_.Server.Controllers
                 .Order("version", Supabase.Postgrest.Constants.Ordering.Descending)
                 .Get();
 
-            // --- FIX IS HERE: Map to anonymous object ---
             var dtos = result.Models.Select(r => new
             {
                 rid = r.Rid,
                 startup_id = r.StartupId,
                 type = r.Type,
-                content = r.Content, // This class serializes perfectly fine
+                content = r.Content,
                 version = r.Version,
-                created_at = r.CreatedAt
+                created_at = r.CreatedAt,
+                is_current = r.IsCurrent // <--- CRITICAL ADDITION
             });
 
             return Ok(dtos);
@@ -79,6 +79,27 @@ namespace Spark2Scale_.Server.Controllers
             catch (Exception ex)
             {
                 return StatusCode(500, $"Error saving recommendation: {ex.Message}");
+            }
+        }
+
+        [HttpPost("archive/{startupId}")]
+        public async Task<IActionResult> ArchiveRecommendations(string startupId)
+        {
+            if (!Guid.TryParse(startupId, out Guid sId)) return BadRequest("Invalid ID");
+
+            try
+            {
+                // Sets is_current = false for all recommendations for this startup
+                await _supabase.From<Recommendation>()
+                    .Where(x => x.StartupId == sId)
+                    .Set(x => x.IsCurrent, false)
+                    .Update();
+
+                return Ok();
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, ex.Message);
             }
         }
     }

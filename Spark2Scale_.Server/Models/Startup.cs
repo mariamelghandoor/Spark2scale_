@@ -45,4 +45,9 @@ namespace Spark2Scale_.Server.Models
         public Guid? founder_id { get; set; }
         public DateTime? created_at { get; set; }
     }
+
+    public class IdeaUpdateDto
+    {
+        public string IdeaDescription { get; set; }
+    }
 }
