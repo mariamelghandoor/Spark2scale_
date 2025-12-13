@@ -50,53 +50,86 @@ interface PitchDeck {
     };
 }
 
+interface InvestorDto {
+    userId: string;
+    tags: string[];
+}
+
 export default function InvestorFeed() {
     const [userName] = useState("Sarah");
     const [currentIndex, setCurrentIndex] = useState(0);
     const [pitchDecks, setPitchDecks] = useState<PitchDeck[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const [likedPitches, setLikedPitches] = useState<Set<string>>(new Set());
+    const [actionLoading, setActionLoading] = useState(false);
+    const [investorTags, setInvestorTags] = useState<string[]>([]);
+
+    // TODO: Replace with actual investor ID from your auth context
+    const investorId = "7da8b0c8-9adc-446b-b7f0-218f84a81f1b";
+    const API_BASE = "https://localhost:7155/api";
+
+    // Calculate tag match count for sorting
+    const getTagMatchCount = (pitchTags: string[]) => {
+        if (!investorTags.length || !pitchTags.length) return 0;
+        return pitchTags.filter(tag =>
+            investorTags.some(invTag => invTag.toLowerCase() === tag.toLowerCase())
+        ).length;
+    };
 
     // Fetch pitch decks from your API
     useEffect(() => {
         const fetchPitchDecks = async () => {
             try {
                 setLoading(true);
-                console.log("🔍 Fetching from: https://localhost:7155/api/pitchdecks/with-startups");
+                console.log("🔍 Fetching pitch decks...");
 
-                const response = await fetch("https://localhost:7155/api/pitchdecks/with-startups");
+                // 1. Fetch investor tags first
+                try {
+                    const investorResponse = await fetch(`${API_BASE}/investors`);
+                    if (investorResponse.ok) {
+                        const investors: InvestorDto[] = await investorResponse.json();
+                        const currentInvestor = investors.find((inv) => inv.userId === investorId);
+                        if (currentInvestor?.tags) {
+                            setInvestorTags(currentInvestor.tags);
+                            console.log("👤 Investor tags:", currentInvestor.tags);
+                        }
+                    }
+                } catch (err) {
+                    console.warn("Could not fetch investor tags:", err);
+                }
 
-                console.log("📡 Response status:", response.status);
+                // 2. Fetch pitch decks
+                const response = await fetch(`${API_BASE}/pitchdecks/with-startups`);
 
                 if (!response.ok) {
-                    const contentType = response.headers.get("content-type");
-                    let errorData: { message?: string; error?: string } = {};
-
-                    if (contentType && contentType.includes("application/json")) {
-                        errorData = await response.json();
-                        console.error("❌ JSON Error:", errorData);
-                    } else {
-                        const text = await response.text();
-                        console.error("❌ Text Error:", text);
-                        errorData = { message: text || "Unknown error" };
-                    }
-
-                    throw new Error(errorData.message || errorData.error || `HTTP ${response.status}`);
+                    throw new Error(`HTTP ${response.status}`);
                 }
 
                 const data = await response.json();
                 console.log("✅ Fetched pitch decks:", data);
-                console.log("📊 Data length:", Array.isArray(data) ? data.length : "Not an array");
 
                 const allPitches = Array.isArray(data) ? data : [];
-
-                // Filter to show only current/active pitches
                 const activePitches = allPitches.filter((pitch: PitchDeck) => pitch.is_current === true);
 
-                console.log("🎯 Active pitches to display:", activePitches.length);
+                // 3. Sort by tag matches (most matches first)
+                const sortedPitches = activePitches.sort((a, b) => {
+                    const aMatches = getTagMatchCount(a.tags || []);
+                    const bMatches = getTagMatchCount(b.tags || []);
 
-                setPitchDecks(activePitches);
+                    // Sort by match count (descending), then by creation date (newest first)
+                    if (aMatches !== bMatches) {
+                        return bMatches - aMatches;
+                    }
+                    return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+                });
+
+                console.log("🎯 Sorted pitches by tag relevance");
+                setPitchDecks(sortedPitches);
                 setError(null);
+
+                // Check which pitches the investor has already liked
+                await checkLikedPitches(sortedPitches);
             } catch (err) {
                 console.error("💥 Error fetching pitch decks:", err);
                 const errorMessage = err instanceof Error ? err.message : "Failed to load pitch decks.";
@@ -109,48 +142,155 @@ export default function InvestorFeed() {
         fetchPitchDecks();
     }, []);
 
+    // Check which pitches are already liked by this investor
+    const checkLikedPitches = async (pitches: PitchDeck[]) => {
+        try {
+            const likeChecks = await Promise.all(
+                pitches.map(async (pitch) => {
+                    try {
+                        const response = await fetch(
+                            `${API_BASE}/pitchdecklikes/check/${investorId}/${pitch.pitchdeckid}`
+                        );
+                        if (response.ok) {
+                            const data = await response.json();
+                            return { pitchId: pitch.pitchdeckid, isLiked: data.isLiked };
+                        }
+                        return { pitchId: pitch.pitchdeckid, isLiked: false };
+                    } catch {
+                        return { pitchId: pitch.pitchdeckid, isLiked: false };
+                    }
+                })
+            );
+
+            const liked = new Set(
+                likeChecks.filter(check => check.isLiked).map(check => check.pitchId)
+            );
+            setLikedPitches(liked);
+        } catch (err) {
+            console.error("Error checking liked pitches:", err);
+        }
+    };
+
     const x = useMotionValue(0);
     const rotate = useTransform(x, [-200, 200], [-25, 25]);
     const opacity = useTransform(x, [-200, -100, 0, 100, 200], [0, 1, 1, 1, 0]);
 
-    const handleSwipe = async (direction: "left" | "right") => {
-        const currentPitch = pitchDecks[currentIndex];
+    const handleLike = async (pitchId: string) => {
+        if (actionLoading) {
+            console.log("⚠️ Like action already in progress, skipping...");
+            return;
+        }
 
-        if (direction === "right") {
-            console.log("❤️ Liked:", currentPitch.startup?.startupname);
+        console.log("🚀 Starting like action for:", pitchId);
+        setActionLoading(true);
 
-            try {
-                // TODO: Replace with actual investor ID from your auth context
-                const investorId = "7da8b0c8-9adc-446b-b7f0-218f84a81f1b"; // Placeholder GUID
+        try {
+            const response = await fetch(`${API_BASE}/pitchdecklikes/add`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    investor_id: investorId,
+                    pitchdeck_id: pitchId,
+                }),
+            });
 
-                await fetch("https://localhost:7155/api/pitchdecklikes/add", {
-                    method: "POST",
+            if (response.ok) {
+                const data = await response.json();
+                console.log("❤️ Like action response:", data);
+
+                // Update local state (whether new like or already liked)
+                setLikedPitches(prev => new Set([...prev, pitchId]));
+
+                // Update the like count in the local pitch deck array
+                setPitchDecks(prev => prev.map(pitch =>
+                    pitch.pitchdeckid === pitchId
+                        ? { ...pitch, countlikes: data.newLikeCount }
+                        : pitch
+                ));
+            } else {
+                console.error("Error liking pitch:", response.status);
+            }
+        } catch (err) {
+            console.error("Error liking pitch:", err);
+        } finally {
+            console.log("✅ Like action completed");
+            setActionLoading(false);
+        }
+    };
+
+    const handleDislike = async (pitchId: string) => {
+        if (actionLoading) return;
+
+        setActionLoading(true);
+        try {
+            // If already liked, remove the like
+            if (likedPitches.has(pitchId)) {
+                const response = await fetch(`${API_BASE}/pitchdecklikes/remove`, {
+                    method: "DELETE",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({
                         investor_id: investorId,
-                        pitchdeck_id: currentPitch.pitchdeckid,
+                        pitchdeck_id: pitchId,
                     }),
                 });
-            } catch (err) {
-                console.error("Error liking pitch:", err);
+
+                if (response.ok) {
+                    const data = await response.json();
+                    console.log("💔 Like removed:", data);
+
+                    // Update local state
+                    setLikedPitches(prev => {
+                        const newSet = new Set(prev);
+                        newSet.delete(pitchId);
+                        return newSet;
+                    });
+
+                    // Update the like count
+                    setPitchDecks(prev => prev.map(pitch =>
+                        pitch.pitchdeckid === pitchId
+                            ? { ...pitch, countlikes: data.newLikeCount || Math.max(0, pitch.countlikes - 1) }
+                            : pitch
+                    ));
+                }
             }
+
+            console.log("👎 Passed on pitch");
+        } catch (err) {
+            console.error("Error handling dislike:", err);
+        } finally {
+            setActionLoading(false);
+        }
+    };
+
+    const handleSwipe = async (direction: "left" | "right") => {
+        if (actionLoading || currentIndex >= pitchDecks.length) return;
+
+        const currentPitch = pitchDecks[currentIndex];
+
+        if (direction === "right") {
+            await handleLike(currentPitch.pitchdeckid);
         } else {
-            console.log("👎 Passed:", currentPitch.startup?.startupname);
+            await handleDislike(currentPitch.pitchdeckid);
         }
 
+        // Move to next pitch
         if (currentIndex < pitchDecks.length - 1) {
             setCurrentIndex(currentIndex + 1);
+        } else {
+            // Reached the end
+            setCurrentIndex(pitchDecks.length);
         }
     };
 
     const currentPitch = pitchDecks[currentIndex];
+    const isCurrentLiked = currentPitch && likedPitches.has(currentPitch.pitchdeckid);
 
     // Loading State
     if (loading) {
         return (
             <div className="min-h-screen bg-gradient-to-br from-[#F0EADC] via-[#fff] to-[#FFD95D]/20 flex items-center justify-center">
                 <div className="text-center">
-                    <Loader2 className="h-12 w-12 border-b-2 border-[#576238] mx-auto mb-4 animate-spin" />
+                    <Loader2 className="h-12 w-12 text-[#576238] mx-auto mb-4 animate-spin" />
                     <p className="text-[#576238] font-medium">Loading pitch decks...</p>
                 </div>
             </div>
@@ -165,15 +305,6 @@ export default function InvestorFeed() {
                     <div className="text-red-500 text-6xl mb-4">⚠️</div>
                     <h3 className="text-xl font-bold text-[#576238] mb-2">Error Loading Pitches</h3>
                     <p className="text-red-600 mb-4 text-sm">{error}</p>
-                    <div className="bg-gray-100 p-4 rounded text-left mb-4 text-xs font-mono">
-                        <p className="font-bold mb-2">Troubleshooting:</p>
-                        <ol className="list-decimal list-inside space-y-1">
-                            <li>Check if your C# backend is running on https://localhost:7155</li>
-                            <li>Verify the endpoint: /api/pitchdecks/with-startups</li>
-                            <li>Check browser console (F12) for detailed errors</li>
-                            <li>Ensure CORS is properly configured in Program.cs</li>
-                        </ol>
-                    </div>
                     <Button onClick={() => window.location.reload()} className="bg-[#576238]">
                         Retry
                     </Button>
@@ -235,14 +366,6 @@ export default function InvestorFeed() {
                             <p className="text-sm text-gray-500 mb-4">
                                 Check back soon for new startup pitches!
                             </p>
-                            <div className="bg-gray-100 p-4 rounded text-left mb-4 text-xs">
-                                <p className="font-bold mb-2">Debug Info:</p>
-                                <ul className="list-disc list-inside space-y-1">
-                                    <li>Make sure startups have uploaded pitch videos</li>
-                                    <li>Verify videos are marked as "is_current = true"</li>
-                                    <li>Check the pitchdecks table in Supabase</li>
-                                </ul>
-                            </div>
                             <Button onClick={() => window.location.reload()} className="bg-[#576238]">
                                 Refresh
                             </Button>
@@ -250,156 +373,218 @@ export default function InvestorFeed() {
                     ) : currentIndex < pitchDecks.length && currentPitch ? (
                         <div className="relative h-[650px]">
                             {/* Card Stack Effect */}
-                            {pitchDecks.slice(currentIndex, currentIndex + 2).map((pitch, index) => (
-                                <motion.div
-                                    key={pitch.pitchdeckid}
-                                    style={{
-                                        x: index === 0 ? x : 0,
-                                        rotate: index === 0 ? rotate : 0,
-                                        opacity: index === 0 ? opacity : 1,
-                                        zIndex: pitchDecks.length - index,
-                                        scale: index === 0 ? 1 : 0.95,
-                                    }}
-                                    drag={index === 0 ? "x" : false}
-                                    dragConstraints={{ left: 0, right: 0 }}
-                                    onDragEnd={(e, info) => {
-                                        if (index === 0) {
-                                            if (info.offset.x > 100) handleSwipe("right");
-                                            else if (info.offset.x < -100) handleSwipe("left");
-                                        }
-                                    }}
-                                    className="absolute inset-0"
-                                >
-                                    <Card className="h-full border-2 overflow-hidden shadow-xl flex flex-col bg-white">
-                                        {/* Video Player */}
-                                        <div className="relative h-64 bg-black overflow-hidden flex-shrink-0">
-                                            {pitch.video_url ? (
-                                                <video
-                                                    src={pitch.video_url}
-                                                    controls
-                                                    className="w-full h-full object-contain"
-                                                    poster={`https://via.placeholder.com/800x600/576238/FFD95D?text=${encodeURIComponent(pitch.startup?.startupname || 'Pitch Video')}`}
-                                                >
-                                                    Your browser does not support video playback.
-                                                </video>
-                                            ) : (
-                                                <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-[#576238] to-[#6b7c3f]">
-                                                    <div className="text-center text-white">
-                                                        <Video className="h-16 w-16 mx-auto mb-4 opacity-50" />
-                                                        <p>No video available</p>
-                                                    </div>
-                                                </div>
-                                            )}
-                                            <div className="absolute top-4 left-4 bg-black/70 px-3 py-1 rounded-full">
-                                                <span className="text-white text-sm font-semibold flex items-center gap-2">
-                                                    <Video className="h-4 w-4" />
-                                                    {pitch.pitchname || "Untitled Pitch"}
-                                                </span>
-                                            </div>
-                                        </div>
+                            {pitchDecks.slice(currentIndex, currentIndex + 2).map((pitch, index) => {
+                                const tagMatches = getTagMatchCount(pitch.tags || []);
+                                const isRelevant = tagMatches > 0;
 
-                                        {/* Content */}
-                                        <CardContent className="p-5 space-y-3 flex-grow overflow-y-auto">
-                                            <div>
-                                                <div className="flex justify-between items-start">
-                                                    <div className="flex-1">
-                                                        <h3 className="text-2xl font-bold text-[#576238] mb-1">
+                                return (
+                                    <motion.div
+                                        key={pitch.pitchdeckid}
+                                        style={{
+                                            x: index === 0 ? x : 0,
+                                            rotate: index === 0 ? rotate : 0,
+                                            opacity: index === 0 ? opacity : 1,
+                                            zIndex: pitchDecks.length - index,
+                                            scale: index === 0 ? 1 : 0.95,
+                                        }}
+                                        drag={index === 0 ? "x" : false}
+                                        dragConstraints={{ left: 0, right: 0 }}
+                                        onDragEnd={(e, info) => {
+                                            if (index === 0 && !actionLoading) {
+                                                if (info.offset.x > 100) handleSwipe("right");
+                                                else if (info.offset.x < -100) handleSwipe("left");
+                                            }
+                                        }}
+                                        className="absolute inset-0"
+                                    >
+                                        <Card className={`h-full border-2 overflow-hidden shadow-xl flex flex-col bg-white ${isRelevant && index === 0 ? 'ring-2 ring-[#FFD95D]' : ''}`}>
+                                            {/* Video Player */}
+                                            <div className="relative h-64 bg-black overflow-hidden flex-shrink-0">
+                                                {pitch.video_url ? (
+                                                    <video
+                                                        src={pitch.video_url}
+                                                        controls
+                                                        className="w-full h-full object-contain"
+                                                        preload="metadata"
+                                                    >
+                                                        Your browser does not support video playback.
+                                                    </video>
+                                                ) : (
+                                                    <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-[#576238] to-[#6b7c3f]">
+                                                        <div className="text-center text-white">
+                                                            <Video className="h-16 w-16 mx-auto mb-4 opacity-50" />
+                                                            <p>No video available</p>
+                                                        </div>
+                                                    </div>
+                                                )}
+                                                <div className="absolute top-4 left-4 bg-black/70 px-3 py-1 rounded-full">
+                                                    <span className="text-white text-sm font-semibold flex items-center gap-2">
+                                                        <Video className="h-4 w-4" />
+                                                        {pitch.pitchname || "Untitled Pitch"}
+                                                    </span>
+                                                </div>
+                                                {/* Relevance Badge */}
+                                                {index === 0 && isRelevant && (
+                                                    <div className="absolute top-4 left-4 right-4 flex justify-between">
+                                                        <div className="bg-black/70 px-3 py-1 rounded-full">
+                                                            <span className="text-white text-sm font-semibold flex items-center gap-2">
+                                                                <Video className="h-4 w-4" />
+                                                                {pitch.pitchname || "Untitled Pitch"}
+                                                            </span>
+                                                        </div>
+                                                        <div className="bg-[#FFD95D] px-3 py-1 rounded-full">
+                                                            <span className="text-[#576238] text-xs font-bold flex items-center gap-1">
+                                                                <Sparkles className="h-3 w-3" />
+                                                                {tagMatches} Match{tagMatches !== 1 ? 'es' : ''}
+                                                            </span>
+                                                        </div>
+                                                    </div>
+                                                )}
+                                                {index === 0 && !isRelevant && (
+                                                    <div className="absolute top-4 left-4 bg-black/70 px-3 py-1 rounded-full">
+                                                        <span className="text-white text-sm font-semibold flex items-center gap-2">
+                                                            <Video className="h-4 w-4" />
                                                             {pitch.pitchname || "Untitled Pitch"}
-                                                        </h3>
-                                                        <p className="text-xs text-muted-foreground">
-                                                            by {pitch.startup?.startupname || "Unknown Startup"}
+                                                        </span>
+                                                    </div>
+                                                )}
+                                                {/* Like Status Badge */}
+                                                {index === 0 && isCurrentLiked && (
+                                                    <div className="absolute top-4 right-4 bg-red-500 px-3 py-1 rounded-full">
+                                                        <span className="text-white text-sm font-semibold flex items-center gap-1">
+                                                            <Heart className="h-4 w-4 fill-white" />
+                                                            Liked
+                                                        </span>
+                                                    </div>
+                                                )}
+                                            </div>
+
+                                            {/* Content */}
+                                            <CardContent className="p-5 space-y-3 flex-grow overflow-y-auto">
+                                                <div>
+                                                    <div className="flex justify-between items-start">
+                                                        <div className="flex-1">
+                                                            <h3 className="text-2xl font-bold text-[#576238] mb-1">
+                                                                {pitch.pitchname || "Untitled Pitch"}
+                                                            </h3>
+                                                            <p className="text-xs text-muted-foreground">
+                                                                by {pitch.startup?.startupname || "Unknown Startup"}
+                                                            </p>
+                                                        </div>
+                                                        {/* AI Score Badge */}
+                                                        {pitch.analysis?.Short?.Score && (
+                                                            <div className="flex items-center gap-1 bg-amber-100 text-amber-800 px-2 py-1 rounded-lg flex-shrink-0">
+                                                                <Trophy className="h-4 w-4" />
+                                                                <span className="font-bold text-sm">{pitch.analysis.Short.Score}/100</span>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                    <p className="text-sm text-muted-foreground line-clamp-2 mt-2">
+                                                        {pitch.startup?.idea_description || "No description available"}
+                                                    </p>
+                                                </div>
+
+                                                {/* Analysis Summary */}
+                                                {pitch.analysis?.Short?.Summary && (
+                                                    <div className="bg-slate-50 p-3 rounded-md border border-slate-100">
+                                                        <div className="flex items-center gap-2 text-xs font-semibold text-[#576238] mb-1">
+                                                            <Sparkles className="h-3 w-3" />
+                                                            <span>AI Insight</span>
+                                                        </div>
+                                                        <p className="text-xs text-slate-600 line-clamp-3 italic">
+                                                            "{pitch.analysis.Short.Summary}"
                                                         </p>
                                                     </div>
-                                                    {/* AI Score Badge */}
-                                                    {pitch.analysis?.Short?.Score && (
-                                                        <div className="flex items-center gap-1 bg-amber-100 text-amber-800 px-2 py-1 rounded-lg flex-shrink-0">
-                                                            <Trophy className="h-4 w-4" />
-                                                            <span className="font-bold text-sm">{pitch.analysis.Short.Score}/100</span>
-                                                        </div>
-                                                    )}
-                                                </div>
-                                                <p className="text-sm text-muted-foreground line-clamp-2 mt-2">
-                                                    {pitch.startup?.idea_description || "No description available"}
-                                                </p>
-                                            </div>
+                                                )}
 
-                                            {/* Analysis Summary */}
-                                            {pitch.analysis?.Short?.Summary && (
-                                                <div className="bg-slate-50 p-3 rounded-md border border-slate-100">
-                                                    <div className="flex items-center gap-2 text-xs font-semibold text-[#576238] mb-1">
-                                                        <Sparkles className="h-3 w-3" />
-                                                        <span>AI Insight</span>
+                                                <div className="grid grid-cols-2 gap-4">
+                                                    <div>
+                                                        <p className="text-xs text-muted-foreground">Field</p>
+                                                        <p className="font-semibold text-[#576238]">
+                                                            {pitch.startup?.field || "Not specified"}
+                                                        </p>
                                                     </div>
-                                                    <p className="text-xs text-slate-600 line-clamp-3 italic">
-                                                        "{pitch.analysis.Short.Summary}"
-                                                    </p>
+                                                    <div>
+                                                        <p className="text-xs text-muted-foreground">Likes</p>
+                                                        <p className="font-semibold text-[#576238] flex items-center gap-1">
+                                                            <Heart className="h-4 w-4 fill-red-500 text-red-500" />
+                                                            {pitch.countlikes}
+                                                        </p>
+                                                    </div>
                                                 </div>
-                                            )}
 
-                                            <div className="grid grid-cols-2 gap-4">
-                                                <div>
-                                                    <p className="text-xs text-muted-foreground">Field</p>
-                                                    <p className="font-semibold text-[#576238]">
-                                                        {pitch.startup?.field || "Not specified"}
-                                                    </p>
-                                                </div>
-                                                <div>
-                                                    <p className="text-xs text-muted-foreground">Likes</p>
-                                                    <p className="font-semibold text-[#576238] flex items-center gap-1">
-                                                        <Heart className="h-4 w-4 fill-red-500 text-red-500" />
-                                                        {pitch.countlikes}
-                                                    </p>
-                                                </div>
-                                            </div>
+                                                {/* Tags */}
+                                                {pitch.tags && pitch.tags.length > 0 && (
+                                                    <div className="flex flex-wrap gap-2">
+                                                        {pitch.tags.map((tag, i) => {
+                                                            const isMatched = investorTags.some(invTag =>
+                                                                invTag.toLowerCase() === tag.toLowerCase()
+                                                            );
+                                                            return (
+                                                                <span
+                                                                    key={i}
+                                                                    className={`px-3 py-1 text-xs rounded-full font-medium ${isMatched
+                                                                            ? 'bg-[#FFD95D] text-[#576238] ring-2 ring-[#576238]'
+                                                                            : 'bg-[#FFD95D]/20 text-[#576238]'
+                                                                        }`}
+                                                                >
+                                                                    {tag}
+                                                                    {isMatched && ' ✓'}
+                                                                </span>
+                                                            );
+                                                        })}
+                                                    </div>
+                                                )}
 
-                                            {/* Tags */}
-                                            {pitch.tags && pitch.tags.length > 0 && (
-                                                <div className="flex flex-wrap gap-2">
-                                                    {pitch.tags.map((tag, i) => (
-                                                        <span
-                                                            key={i}
-                                                            className="px-3 py-1 bg-[#FFD95D]/20 text-[#576238] text-xs rounded-full font-medium"
-                                                        >
-                                                            {tag}
+                                                <div className="pt-2 border-t mt-auto">
+                                                    <div className="flex items-center justify-between">
+                                                        <span className="text-sm text-muted-foreground">
+                                                            Posted: {new Date(pitch.created_at).toLocaleDateString()}
                                                         </span>
-                                                    ))}
+                                                        <Link href={`/investor/startup/${pitch.startup_id}`}>
+                                                            <Button
+                                                                variant="outline"
+                                                                size="sm"
+                                                                className="border-[#576238] text-[#576238] hover:bg-[#576238] hover:text-white"
+                                                            >
+                                                                <Eye className="mr-2 h-4 w-4" />
+                                                                View Profile
+                                                            </Button>
+                                                        </Link>
+                                                    </div>
                                                 </div>
-                                            )}
-
-                                            <div className="pt-2 border-t mt-auto">
-                                                <div className="flex items-center justify-between">
-                                                    <span className="text-sm text-muted-foreground">
-                                                        Posted: {new Date(pitch.created_at).toLocaleDateString()}
-                                                    </span>
-                                                    <Link href={`/investor/startup/${pitch.startup_id}`}>
-                                                        <Button
-                                                            variant="outline"
-                                                            size="sm"
-                                                            className="border-[#576238] text-[#576238] hover:bg-[#576238] hover:text-white"
-                                                        >
-                                                            <Eye className="mr-2 h-4 w-4" />
-                                                            View Profile
-                                                        </Button>
-                                                    </Link>
-                                                </div>
-                                            </div>
-                                        </CardContent>
-                                    </Card>
-                                </motion.div>
-                            ))}
+                                            </CardContent>
+                                        </Card>
+                                    </motion.div>
+                                )
+                            })}
                         </div>
                     ) : (
                         <Card className="p-12 text-center border-2">
                             <div className="text-6xl mb-4">🎉</div>
                             <h3 className="text-2xl font-bold text-[#576238] mb-2">
-                                That's All for Now!
+                                You've Reviewed Everything!
                             </h3>
-                            <p className="text-muted-foreground mb-4">
-                                You've reviewed all available pitches
+                            <p className="text-muted-foreground mb-6">
+                                You've reviewed all {pitchDecks.length} available pitch{pitchDecks.length !== 1 ? 'es' : ''}
                             </p>
-                            <Button onClick={() => setCurrentIndex(0)} className="bg-[#576238]">
-                                Review Again
-                            </Button>
+                            <div className="flex gap-3 justify-center">
+                                <Button
+                                    onClick={() => {
+                                        setCurrentIndex(0);
+                                        x.set(0);
+                                    }}
+                                    className="bg-[#576238]"
+                                >
+                                    Review Again
+                                </Button>
+                                <Link href="/investor/schedule">
+                                    <Button variant="outline">
+                                        <Calendar className="mr-2 h-4 w-4" />
+                                        View Schedule
+                                    </Button>
+                                </Link>
+                            </div>
                         </Card>
                     )}
 
@@ -413,18 +598,27 @@ export default function InvestorFeed() {
                         >
                             <Button
                                 onClick={() => handleSwipe("left")}
+                                disabled={actionLoading}
                                 size="lg"
                                 variant="outline"
-                                className="rounded-full w-16 h-16 border-2 border-red-500 text-red-500 hover:bg-red-50"
+                                className="rounded-full w-16 h-16 border-2 border-red-500 text-red-500 hover:bg-red-50 disabled:opacity-50"
                             >
-                                <X className="h-6 w-6" />
+                                {actionLoading ? <Loader2 className="h-6 w-6 animate-spin" /> : <X className="h-6 w-6" />}
                             </Button>
                             <Button
                                 onClick={() => handleSwipe("right")}
+                                disabled={actionLoading}
                                 size="lg"
-                                className="rounded-full w-16 h-16 bg-[#576238] hover:bg-[#6b7c3f]"
+                                className={`rounded-full w-16 h-16 disabled:opacity-50 ${isCurrentLiked
+                                        ? 'bg-red-500 hover:bg-red-600'
+                                        : 'bg-[#576238] hover:bg-[#6b7c3f]'
+                                    }`}
                             >
-                                <Heart className="h-6 w-6" />
+                                {actionLoading ? (
+                                    <Loader2 className="h-6 w-6 animate-spin" />
+                                ) : (
+                                    <Heart className={`h-6 w-6 ${isCurrentLiked ? 'fill-white' : ''}`} />
+                                )}
                             </Button>
                         </motion.div>
                     )}
