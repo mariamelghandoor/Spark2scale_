@@ -26,7 +26,6 @@ builder.Services.AddCors(options =>
                   .AllowAnyMethod();
         });
 });
-// --- END CORS FIX ---
 
 
 // Add services to the container.

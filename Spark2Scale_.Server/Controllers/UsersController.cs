@@ -1,75 +1,163 @@
 ﻿using Microsoft.AspNetCore.Mvc;
-using Supabase;
 using Spark2Scale_.Server.Models;
+using Supabase;
 using System;
+using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 
 namespace Spark2Scale_.Server.Controllers
 {
+    public class ProfileUpdateRequest
+    {
+        public string? Fname { get; set; }
+        public string? Lname { get; set; }
+        public string? PhoneNumber { get; set; }
+        public string? AddressRegion { get; set; }
+        public IFormFile? Photo { get; set; }
+    }
+
     [ApiController]
     [Route("api/[controller]")]
     public class UsersController : ControllerBase
     {
-        private readonly Supabase.Client _supabase;
+        private readonly Client _supabase;
+        private readonly IWebHostEnvironment _environment; // 1. Added Environment for path access
 
-        public UsersController(Supabase.Client supabase)
+        // Inject IWebHostEnvironment here
+        public UsersController(Client supabase, IWebHostEnvironment environment)
         {
             _supabase = supabase;
+            _environment = environment;
         }
 
-        [HttpPost("add")]
-        public async Task<IActionResult> AddUser([FromBody] User user)
+        // GET: api/users/get-profile/{userId}
+        [HttpGet("get-profile/{userId}")]
+        public async Task<IActionResult> GetProfile(string userId)
         {
-            if (user == null || string.IsNullOrEmpty(user.email))
-                return BadRequest("Invalid user data.");
+            if (!Guid.TryParse(userId, out Guid uid)) return BadRequest("Invalid User ID");
 
-            // Generate a UUID for the user if not provided
-            if (user.uid == Guid.Empty)
-                user.uid = Guid.NewGuid();
-
-            user.created_at = DateTime.UtcNow;
-
-            var table = _supabase.From<User>();
-            var result = await table.Insert(user);
-
-            var inserted = result.Models.FirstOrDefault();
-            if (inserted == null) return StatusCode(500, "Failed to insert user");
-
-            // Map to DTO to avoid BaseModel serialization issues
-            var dto = new UserDto
+            try
             {
-                uid = inserted.uid,
-                fname = inserted.fname,
-                lname = inserted.lname,
-                email = inserted.email,
-                phone_number = inserted.phone_number,
-                address_region = inserted.address_region,
-                created_at = inserted.created_at
-            };
+                var result = await _supabase.From<User>().Where(u => u.uid == uid).Get();
+                var user = result.Models.FirstOrDefault();
 
-            return Ok(dto);
+                if (user == null) return NotFound("User not found");
+
+                return Ok(new
+                {
+                    user = new
+                    {
+                        user.fname,
+                        user.lname,
+                        user.email,
+                        user.phone_number,
+                        user.address_region
+                    },
+                    avatarUrl = user.avatar_url
+                });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, $"Error fetching profile: {ex.Message}");
+            }
         }
 
-        [HttpGet]
-        public async Task<IActionResult> GetUsers()
+        // PUT: api/users/update-profile/{userId}
+        [HttpPut("update-profile/{userId}")]
+        public async Task<IActionResult> UpdateProfile(string userId, [FromForm] ProfileUpdateRequest request)
         {
-            var table = _supabase.From<User>();
-            var result = await table.Get();
+            if (!Guid.TryParse(userId, out Guid uid)) return BadRequest("Invalid User ID");
 
-            // Map each user to DTO
-            var dtos = result.Models.Select(u => new UserDto
+            try
             {
-                uid = u.uid,
-                fname = u.fname,
-                lname = u.lname,
-                email = u.email,
-                phone_number = u.phone_number,
-                address_region = u.address_region,
-                created_at = u.created_at
-            }).ToList();
+                // 1. Get Current User
+                var result = await _supabase.From<User>().Where(u => u.uid == uid).Get();
+                var currentUser = result.Models.FirstOrDefault();
+                if (currentUser == null) return NotFound("User not found");
 
-            return Ok(dtos);
+                string currentAvatarUrl = currentUser.avatar_url;
+
+                // 2. Handle Photo Upload (LOCALLY)
+                if (request.Photo != null && request.Photo.Length > 0)
+                {
+                    try
+                    {
+                        // Validate Extension
+                        var allowedExtensions = new[] { ".jpg", ".jpeg", ".png", ".gif" };
+                        var extension = Path.GetExtension(request.Photo.FileName).ToLowerInvariant();
+                        if (!allowedExtensions.Contains(extension))
+                        {
+                            return BadRequest("Invalid file type. Only JPG, PNG, and GIF allowed.");
+                        }
+
+                        // Prepare Folder: wwwroot/uploads
+                        string uploadsFolder = Path.Combine(_environment.WebRootPath, "uploads");
+                        if (!Directory.Exists(uploadsFolder))
+                        {
+                            Directory.CreateDirectory(uploadsFolder);
+                        }
+
+                        // Create Unique Filename
+                        string fileName = $"{uid}_{DateTime.Now.Ticks}{extension}";
+                        string filePath = Path.Combine(uploadsFolder, fileName);
+
+                        // Save File to Disk (Safe & Crash-Free)
+                        using (var stream = new FileStream(filePath, FileMode.Create))
+                        {
+                            await request.Photo.CopyToAsync(stream);
+                        }
+
+                        // Generate Local URL
+                        // NOTE: Ensure your Program.cs has app.UseStaticFiles()
+                        var baseUrl = $"{Request.Scheme}://{Request.Host}";
+                        currentAvatarUrl = $"{baseUrl}/uploads/{fileName}";
+                    }
+                    catch (Exception uploadEx)
+                    {
+                        Console.WriteLine($"[Upload Failed] {uploadEx.Message}");
+                        return StatusCode(500, "Failed to save image locally.");
+                    }
+                }
+
+                // 3. Update User Fields in Database
+                currentUser.fname = !string.IsNullOrEmpty(request.Fname) ? request.Fname : currentUser.fname;
+                currentUser.lname = !string.IsNullOrEmpty(request.Lname) ? request.Lname : currentUser.lname;
+
+                if (!string.IsNullOrEmpty(request.PhoneNumber) && request.PhoneNumber != "string")
+                    currentUser.phone_number = request.PhoneNumber;
+
+                currentUser.address_region = !string.IsNullOrEmpty(request.AddressRegion) ? request.AddressRegion : currentUser.address_region;
+
+                // Update the URL in the database
+                currentUser.avatar_url = currentAvatarUrl;
+
+                await _supabase.From<User>().Update(currentUser);
+
+                return Ok(new { message = "Updated successfully", avatarUrl = currentAvatarUrl });
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"CRITICAL ERROR: {ex}"); // Log to console
+                return StatusCode(500, $"Server Error: {ex.Message}");
+            }
+        }
+
+        // DELETE: api/users/delete-profile/{userId}
+        [HttpDelete("delete-profile/{userId}")]
+        public async Task<IActionResult> DeleteProfile(string userId)
+        {
+            if (!Guid.TryParse(userId, out Guid uid)) return BadRequest("Invalid User ID");
+
+            try
+            {
+                await _supabase.From<User>().Where(u => u.uid == uid).Delete();
+                return Ok(new { message = "User deleted successfully" });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, $"Error deleting user: {ex.Message}");
+            }
         }
 
         [HttpGet("{id}")]

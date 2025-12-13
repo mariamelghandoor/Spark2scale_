@@ -78,7 +78,6 @@ namespace Spark2Scale_.Server.Controllers
             // 4. CREATE MEETING
             var newMeeting = new Meeting
             {
-                MeetingId = Guid.NewGuid(),
                 SenderId = input.sender_id,
                 ReceiverId = receiverId,
                 StartupId = input.startup_id,
@@ -90,9 +89,20 @@ namespace Spark2Scale_.Server.Controllers
                 Status = "pending"
             };
 
-            await _supabase.From<Meeting>().Insert(newMeeting);
-            var inserted = newMeeting; // We use the local object to ensure IDs are present
+            var result = await _supabase.From<Meeting>().Insert(newMeeting);
+            var insertedMeeting = result.Models.FirstOrDefault();
+            if (insertedMeeting == null)
+            {
+                // Fallback: If Supabase didn't return the model, fetch it manually using the criteria
+                // This is a rare edge case but ensures safety.
+                var fetchCheck = await _supabase.From<Meeting>()
+                    .Where(m => m.SenderId == input.sender_id && m.ReceiverId == receiverId && m.Status == "pending")
+                    .Order("created_at", Supabase.Postgrest.Constants.Ordering.Descending)
+                    .Get();
+                insertedMeeting = fetchCheck.Models.FirstOrDefault();
 
+                if (insertedMeeting == null) return StatusCode(500, "Failed to retrieve created meeting.");
+            }
             // 5. NOTIFICATIONS & EMAIL
 
             // In-App Notification
@@ -102,17 +112,17 @@ namespace Spark2Scale_.Server.Controllers
                 Receiver = receiverId,
                 Topic = "📅 Meeting Invite",
                 Description = $"You have been invited to a meeting on {input.meeting_date:MMM dd} at {input.meeting_time}. Click 'Accept' to confirm.",
-
-                // CRITICAL: Ensure Type is correct and RelatedEntityId is set
                 Type = "meeting_invite",
-                RelatedEntityId = inserted.MeetingId,
+
+                // CRITICAL FIX: Use the ID from the database response
+                RelatedEntityId = insertedMeeting.MeetingId,
 
                 CreatedAt = DateTime.UtcNow,
                 IsRead = false
             };
             await _supabase.From<Notification>().Insert(invite);
 
-            // HTML Email Notification (Invite) - YOUR ORIGINAL FORMAT RESTORED
+            // HTML Email Notification (Invite) - YOUR ORIGINAL FORMAT KEPT
             string subject = "🧱 New Opportunity: Meeting Invite from Spark2Scale";
             string body = $@"
                 <!DOCTYPE html>
@@ -174,8 +184,8 @@ namespace Spark2Scale_.Server.Controllers
 
             return Ok(new MeetingResponseDto
             {
-                meeting_id = inserted.MeetingId,
-                status = inserted.Status
+                meeting_id = insertedMeeting.MeetingId,
+                status = insertedMeeting.Status
             });
         }
 
@@ -232,42 +242,43 @@ namespace Spark2Scale_.Server.Controllers
             return Ok(dtos);
         }
 
-        // --- FIXED ACCEPT: UPDATES NOTIFICATION SO BUTTONS VANISH ---
+        // --- UPDATED ACCEPT: Hides buttons on refresh ---
         [HttpPost("accept/{id}")]
         public async Task<IActionResult> AcceptMeeting(Guid id)
         {
+            // 1. Update Meeting Status
             await _supabase.From<Meeting>().Where(m => m.MeetingId == id).Set(m => m.Status, "accepted").Update();
 
-            // Fix: Change Notification type so buttons don't appear on refresh
+            // 2. Update Notification (Hide buttons permanently)
             await _supabase.From<Notification>()
                 .Where(n => n.RelatedEntityId == id)
-                .Set(n => n.Type, "info")
+                .Set(n => n.Type, "info") // Changing type prevents buttons from showing
                 .Set(n => n.Description, "✅ You have accepted this meeting.")
                 .Update();
 
             return Ok();
         }
 
-        // --- FIXED REJECT: SENDS EMAIL TO SENDER & UPDATES NOTIFICATION ---
+        // --- UPDATED REJECT: Hides buttons AND Sends Email to Sender ---
         [HttpPost("reject/{id}")]
         public async Task<IActionResult> RejectMeeting(Guid id)
         {
             var meetingResult = await _supabase.From<Meeting>().Where(m => m.MeetingId == id).Get();
             var meeting = meetingResult.Models.FirstOrDefault();
 
-            if (meeting == null) return NotFound();
+            if (meeting == null) return NotFound("Meeting not found");
 
             // 1. Update Meeting Status
             await _supabase.From<Meeting>().Where(m => m.MeetingId == id).Set(m => m.Status, "rejected").Update();
 
-            // 2. Fix: Update Notification so buttons don't appear on refresh
+            // 2. Update Notification (Hide buttons permanently)
             await _supabase.From<Notification>()
                 .Where(n => n.RelatedEntityId == id)
-                .Set(n => n.Type, "info")
+                .Set(n => n.Type, "info") // Changing type prevents buttons from showing
                 .Set(n => n.Description, "❌ You declined this meeting.")
                 .Update();
 
-            // 3. Notify Sender (Email + App Notification)
+            // 3. GET USERS FOR EMAIL (Sender needs to know)
             var senderResult = await _supabase.From<User>().Where(u => u.uid == meeting.SenderId).Get();
             var senderUser = senderResult.Models.FirstOrDefault();
 
@@ -276,7 +287,7 @@ namespace Spark2Scale_.Server.Controllers
 
             if (senderUser != null && rejectorUser != null)
             {
-                // App Notification for Sender
+                // 4. App Notification for Sender
                 var notif = new Notification
                 {
                     Sender = meeting.ReceiverId,
@@ -289,7 +300,7 @@ namespace Spark2Scale_.Server.Controllers
                 };
                 await _supabase.From<Notification>().Insert(notif);
 
-                // Email to Sender
+                // 5. EMAIL to Sender (New Logic)
                 string subject = "Update: Meeting Invitation Declined";
                 string body = $@"
                     <!DOCTYPE html>
@@ -300,11 +311,13 @@ namespace Spark2Scale_.Server.Controllers
                             <p style='color: #555; font-size: 16px;'>
                                 We wanted to let you know that <strong>{rejectorUser.fname} {rejectorUser.lname}</strong> has declined your invitation.
                             </p>
+                            
                             <div style='background-color: #FEF2F2; padding: 15px; border-radius: 4px; border: 1px solid #FCA5A5; margin: 20px 0;'>
                                 <p style='margin: 5px 0; color: #991B1B;'><strong>📅 Date:</strong> {meeting.MeetingDate:MMM dd, yyyy}</p>
                                 <p style='margin: 5px 0; color: #991B1B;'><strong>⏰ Time:</strong> {meeting.MeetingTime}</p>
                                 <p style='margin: 5px 0; color: #991B1B;'><strong>Status:</strong> <span style='font-weight: bold;'>REJECTED</span></p>
                             </div>
+
                             <p style='color: #666; font-size: 14px;'>
                                 You may want to reschedule or contact them directly.
                             </p>
@@ -319,6 +332,7 @@ namespace Spark2Scale_.Server.Controllers
             return Ok();
         }
 
+        // --- CANCELLATION (Restored Original) ---
         [HttpPost("cancel/{id}")]
         public async Task<IActionResult> CancelMeeting(Guid id)
         {

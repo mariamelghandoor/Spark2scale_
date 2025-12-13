@@ -15,7 +15,7 @@ export interface StartupResponse {
     created_at: string;
     founder_id: string;
 
-    // NEW FIELDS FROM BACKEND
+    // Dashboard Extra Fields
     total_likes: number;
     progress_count: number;
     progress_has_gap: boolean;
@@ -27,8 +27,9 @@ export const startupService = {
         return response.data;
     },
 
+    // UPDATED: Now calls the specific dashboard endpoint
     getByFounder: async (founderId: string) => {
-        const response = await apiClient.get<StartupResponse[]>(`/api/Startups?founderId=${founderId}`);
+        const response = await apiClient.get<StartupResponse[]>(`/api/Startups/dashboard?founderId=${founderId}`);
         return response.data;
     }
 };

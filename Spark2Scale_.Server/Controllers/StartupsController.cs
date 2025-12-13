@@ -18,6 +18,7 @@ namespace Spark2Scale_.Server.Controllers
             _supabase = supabase;
         }
 
+        // POST: api/startups/add
         [HttpPost("add")]
         public async Task<IActionResult> AddStartup([FromBody] StartupInsertDto input)
         {
@@ -57,10 +58,12 @@ namespace Spark2Scale_.Server.Controllers
             });
         }
 
-        [HttpGet]
-        public async Task<IActionResult> GetStartups([FromQuery] Guid? founderId)
+        // GET: api/startups/dashboard
+        // RENAMED: This is the complex function for the Dashboard (with likes & progress)
+        [HttpGet("dashboard")]
+        public async Task<IActionResult> GetDashboard([FromQuery] Guid? founderId)
         {
-            // STEP 1: Get the Startups
+            // 1. Get Startups
             Supabase.Postgrest.Responses.ModeledResponse<Startup> startupResult;
 
             if (founderId.HasValue)
@@ -77,11 +80,10 @@ namespace Spark2Scale_.Server.Controllers
             var startups = startupResult.Models;
             if (!startups.Any()) return Ok(new List<StartupDashboardDto>());
 
-            // STEP 2: Collect all Startup IDs
+            // 2. Collect IDs
             var startupIds = startups.Select(s => s.Sid.ToString()).ToList();
 
-            // STEP 3: Fetch ALL related PitchDecks and Workflows in PARALLEL (Batching)
-            // Note: We use Filter with "in" operator to get all matching rows in one go
+            // 3. Fetch Details
             var deckTask = _supabase.From<PitchDeck>()
                                     .Filter("startup_id", Supabase.Postgrest.Constants.Operator.In, startupIds)
                                     .Get();
@@ -90,7 +92,6 @@ namespace Spark2Scale_.Server.Controllers
                                         .Filter("startup_id", Supabase.Postgrest.Constants.Operator.In, startupIds)
                                         .Get();
 
-            // Wait for both to finish simultaneously
             await Task.WhenAll(deckTask, workflowTask);
 
             var allDecks = deckTask.Result.Models;
@@ -98,16 +99,13 @@ namespace Spark2Scale_.Server.Controllers
 
             var responseList = new List<StartupDashboardDto>();
 
-            // STEP 4: Join data in memory (Very Fast)
+            // 4. Join Data
             foreach (var startup in startups)
             {
-                // Find matching decks
                 var myDecks = allDecks.Where(d => d.startup_id == startup.Sid);
                 int totalLikes = myDecks.Sum(d => d.countlikes);
 
-                // Find matching workflow
                 var wf = allWorkflows.FirstOrDefault(w => w.StartupId == startup.Sid);
-
                 int progressCount = 0;
                 bool hasGap = false;
 
@@ -117,15 +115,8 @@ namespace Spark2Scale_.Server.Controllers
                     bool hitFalse = false;
                     foreach (var step in steps)
                     {
-                        if (step)
-                        {
-                            progressCount++;
-                            if (hitFalse) hasGap = true;
-                        }
-                        else
-                        {
-                            hitFalse = true;
-                        }
+                        if (step) { progressCount++; if (hitFalse) hasGap = true; }
+                        else { hitFalse = true; }
                     }
                 }
 
@@ -144,6 +135,49 @@ namespace Spark2Scale_.Server.Controllers
             }
 
             return Ok(responseList);
+        }
+
+        // GET: api/startups
+        // SIMPLE: This returns just the basic list (good for dropdowns or admin)
+        [HttpGet]
+        public async Task<IActionResult> GetStartups()
+        {
+            var result = await _supabase.From<Startup>().Get();
+
+            var dtos = result.Models.Select(s => new StartupResponseDto
+            {
+                sid = s.Sid,
+                startupname = s.StartupName,
+                field = s.Field,
+                idea_description = s.IdeaDescription,
+                founder_id = s.FounderId,
+                created_at = s.CreatedAt
+            }).ToList();
+
+            return Ok(dtos);
+        }
+
+        // GET: api/startups/{id}
+        [HttpGet("{id}")]
+        public async Task<IActionResult> GetStartup(Guid id)
+        {
+            var result = await _supabase.From<Startup>()
+                .Where(x => x.Sid == id)
+                .Get();
+
+            var startup = result.Models.FirstOrDefault();
+
+            if (startup == null) return NotFound();
+
+            return Ok(new StartupResponseDto
+            {
+                sid = startup.Sid,
+                startupname = startup.StartupName,
+                field = startup.Field,
+                idea_description = startup.IdeaDescription,
+                founder_id = startup.FounderId,
+                created_at = startup.CreatedAt
+            });
         }
     }
 

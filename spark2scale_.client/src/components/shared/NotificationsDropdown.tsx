@@ -14,6 +14,7 @@ import { meetingService } from "@/services/meetingService";
 import { motion, AnimatePresence } from "framer-motion";
 import LegoNotificationEmpty from "@/components/lego/LegoNotificationEmpty";
 
+// 1. HARDCODED USER RESTORED (As requested)
 const TEST_USER_ID = "3e59c30f-e3d2-43d2-ba48-818e69b7a9fd";
 const INITIAL_COUNT = 5;
 
@@ -28,6 +29,7 @@ export default function NotificationsDropdown() {
     useEffect(() => {
         const fetchNotifs = async () => {
             try {
+                // Fetching for the HARDCODED user
                 const data = await notificationService.getByUser(TEST_USER_ID);
                 setNotifications(data);
             } catch (error) {
@@ -63,8 +65,14 @@ export default function NotificationsDropdown() {
 
             try {
                 await meetingService.acceptMeeting(n.related_entity_id);
-            } catch (error) {
+            } catch (error: any) {
                 console.error("Accept failed", error);
+                // IF MEETING IS MISSING (404), UPDATE UI
+                if (error.response && error.response.status === 404) {
+                    setNotifications(prev => prev.map(item =>
+                        item.nid === n.nid ? { ...item, type: 'info', description: '⚠️ Meeting no longer exists (Deleted).' } : item
+                    ));
+                }
             }
         }
     };
@@ -79,8 +87,14 @@ export default function NotificationsDropdown() {
 
             try {
                 await meetingService.rejectMeeting(n.related_entity_id);
-            } catch (error) {
+            } catch (error: any) {
                 console.error("Reject failed", error);
+                // IF MEETING IS MISSING (404), UPDATE UI
+                if (error.response && error.response.status === 404) {
+                    setNotifications(prev => prev.map(item =>
+                        item.nid === n.nid ? { ...item, type: 'info', description: '⚠️ Meeting no longer exists (Deleted).' } : item
+                    ));
+                }
             }
         }
     };
@@ -156,7 +170,7 @@ export default function NotificationsDropdown() {
                                 {visibleNotifications.map((n) => {
                                     const isExpanded = expandedId === n.nid;
 
-                                    // FIX: Hides buttons if type is 'info' (which we set on reject/accept)
+                                    // CHECK: Buttons show if type is invite (and not info)
                                     const isInvite = n.type !== 'info' && (n.type === 'meeting_invite' || n.topic.includes('Meeting Invite')) && n.related_entity_id != null;
 
                                     return (
