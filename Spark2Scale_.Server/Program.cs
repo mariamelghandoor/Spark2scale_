@@ -23,7 +23,8 @@ builder.Services.AddCors(options =>
             // Allow requests from your frontend port (3000). Adjust if your frontend is on a different port.
             policy.WithOrigins("http://localhost:3000", "https://localhost:3000")
                   .AllowAnyHeader()
-                  .AllowAnyMethod();
+                  .AllowAnyMethod()
+                  .AllowCredentials(); // Allow credentials if needed
         });
 });
 // --- END CORS FIX ---

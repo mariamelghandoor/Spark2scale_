@@ -100,18 +100,38 @@ export default function SignupPage() {
 
         try {
             const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5231';
+            console.log("Calling API:", `${apiUrl}/api/Auth/signup`);
             const response = await fetch(`${apiUrl}/api/Auth/signup`, {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json"
                 },
                 body: JSON.stringify({
-                    ...formData,
+                    name: formData.name.trim(),
                     email: formData.email.toLowerCase().trim(),
                     phone: formData.phone.trim(),
-                    name: formData.name.trim()
+                    password: formData.password,
+                    confirmPassword: formData.confirmPassword,
+                    addressRegion: "",
+                    userType: formData.userType,
+                    tags: formData.tags || []
                 }),
             });
+            
+            console.log("Response status:", response.status);
+            console.log("Response ok:", response.ok);
+
+            if (!response.ok) {
+                const errorText = await response.text();
+                console.error("Response error:", errorText);
+                let errorData;
+                try {
+                    errorData = JSON.parse(errorText);
+                } catch {
+                    errorData = { message: errorText || `Server returned ${response.status}` };
+                }
+                throw new Error(errorData.message || `Server error: ${response.status}`);
+            }
 
             const data: ApiResponse = await response.json();
 
@@ -159,10 +179,11 @@ export default function SignupPage() {
             }
         } catch (error) {
             console.error("Signup error:", error);
+            const errorMessage = error instanceof Error ? error.message : "Unknown error";
             setStatus({
                 type: 'error',
                 message: "Network Error",
-                details: "Could not connect to the server. Please check your internet connection and make sure the backend is running."
+                details: `Could not connect to the server. Error: ${errorMessage}. Please make sure the backend is running on http://localhost:5231`
             });
         } finally {
             setIsLoading(false);
