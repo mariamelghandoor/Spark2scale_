@@ -87,5 +87,36 @@ namespace Spark2Scale_.Server.Controllers
                 lname = result.lname
             });
         }
+
+        // NEW: Get only the user's role
+        [HttpGet("role/{id}")]
+        public async Task<IActionResult> GetUserRole(Guid id)
+        {
+            string detectedRole = "guest"; // Default
+
+            // 1. Check Founder Table
+            var founderCheck = await _supabase.From<Founder>()
+                .Where(f => f.user_id == id)
+                .Get();
+
+            if (founderCheck.Models.Any())
+            {
+                detectedRole = "founder";
+            }
+            else
+            {
+                // 2. Check Investor Table
+                var investorCheck = await _supabase.From<Investor>()
+                    .Where(i => i.user_id == id)
+                    .Get();
+
+                if (investorCheck.Models.Any())
+                {
+                    detectedRole = "investor";
+                }
+            }
+
+            return Ok(new { role = detectedRole });
+        }
     }
 }

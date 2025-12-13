@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { ArrowLeft, Calendar, Clock, ExternalLink, User, Video, Plus, Link as LinkIcon, RefreshCw, Mail, AlertTriangle, Trash2 } from "lucide-react";
+import { ArrowLeft, Calendar, Clock, ExternalLink, User, Video, Plus, Link as LinkIcon, RefreshCw, Mail, AlertTriangle, Trash2, Check, X } from "lucide-react";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import { meetingService, MeetingDto } from "@/services/meetingService";
@@ -11,13 +11,17 @@ import NotificationsDropdown from "@/components/shared/NotificationsDropdown";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { userService } from "@/services/userService";
 
+// 1. HARDCODED USER ID PRESERVED
 const TEST_USER_ID = "645bde5c-ab6e-47bc-ba8d-cd6f5500bc30";
 
 export default function SchedulePage() {
-    const [userName] = useState("Alex");
+    const [userName, setUserName] = useState("Alex");
     const [meetings, setMeetings] = useState<MeetingDto[]>([]);
     const [isLoading, setIsLoading] = useState(true);
+
+    const [backLink, setBackLink] = useState("/founder/dashboard");
 
     // SCHEDULING STATE
     const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -27,6 +31,9 @@ export default function SchedulePage() {
     // CANCEL STATE
     const [confirmCancelId, setConfirmCancelId] = useState<string | null>(null);
     const [isCanceling, setIsCanceling] = useState(false);
+
+    // ACTION STATE (Accept/Reject loading)
+    const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
 
     const [newMeeting, setNewMeeting] = useState({
         date: "",
@@ -38,7 +45,27 @@ export default function SchedulePage() {
     const todayStr = new Date().toISOString().split('T')[0];
 
     useEffect(() => {
-        fetchMeetings();
+        const initializePage = async () => {
+            try {
+                // 1. Get Role & Set Link
+                const roleData = await userService.getUserRole(TEST_USER_ID);
+                if (roleData.role === "investor") {
+                    setBackLink("/investor/feed");
+                } else if (roleData.role === "founder") {
+                    setBackLink("/founder/dashboard");
+                }
+
+                // 2. Fetch Meetings
+                await fetchMeetings();
+
+            } catch (error) {
+                console.error("Error initializing page", error);
+            } finally {
+                setIsLoading(false);
+            }
+        };
+
+        initializePage();
     }, []);
 
     const fetchMeetings = async () => {
@@ -47,8 +74,6 @@ export default function SchedulePage() {
             setMeetings(data);
         } catch (error) {
             console.error("Failed to fetch meetings", error);
-        } finally {
-            setIsLoading(false);
         }
     };
 
@@ -65,7 +90,6 @@ export default function SchedulePage() {
             return;
         }
 
-        // Fix validation to use local time comparison
         const inputDate = new Date(newMeeting.date + "T00:00:00");
         const today = new Date();
         today.setHours(0, 0, 0, 0);
@@ -105,6 +129,33 @@ export default function SchedulePage() {
         }
     };
 
+    // --- NEW: HANDLERS FOR ACCEPT / REJECT ON THE CARD ---
+    const handleAcceptMeeting = async (id: string) => {
+        setActionLoadingId(id);
+        try {
+            await meetingService.acceptMeeting(id);
+            // Optimistic Update
+            setMeetings(prev => prev.map(m => m.meeting_id === id ? { ...m, status: 'accepted' } : m));
+        } catch (error) {
+            console.error("Failed to accept", error);
+        } finally {
+            setActionLoadingId(null);
+        }
+    };
+
+    const handleRejectMeeting = async (id: string) => {
+        setActionLoadingId(id);
+        try {
+            await meetingService.rejectMeeting(id);
+            // Optimistic Update
+            setMeetings(prev => prev.map(m => m.meeting_id === id ? { ...m, status: 'rejected' } : m));
+        } catch (error) {
+            console.error("Failed to reject", error);
+        } finally {
+            setActionLoadingId(null);
+        }
+    };
+
     const handleConfirmCancel = async (id: string) => {
         setIsCanceling(true);
         try {
@@ -124,18 +175,11 @@ export default function SchedulePage() {
         if (!open) setErrorMessage("");
     };
 
-    // --- FIX: ABSOLUTE DATE PARSING ---
-    // Instead of letting 'new Date()' shift the timezone, we explicitly read the string parts.
     const formatDate = (dateString: string) => {
         if (!dateString) return "Invalid Date";
-
-        // dateString is usually "YYYY-MM-DD" or "YYYY-MM-DDT00:00:00"
-        const cleanDate = dateString.split('T')[0]; // Get "2025-12-13"
+        const cleanDate = dateString.split('T')[0];
         const [year, month, day] = cleanDate.split('-').map(Number);
-
-        // Use constructor (year, monthIndex, day) - month is 0-indexed
         const date = new Date(year, month - 1, day);
-
         return date.toLocaleDateString("en-US", {
             weekday: "long",
             year: "numeric",
@@ -152,7 +196,6 @@ export default function SchedulePage() {
         return date.toLocaleTimeString("en-US", { hour: 'numeric', minute: '2-digit', hour12: true });
     };
 
-    // Sort Helpers
     const getMeetingDateTime = (m: MeetingDto) => {
         const datePart = m.meeting_date.split('T')[0];
         return new Date(`${datePart}T${m.meeting_time}`);
@@ -163,7 +206,6 @@ export default function SchedulePage() {
 
     const upcomingMeetings = meetings
         .filter(m => {
-            // Compare purely based on date string to avoid timezone issues
             const mDate = new Date(m.meeting_date.split('T')[0] + "T00:00:00");
             return mDate >= today && m.status !== 'canceled' && m.status !== 'rejected';
         })
@@ -182,7 +224,7 @@ export default function SchedulePage() {
             <div className="border-b bg-white/80 backdrop-blur-lg sticky top-0 z-40">
                 <div className="container mx-auto px-4 py-4 flex justify-between items-center">
                     <div className="flex items-center gap-4">
-                        <Link href="/founder/dashboard">
+                        <Link href={backLink}>
                             <Button variant="ghost" size="icon">
                                 <ArrowLeft className="h-5 w-5" />
                             </Button>
@@ -208,11 +250,8 @@ export default function SchedulePage() {
                             <DialogContent className="sm:max-w-[425px]">
                                 <DialogHeader>
                                     <DialogTitle>Schedule New Meeting</DialogTitle>
-                                    <DialogDescription>
-                                        Send an invite to an investor via email.
-                                    </DialogDescription>
+                                    <DialogDescription>Send an invite to an investor via email.</DialogDescription>
                                 </DialogHeader>
-
                                 <div className="grid gap-4 py-4">
                                     {errorMessage && (
                                         <div className="bg-red-50 text-red-600 p-3 rounded-md text-sm border border-red-200 flex items-center gap-2">
@@ -220,7 +259,6 @@ export default function SchedulePage() {
                                             {errorMessage}
                                         </div>
                                     )}
-
                                     <div className="space-y-2">
                                         <Label htmlFor="email">Invitee Email</Label>
                                         <Input
@@ -233,11 +271,7 @@ export default function SchedulePage() {
                                                 setErrorMessage("");
                                             }}
                                         />
-                                        <p className="text-[10px] text-muted-foreground">
-                                            User must be a registered <strong>Investor</strong> on the platform.
-                                        </p>
                                     </div>
-
                                     <div className="grid grid-cols-2 gap-4">
                                         <div className="space-y-2">
                                             <Label htmlFor="date">Date</Label>
@@ -259,7 +293,6 @@ export default function SchedulePage() {
                                             />
                                         </div>
                                     </div>
-
                                     <div className="space-y-2">
                                         <Label htmlFor="link">Meeting Link</Label>
                                         <div className="flex gap-2">
@@ -270,23 +303,13 @@ export default function SchedulePage() {
                                                 readOnly
                                                 className="pl-9 bg-gray-50 flex-grow"
                                             />
-                                            <Button
-                                                type="button"
-                                                variant="outline"
-                                                size="icon"
-                                                onClick={generateMeetLink}
-                                                title="Generate Jitsi Link"
-                                            >
+                                            <Button type="button" variant="outline" size="icon" onClick={generateMeetLink}>
                                                 <RefreshCw className="h-4 w-4 text-[#576238]" />
                                             </Button>
                                         </div>
                                     </div>
                                 </div>
-                                <Button
-                                    onClick={handleScheduleMeeting}
-                                    disabled={isScheduling}
-                                    className="w-full bg-[#576238] hover:bg-[#6b7c3f]"
-                                >
+                                <Button onClick={handleScheduleMeeting} disabled={isScheduling} className="w-full bg-[#576238] hover:bg-[#6b7c3f]">
                                     {isScheduling ? "Sending Invite..." : "Send Invite"}
                                 </Button>
                             </DialogContent>
@@ -296,24 +319,14 @@ export default function SchedulePage() {
             </div>
 
             <main className="container mx-auto px-4 py-8 pb-20">
-                <motion.div
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.5 }}
-                >
+                <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
                     <div className="mb-8">
-                        <h2 className="text-3xl font-bold text-[#576238] mb-2">
-                            Your Meeting Schedule
-                        </h2>
-                        <p className="text-muted-foreground">
-                            Manage your meetings with potential investors
-                        </p>
+                        <h2 className="text-3xl font-bold text-[#576238] mb-2">Your Meeting Schedule</h2>
+                        <p className="text-muted-foreground">Manage your meetings with potential investors</p>
                     </div>
 
                     {isLoading ? (
-                        <div className="text-center py-20 text-[#576238] animate-pulse">
-                            Loading schedule...
-                        </div>
+                        <div className="text-center py-20 text-[#576238] animate-pulse">Loading schedule...</div>
                     ) : (
                         <>
                             {/* Upcoming Meetings */}
@@ -329,122 +342,162 @@ export default function SchedulePage() {
                                     </div>
                                 ) : (
                                     <div className="space-y-4">
-                                        {upcomingMeetings.map((meeting, index) => (
-                                            <motion.div
-                                                key={meeting.meeting_id}
-                                                initial={{ opacity: 0, x: -20 }}
-                                                animate={{ opacity: 1, x: 0 }}
-                                                transition={{ delay: index * 0.1 }}
-                                            >
-                                                <Card className="p-6 hover:shadow-lg transition-all border-2 hover:border-[#FFD95D] bg-white overflow-hidden">
-                                                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                                                        <div className="flex-grow">
-                                                            <div className="flex items-center gap-3 mb-3">
-                                                                <div className="bg-[#576238] p-3 rounded-full">
-                                                                    <User className="h-5 w-5 text-[#FFD95D]" />
-                                                                </div>
-                                                                <div>
-                                                                    <h4 className="text-xl font-bold text-[#576238]">
-                                                                        {meeting.with_whom_name || "New Contact"}
-                                                                    </h4>
-                                                                    <div className="flex gap-2 items-center">
-                                                                        <span className="text-sm text-muted-foreground">Investment Meeting</span>
-                                                                        <span className={`text-[10px] px-2 py-0.5 rounded-full uppercase font-bold 
+                                        {upcomingMeetings.map((meeting, index) => {
+                                            // --- SMART LOGIC ---
+                                            const isSender = meeting.sender_id === TEST_USER_ID;
+                                            const isPending = meeting.status === 'pending';
+                                            const isAccepted = meeting.status === 'accepted';
+                                            const isWorking = actionLoadingId === meeting.meeting_id;
+
+                                            // Receiver sees pending state and can act
+                                            const showAcceptReject = !isSender && isPending;
+
+                                            return (
+                                                <motion.div
+                                                    key={meeting.meeting_id}
+                                                    initial={{ opacity: 0, x: -20 }}
+                                                    animate={{ opacity: 1, x: 0 }}
+                                                    transition={{ delay: index * 0.1 }}
+                                                >
+                                                    <Card className="p-6 hover:shadow-lg transition-all border-2 hover:border-[#FFD95D] bg-white overflow-hidden">
+                                                        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                                                            <div className="flex-grow">
+                                                                <div className="flex items-center gap-3 mb-3">
+                                                                    <div className="bg-[#576238] p-3 rounded-full">
+                                                                        <User className="h-5 w-5 text-[#FFD95D]" />
+                                                                    </div>
+                                                                    <div>
+                                                                        <h4 className="text-xl font-bold text-[#576238]">
+                                                                            {meeting.with_whom_name || "New Contact"}
+                                                                        </h4>
+                                                                        <div className="flex gap-2 items-center">
+                                                                            <span className="text-sm text-muted-foreground">
+                                                                                {isSender ? "Invited by you" : "Invited by them"}
+                                                                            </span>
+                                                                            <span className={`text-[10px] px-2 py-0.5 rounded-full uppercase font-bold 
                                                                             ${meeting.status === 'accepted' ? 'bg-green-100 text-green-700' :
-                                                                                meeting.status === 'rejected' ? 'bg-red-100 text-red-700' :
-                                                                                    'bg-yellow-100 text-yellow-700'}`}>
-                                                                            {meeting.status}
-                                                                        </span>
+                                                                                    meeting.status === 'rejected' ? 'bg-red-100 text-red-700' :
+                                                                                        'bg-yellow-100 text-yellow-700'}`}>
+                                                                                {meeting.status}
+                                                                            </span>
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+
+                                                                <div className="grid md:grid-cols-2 gap-3 ml-14">
+                                                                    <div className="flex items-center gap-2 text-sm">
+                                                                        <Calendar className="h-4 w-4 text-[#576238]" />
+                                                                        <span className="font-medium">{formatDate(meeting.meeting_date)}</span>
+                                                                    </div>
+                                                                    <div className="flex items-center gap-2 text-sm">
+                                                                        <Clock className="h-4 w-4 text-[#576238]" />
+                                                                        <span className="font-medium">{formatTime(meeting.meeting_time)}</span>
                                                                     </div>
                                                                 </div>
                                                             </div>
 
-                                                            <div className="grid md:grid-cols-2 gap-3 ml-14">
-                                                                <div className="flex items-center gap-2 text-sm">
-                                                                    <Calendar className="h-4 w-4 text-[#576238]" />
-                                                                    <span className="font-medium">{formatDate(meeting.meeting_date)}</span>
-                                                                </div>
-                                                                <div className="flex items-center gap-2 text-sm">
-                                                                    <Clock className="h-4 w-4 text-[#576238]" />
-                                                                    <span className="font-medium">{formatTime(meeting.meeting_time)}</span>
-                                                                </div>
+                                                            {/* ACTION BUTTONS */}
+                                                            <div className="flex flex-col gap-2 md:items-end min-w-[140px]">
+
+                                                                {/* 1. ACCEPT / REJECT (Only for Receiver & Pending) */}
+                                                                {showAcceptReject && (
+                                                                    <div className="flex gap-2 w-full">
+                                                                        <Button
+                                                                            className="flex-1 bg-green-600 hover:bg-green-700 text-white h-9"
+                                                                            onClick={() => handleAcceptMeeting(meeting.meeting_id)}
+                                                                            disabled={isWorking}
+                                                                        >
+                                                                            {isWorking ? "..." : <><Check className="w-4 h-4 mr-1" /> Accept</>}
+                                                                        </Button>
+                                                                        <Button
+                                                                            className="flex-1 border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700 h-9"
+                                                                            variant="outline"
+                                                                            onClick={() => handleRejectMeeting(meeting.meeting_id)}
+                                                                            disabled={isWorking}
+                                                                        >
+                                                                            {isWorking ? "..." : <><X className="w-4 h-4 mr-1" /> Reject</>}
+                                                                        </Button>
+                                                                    </div>
+                                                                )}
+
+                                                                {/* 2. JOIN BUTTON (Accepted OR Sender) */}
+                                                                {(isAccepted || isSender) && meeting.meeting_link && (
+                                                                    <a
+                                                                        href={meeting.meeting_link}
+                                                                        target="_blank"
+                                                                        rel="noopener noreferrer"
+                                                                        className="inline-block w-full"
+                                                                    >
+                                                                        <Button className="bg-[#576238] hover:bg-[#6b7c3f] text-white w-full">
+                                                                            <Video className="mr-2 h-4 w-4" />
+                                                                            Join
+                                                                            <ExternalLink className="ml-2 h-3 w-3" />
+                                                                        </Button>
+                                                                    </a>
+                                                                )}
+
+                                                                {/* 3. CANCEL BUTTON (Only Sender) */}
+                                                                {isSender && (
+                                                                    <AnimatePresence mode="wait">
+                                                                        {confirmCancelId === meeting.meeting_id ? (
+                                                                            <motion.div
+                                                                                key="confirm"
+                                                                                initial={{ opacity: 0, x: 20 }}
+                                                                                animate={{ opacity: 1, x: 0 }}
+                                                                                exit={{ opacity: 0, x: 20 }}
+                                                                                className="flex flex-col items-end gap-2 bg-red-50 p-2 rounded-lg border border-red-100"
+                                                                            >
+                                                                                <p className="text-xs text-red-600 font-bold mb-1">Cancel meeting?</p>
+                                                                                <div className="flex gap-2">
+                                                                                    <Button
+                                                                                        size="sm"
+                                                                                        variant="outline"
+                                                                                        className="h-7 text-xs bg-white hover:bg-gray-100"
+                                                                                        onClick={() => setConfirmCancelId(null)}
+                                                                                    >
+                                                                                        No
+                                                                                    </Button>
+                                                                                    <Button
+                                                                                        size="sm"
+                                                                                        className="h-7 text-xs bg-red-600 hover:bg-red-700 text-white"
+                                                                                        onClick={() => handleConfirmCancel(meeting.meeting_id)}
+                                                                                        disabled={isCanceling}
+                                                                                    >
+                                                                                        {isCanceling ? "..." : "Yes"}
+                                                                                    </Button>
+                                                                                </div>
+                                                                            </motion.div>
+                                                                        ) : (
+                                                                            <motion.div
+                                                                                key="default"
+                                                                                initial={{ opacity: 0 }}
+                                                                                animate={{ opacity: 1 }}
+                                                                                exit={{ opacity: 0 }}
+                                                                                className="w-full"
+                                                                            >
+                                                                                <Button
+                                                                                    variant="outline"
+                                                                                    className="text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700 w-full"
+                                                                                    onClick={() => setConfirmCancelId(meeting.meeting_id)}
+                                                                                >
+                                                                                    <Trash2 className="mr-2 h-4 w-4" />
+                                                                                    Cancel
+                                                                                </Button>
+                                                                            </motion.div>
+                                                                        )}
+                                                                    </AnimatePresence>
+                                                                )}
                                                             </div>
                                                         </div>
-
-                                                        <div className="flex flex-col gap-2 md:items-end min-w-[140px]">
-                                                            <AnimatePresence mode="wait">
-                                                                {confirmCancelId === meeting.meeting_id ? (
-                                                                    <motion.div
-                                                                        key="confirm"
-                                                                        initial={{ opacity: 0, x: 20 }}
-                                                                        animate={{ opacity: 1, x: 0 }}
-                                                                        exit={{ opacity: 0, x: 20 }}
-                                                                        className="flex flex-col items-end gap-2 bg-red-50 p-2 rounded-lg border border-red-100"
-                                                                    >
-                                                                        <p className="text-xs text-red-600 font-bold mb-1">Cancel meeting?</p>
-                                                                        <div className="flex gap-2">
-                                                                            <Button
-                                                                                size="sm"
-                                                                                variant="outline"
-                                                                                className="h-7 text-xs bg-white hover:bg-gray-100"
-                                                                                onClick={() => setConfirmCancelId(null)}
-                                                                            >
-                                                                                No
-                                                                            </Button>
-                                                                            <Button
-                                                                                size="sm"
-                                                                                className="h-7 text-xs bg-red-600 hover:bg-red-700 text-white"
-                                                                                onClick={() => handleConfirmCancel(meeting.meeting_id)}
-                                                                                disabled={isCanceling}
-                                                                            >
-                                                                                {isCanceling ? "..." : "Yes"}
-                                                                            </Button>
-                                                                        </div>
-                                                                    </motion.div>
-                                                                ) : (
-                                                                    <motion.div
-                                                                        key="default"
-                                                                        initial={{ opacity: 0 }}
-                                                                        animate={{ opacity: 1 }}
-                                                                        exit={{ opacity: 0 }}
-                                                                        className="flex flex-col gap-2 w-full"
-                                                                    >
-                                                                        {meeting.meeting_link && (
-                                                                            <a
-                                                                                href={meeting.meeting_link}
-                                                                                target="_blank"
-                                                                                rel="noopener noreferrer"
-                                                                                className="inline-block w-full"
-                                                                            >
-                                                                                <Button className="bg-[#576238] hover:bg-[#6b7c3f] text-white w-full">
-                                                                                    <Video className="mr-2 h-4 w-4" />
-                                                                                    Join
-                                                                                    <ExternalLink className="ml-2 h-3 w-3" />
-                                                                                </Button>
-                                                                            </a>
-                                                                        )}
-
-                                                                        <Button
-                                                                            variant="outline"
-                                                                            className="text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700 w-full"
-                                                                            onClick={() => setConfirmCancelId(meeting.meeting_id)}
-                                                                        >
-                                                                            <Trash2 className="mr-2 h-4 w-4" />
-                                                                            Cancel
-                                                                        </Button>
-                                                                    </motion.div>
-                                                                )}
-                                                            </AnimatePresence>
-                                                        </div>
-                                                    </div>
-                                                </Card>
-                                            </motion.div>
-                                        ))}
+                                                    </Card>
+                                                </motion.div>
+                                            )
+                                        })}
                                     </div>
                                 )}
                             </div>
 
-                            {/* Past Meetings */}
+                            {/* Past Meetings Section remains the same ... */}
                             {pastMeetings.length > 0 && (
                                 <div>
                                     <h3 className="text-2xl font-bold text-[#576238] mb-4 flex items-center gap-2">

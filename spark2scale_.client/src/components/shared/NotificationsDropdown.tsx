@@ -9,7 +9,6 @@ import {
     DropdownMenuLabel,
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { notificationService, NotificationDto } from "@/services/notificationService";
 import { meetingService } from "@/services/meetingService";
 import { motion, AnimatePresence } from "framer-motion";
@@ -54,25 +53,35 @@ export default function NotificationsDropdown() {
         }
     };
 
-    // --- ACTION HANDLERS ---
     const handleAccept = async (e: React.MouseEvent, n: NotificationDto) => {
-        e.stopPropagation(); // Stop click form toggling dropdown
+        e.stopPropagation();
         if (n.related_entity_id) {
-            await meetingService.acceptMeeting(n.related_entity_id);
-            // Visual Update: Convert invite to simple info msg
+            // Optimistic update
             setNotifications(prev => prev.map(item =>
                 item.nid === n.nid ? { ...item, type: 'info', description: '✅ You accepted this meeting.' } : item
             ));
+
+            try {
+                await meetingService.acceptMeeting(n.related_entity_id);
+            } catch (error) {
+                console.error("Accept failed", error);
+            }
         }
     };
 
     const handleReject = async (e: React.MouseEvent, n: NotificationDto) => {
         e.stopPropagation();
         if (n.related_entity_id) {
-            await meetingService.rejectMeeting(n.related_entity_id);
+            // Optimistic update
             setNotifications(prev => prev.map(item =>
                 item.nid === n.nid ? { ...item, type: 'info', description: '❌ You declined this meeting.' } : item
             ));
+
+            try {
+                await meetingService.rejectMeeting(n.related_entity_id);
+            } catch (error) {
+                console.error("Reject failed", error);
+            }
         }
     };
 
@@ -142,20 +151,19 @@ export default function NotificationsDropdown() {
                             <LegoNotificationEmpty />
                         </div>
                     ) : (
-                        <ScrollArea className="max-h-[300px]">
+                        <div className="max-h-[300px] overflow-y-auto">
                             <div className="flex flex-col">
                                 {visibleNotifications.map((n) => {
                                     const isExpanded = expandedId === n.nid;
-                                    const isInvite = n.type === 'meeting_invite';
+
+                                    // FIX: Hides buttons if type is 'info' (which we set on reject/accept)
+                                    const isInvite = n.type !== 'info' && (n.type === 'meeting_invite' || n.topic.includes('Meeting Invite')) && n.related_entity_id != null;
 
                                     return (
                                         <div
                                             key={n.nid}
                                             className={`cursor-pointer p-3 border-b last:border-0 transition-colors
-                                                ${n.is_read
-                                                    ? "bg-white hover:bg-gray-50"
-                                                    : "bg-[#FFD95D]/5 hover:bg-[#FFD95D]/10"
-                                                }
+                                                ${n.is_read ? "bg-white hover:bg-gray-50" : "bg-[#FFD95D]/5 hover:bg-[#FFD95D]/10"}
                                                 ${isExpanded ? "bg-gray-50" : ""}
                                             `}
                                             onClick={() => handleNotificationClick(n)}
@@ -175,9 +183,7 @@ export default function NotificationsDropdown() {
                                                             {n.sender_name}
                                                         </span>
                                                         <span className="text-[9px] text-gray-400 whitespace-nowrap">
-                                                            {n.created_at
-                                                                ? new Date(n.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
-                                                                : "Now"}
+                                                            {n.created_at ? new Date(n.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : "Now"}
                                                         </span>
                                                     </div>
 
@@ -197,13 +203,12 @@ export default function NotificationsDropdown() {
                                                                     {n.description || "No details provided."}
                                                                 </p>
 
-                                                                {/* --- ACTION BUTTONS --- */}
                                                                 {isInvite && (
                                                                     <div className="flex gap-2 mt-2">
                                                                         <Button
                                                                             size="sm"
                                                                             onClick={(e) => handleAccept(e, n)}
-                                                                            className="h-6 text-[10px] bg-green-600 hover:bg-green-700 text-white w-full"
+                                                                            className="h-7 flex-1 text-[10px] bg-[#576238] hover:bg-[#6b7c3f] text-white border border-[#576238]"
                                                                         >
                                                                             <Check className="w-3 h-3 mr-1" /> Accept
                                                                         </Button>
@@ -211,7 +216,7 @@ export default function NotificationsDropdown() {
                                                                             size="sm"
                                                                             variant="outline"
                                                                             onClick={(e) => handleReject(e, n)}
-                                                                            className="h-6 text-[10px] border-red-200 text-red-600 hover:bg-red-50 w-full"
+                                                                            className="h-7 flex-1 text-[10px] border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700 hover:border-red-300"
                                                                         >
                                                                             <X className="w-3 h-3 mr-1" /> Reject
                                                                         </Button>
@@ -246,7 +251,7 @@ export default function NotificationsDropdown() {
                                     </div>
                                 )}
                             </div>
-                        </ScrollArea>
+                        </div>
                     )}
                 </DropdownMenuContent>
             </DropdownMenu>
