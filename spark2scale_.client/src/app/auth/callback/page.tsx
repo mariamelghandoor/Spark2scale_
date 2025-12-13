@@ -52,7 +52,8 @@ export default function AuthCallbackPage() {
                 }
 
                 // Call backend to verify email and get user info
-                const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/Auth/verify-email`, {
+                const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5231';
+                const response = await fetch(`${apiUrl}/api/Auth/verify-email`, {
                     method: "POST",
                     headers: {
                         "Content-Type": "application/json",
@@ -74,7 +75,7 @@ export default function AuthCallbackPage() {
 
                     // Get full user data from /me endpoint to ensure we have user_type
                     try {
-                        const meResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/Auth/me`, {
+                        const meResponse = await fetch(`${apiUrl}/api/Auth/me`, {
                             method: "GET",
                             headers: {
                                 "Authorization": `Bearer ${data.token || finalAccessToken}`,

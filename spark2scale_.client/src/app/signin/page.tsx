@@ -34,7 +34,8 @@ export default function SigninPage() {
         setStatus({ type: null, message: "" });
 
         try {
-            const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/Auth/signin`, {
+            const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5231';
+            const res = await fetch(`${apiUrl}/api/Auth/signin`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
@@ -55,7 +56,7 @@ export default function SigninPage() {
 
             // Get full user profile from /me endpoint
             try {
-                const meResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/Auth/me`, {
+                const meResponse = await fetch(`${apiUrl}/api/Auth/me`, {
                     method: "GET",
                     headers: {
                         "Authorization": `Bearer ${data.token}`,
