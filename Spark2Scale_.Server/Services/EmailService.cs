@@ -21,7 +21,7 @@ namespace Spark2Scale_.Server.Services
                 Console.WriteLine("Warning: Email credentials not set. Skipping email send.");
                 return;
             }
-
+            var smtp = new SmtpClient();
             using var client = new SmtpClient(_smtpHost, _smtpPort)
             {
                 EnableSsl = true,
