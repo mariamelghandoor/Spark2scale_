@@ -30,6 +30,10 @@ namespace Spark2Scale_.Server.Controllers
                 StartupName = input.startupname,
                 Field = input.field,
                 IdeaDescription = input.idea_description,
+
+                Region = input.region,
+                StartupStage = input.startup_stage,
+
                 FounderId = input.founder_id,
                 CreatedAt = DateTime.UtcNow
             };
@@ -53,6 +57,8 @@ namespace Spark2Scale_.Server.Controllers
                 startupname = inserted.StartupName,
                 field = inserted.Field,
                 idea_description = inserted.IdeaDescription,
+                region = inserted.Region,
+                startup_stage = inserted.StartupStage,
                 founder_id = inserted.FounderId,
                 created_at = inserted.CreatedAt
             });
@@ -176,7 +182,7 @@ namespace Spark2Scale_.Server.Controllers
                 field = startup.Field,
                 idea_description = startup.IdeaDescription,
                 founder_id = startup.FounderId,
-                created_at = startup.CreatedAt
+                created_at = startup.CreatedAt,
             });
         }
     }
