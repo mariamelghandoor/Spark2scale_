@@ -30,6 +30,7 @@ import {
     TooltipTrigger
 } from "@/components/ui/tooltip";
 import { pitchDeckService } from "@/services/pitchDeckService";
+import NotificationsDropdown from "@/components/shared/NotificationsDropdown";
 
 // --- Interfaces ---
 interface WorkflowData {
@@ -315,16 +316,11 @@ export default function StartupDashboard() {
                         </div>
                     </div>
                     <div className="flex items-center gap-2">
-                        <Link href="/founder/schedule">
-                            <Button variant="outline" size="icon" className="relative"><CalendarIcon className="h-5 w-5" /></Button>
-                        </Link>
-                        <Button variant="outline" size="icon" className="relative">
-                            <Bell className="h-5 w-5" />
-                            <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full" />
-                        </Button>
-                        <Link href="/profile">
-                            <Button variant="outline" size="icon"><User className="h-5 w-5" /></Button>
-                        </Link>
+                        <div className="flex items-center gap-4">
+                            <Link href="/schedule"><Button variant="ghost" size="icon"><CalendarIcon className="h-5 w-5" /></Button></Link>
+                            <NotificationsDropdown />
+                            <Link href="/profile"><Button variant="ghost" size="icon"><User className="h-5 w-5" /></Button></Link>
+                        </div>
                         <Button variant="outline" onClick={() => setInviteDialogOpen(true)}>
                             <Share2 className="mr-2 h-4 w-4" /> Invite Team
                         </Button>
