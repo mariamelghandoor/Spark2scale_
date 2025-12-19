@@ -39,7 +39,8 @@ namespace Spark2Scale_.Server.Controllers
                 startup_id = v.StartupId,
                 version_number = v.VersionNumber,
                 path = v.Path,
-                created_at = v.CreatedAt
+                created_at = v.CreatedAt,
+                is_public = v.IsPublic
             });
 
             return Ok(dtos);
@@ -57,6 +58,26 @@ namespace Spark2Scale_.Server.Controllers
 
             // Return the count
             return Ok(new { count = result.Models.Count });
+        }
+        // --- NEW ENDPOINT: PATCH api/DocumentVersions/visibility/{vid} ---
+        [HttpPatch("visibility/{vid}")]
+        public async Task<IActionResult> ToggleVisibility(string vid, [FromBody] bool isPublic)
+        {
+            if (!Guid.TryParse(vid, out Guid vId)) return BadRequest("Invalid ID");
+
+            try
+            {
+                var update = await _supabase.From<DocumentVersion>()
+                                          .Where(x => x.Vid == vId)
+                                          .Set(x => x.IsPublic, isPublic)
+                                          .Update();
+
+                return Ok(new { message = "Visibility updated", is_public = isPublic });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, $"Error: {ex.Message}");
+            }
         }
     }
 }
