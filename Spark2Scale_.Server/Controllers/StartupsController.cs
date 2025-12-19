@@ -184,8 +184,44 @@ namespace Spark2Scale_.Server.Controllers
                 founder_id = startup.FounderId,
                 created_at = startup.CreatedAt,
             });
+
+
+        }
+        [HttpPut("update-idea/{id}")]
+        public async Task<IActionResult> UpdateIdea(string id, [FromBody] IdeaUpdateDto input)
+        {
+            if (!Guid.TryParse(id, out Guid sId))
+                return BadRequest("Invalid ID format");
+
+            if (string.IsNullOrWhiteSpace(input.IdeaDescription))
+                return BadRequest("Idea description cannot be empty");
+
+            try
+            {
+
+                var parameters = new Dictionary<string, object>
+         {
+             { "p_startup_id", sId },
+             { "p_new_idea", input.IdeaDescription }
+         };
+
+                await _supabase.Rpc("update_idea_and_reset", parameters);
+
+                return Ok(new
+                {
+                    message = "Idea updated, history archived, and workflow reset successfully.",
+                    idea = input.IdeaDescription
+                });
+            }
+            catch (Exception ex)
+            {
+                // Log the error here if you have a logger
+                return StatusCode(500, $"Error updating idea: {ex.Message}");
+            }
         }
     }
+
+
 
     public class StartupDashboardDto : StartupResponseDto
     {
