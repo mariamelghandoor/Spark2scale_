@@ -6,10 +6,8 @@ import { Calendar, X, Heart, Eye, Video, Sparkles, Trophy, Loader2 } from "lucid
 import Link from "next/link";
 import { motion, useMotionValue, useTransform } from "framer-motion";
 import NotificationsDropdown from "@/components/shared/NotificationsDropdown";
-import apiClient from "@/lib/apiClient";
-import LegoLoader from "@/components/lego/LegoLoader";
 
-// --- Interfaces ---
+// Types matching your C# JSON & Model Structure
 interface FeedbackItem {
     Aspect: string;
     Score: number;
@@ -58,7 +56,7 @@ interface InvestorDto {
 }
 
 export default function InvestorFeed() {
-    const [userName, setUserName] = useState("Sarah");
+    const [userName] = useState("Sarah");
     const [currentIndex, setCurrentIndex] = useState(0);
     const [pitchDecks, setPitchDecks] = useState<PitchDeck[]>([]);
     const [loading, setLoading] = useState(true);
@@ -67,8 +65,9 @@ export default function InvestorFeed() {
     const [actionLoading, setActionLoading] = useState(false);
     const [investorTags, setInvestorTags] = useState<string[]>([]);
 
-    // 1. HARDCODED ID RESTORED
+    // TODO: Replace with actual investor ID from your auth context
     const investorId = "7da8b0c8-9adc-446b-b7f0-218f84a81f1b";
+    const API_BASE = "https://localhost:7155/api";
 
     // Calculate tag match count for sorting
     const getTagMatchCount = (pitchTags: string[]) => {
@@ -78,51 +77,63 @@ export default function InvestorFeed() {
         ).length;
     };
 
+    // Fetch pitch decks from your API
     useEffect(() => {
         const fetchPitchDecks = async () => {
             try {
                 setLoading(true);
                 console.log("🔍 Fetching pitch decks...");
 
-                // 2. Fetch investor tags (using hardcoded ID)
+                // 1. Fetch investor tags first
                 try {
-                    const investorResponse = await apiClient.get<InvestorDto[]>('/api/investors');
-                    const investors = investorResponse.data;
-                    const currentInvestor = investors.find((inv) => inv.userId === investorId);
-                    if (currentInvestor?.tags) {
-                        setInvestorTags(currentInvestor.tags);
-                        console.log("👤 Investor tags:", currentInvestor.tags);
+                    const investorResponse = await fetch(`${API_BASE}/investors`);
+                    if (investorResponse.ok) {
+                        const investors: InvestorDto[] = await investorResponse.json();
+                        const currentInvestor = investors.find((inv) => inv.userId === investorId);
+                        if (currentInvestor?.tags) {
+                            setInvestorTags(currentInvestor.tags);
+                            console.log("👤 Investor tags:", currentInvestor.tags);
+                        }
                     }
                 } catch (err) {
                     console.warn("Could not fetch investor tags:", err);
                 }
 
-                // 3. Fetch pitch decks
-                const response = await apiClient.get<PitchDeck[]>('/api/pitchdecks/with-startups');
-                const data = response.data;
+                // 2. Fetch pitch decks
+                const response = await fetch(`${API_BASE}/pitchdecks/with-startups`);
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+
+                const data = await response.json();
                 console.log("✅ Fetched pitch decks:", data);
 
                 const allPitches = Array.isArray(data) ? data : [];
                 const activePitches = allPitches.filter((pitch: PitchDeck) => pitch.is_current === true);
 
-                // 4. Sort by tag matches
+                // 3. Sort by tag matches (most matches first)
                 const sortedPitches = activePitches.sort((a, b) => {
                     const aMatches = getTagMatchCount(a.tags || []);
                     const bMatches = getTagMatchCount(b.tags || []);
 
-                    if (aMatches !== bMatches) return bMatches - aMatches;
+                    // Sort by match count (descending), then by creation date (newest first)
+                    if (aMatches !== bMatches) {
+                        return bMatches - aMatches;
+                    }
                     return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
                 });
 
+                console.log("🎯 Sorted pitches by tag relevance");
                 setPitchDecks(sortedPitches);
                 setError(null);
 
-                // 5. Check Likes (using hardcoded ID)
+                // Check which pitches the investor has already liked
                 await checkLikedPitches(sortedPitches);
-
             } catch (err) {
-                console.error("💥 Error loading feed:", err);
-                setError("Failed to load pitch decks.");
+                console.error("💥 Error fetching pitch decks:", err);
+                const errorMessage = err instanceof Error ? err.message : "Failed to load pitch decks.";
+                setError(errorMessage);
             } finally {
                 setLoading(false);
             }
@@ -131,15 +142,20 @@ export default function InvestorFeed() {
         fetchPitchDecks();
     }, []);
 
+    // Check which pitches are already liked by this investor
     const checkLikedPitches = async (pitches: PitchDeck[]) => {
         try {
             const likeChecks = await Promise.all(
                 pitches.map(async (pitch) => {
                     try {
-                        const response = await apiClient.get<{ isLiked: boolean }>(
-                            `/api/pitchdecklikes/check/${investorId}/${pitch.pitchdeckid}`
+                        const response = await fetch(
+                            `${API_BASE}/pitchdecklikes/check/${investorId}/${pitch.pitchdeckid}`
                         );
-                        return { pitchId: pitch.pitchdeckid, isLiked: response.data.isLiked };
+                        if (response.ok) {
+                            const data = await response.json();
+                            return { pitchId: pitch.pitchdeckid, isLiked: data.isLiked };
+                        }
+                        return { pitchId: pitch.pitchdeckid, isLiked: false };
                     } catch {
                         return { pitchId: pitch.pitchdeckid, isLiked: false };
                     }
@@ -160,27 +176,40 @@ export default function InvestorFeed() {
     const opacity = useTransform(x, [-200, -100, 0, 100, 200], [0, 1, 1, 1, 0]);
 
     const handleLike = async (pitchId: string) => {
-        if (actionLoading) return;
+        if (actionLoading) {
+            console.log("⚠️ Like action already in progress, skipping...");
+            return;
+        }
 
         console.log("🚀 Starting like action for:", pitchId);
         setActionLoading(true);
 
         try {
-            const response = await apiClient.post('/api/pitchdecklikes/add', {
-                investor_id: investorId, // Use Hardcoded ID
-                pitchdeck_id: pitchId,
+            const response = await fetch(`${API_BASE}/pitchdecklikes/add`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    investor_id: investorId,
+                    pitchdeck_id: pitchId,
+                }),
             });
 
-            const data = response.data;
-            console.log("❤️ Like action response:", data);
+            if (response.ok) {
+                const data = await response.json();
+                console.log("❤️ Like action response:", data);
 
-            setLikedPitches(prev => new Set([...prev, pitchId]));
+                // Update local state (whether new like or already liked)
+                setLikedPitches(prev => new Set([...prev, pitchId]));
 
-            setPitchDecks(prev => prev.map(pitch =>
-                pitch.pitchdeckid === pitchId
-                    ? { ...pitch, countlikes: data.newLikeCount }
-                    : pitch
-            ));
+                // Update the like count in the local pitch deck array
+                setPitchDecks(prev => prev.map(pitch =>
+                    pitch.pitchdeckid === pitchId
+                        ? { ...pitch, countlikes: data.newLikeCount }
+                        : pitch
+                ));
+            } else {
+                console.error("Error liking pitch:", response.status);
+            }
         } catch (err) {
             console.error("Error liking pitch:", err);
         } finally {
@@ -194,29 +223,37 @@ export default function InvestorFeed() {
 
         setActionLoading(true);
         try {
+            // If already liked, remove the like
             if (likedPitches.has(pitchId)) {
-                const response = await apiClient.delete('/api/pitchdecklikes/remove', {
-                    data: {
-                        investor_id: investorId, // Use Hardcoded ID
+                const response = await fetch(`${API_BASE}/pitchdecklikes/remove`, {
+                    method: "DELETE",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        investor_id: investorId,
                         pitchdeck_id: pitchId,
-                    }
+                    }),
                 });
 
-                const data = response.data;
-                console.log("💔 Like removed:", data);
+                if (response.ok) {
+                    const data = await response.json();
+                    console.log("💔 Like removed:", data);
 
-                setLikedPitches(prev => {
-                    const newSet = new Set(prev);
-                    newSet.delete(pitchId);
-                    return newSet;
-                });
+                    // Update local state
+                    setLikedPitches(prev => {
+                        const newSet = new Set(prev);
+                        newSet.delete(pitchId);
+                        return newSet;
+                    });
 
-                setPitchDecks(prev => prev.map(pitch =>
-                    pitch.pitchdeckid === pitchId
-                        ? { ...pitch, countlikes: data.newLikeCount || Math.max(0, pitch.countlikes - 1) }
-                        : pitch
-                ));
+                    // Update the like count
+                    setPitchDecks(prev => prev.map(pitch =>
+                        pitch.pitchdeckid === pitchId
+                            ? { ...pitch, countlikes: data.newLikeCount || Math.max(0, pitch.countlikes - 1) }
+                            : pitch
+                    ));
+                }
             }
+
             console.log("👎 Passed on pitch");
         } catch (err) {
             console.error("Error handling dislike:", err);
@@ -236,9 +273,11 @@ export default function InvestorFeed() {
             await handleDislike(currentPitch.pitchdeckid);
         }
 
+        // Move to next pitch
         if (currentIndex < pitchDecks.length - 1) {
             setCurrentIndex(currentIndex + 1);
         } else {
+            // Reached the end
             setCurrentIndex(pitchDecks.length);
         }
     };
@@ -246,12 +285,13 @@ export default function InvestorFeed() {
     const currentPitch = pitchDecks[currentIndex];
     const isCurrentLiked = currentPitch && likedPitches.has(currentPitch.pitchdeckid);
 
-    // LOADING STATE (With LegoLoader)
+    // Loading State
     if (loading) {
         return (
-            <div className="min-h-screen bg-gradient-to-br from-[#F0EADC] via-[#fff] to-[#FFD95D]/20 flex items-center justify-center p-6">
-                <div className="w-full max-w-md">
-                    <LegoLoader />
+            <div className="min-h-screen bg-gradient-to-br from-[#F0EADC] via-[#fff] to-[#FFD95D]/20 flex items-center justify-center">
+                <div className="text-center">
+                    <Loader2 className="h-12 w-12 text-[#576238] mx-auto mb-4 animate-spin" />
+                    <p className="text-[#576238] font-medium">Loading pitch decks...</p>
                 </div>
             </div>
         );
@@ -484,8 +524,8 @@ export default function InvestorFeed() {
                                                                 <span
                                                                     key={i}
                                                                     className={`px-3 py-1 text-xs rounded-full font-medium ${isMatched
-                                                                        ? 'bg-[#FFD95D] text-[#576238] ring-2 ring-[#576238]'
-                                                                        : 'bg-[#FFD95D]/20 text-[#576238]'
+                                                                            ? 'bg-[#FFD95D] text-[#576238] ring-2 ring-[#576238]'
+                                                                            : 'bg-[#FFD95D]/20 text-[#576238]'
                                                                         }`}
                                                                 >
                                                                     {tag}
@@ -570,8 +610,8 @@ export default function InvestorFeed() {
                                 disabled={actionLoading}
                                 size="lg"
                                 className={`rounded-full w-16 h-16 disabled:opacity-50 ${isCurrentLiked
-                                    ? 'bg-red-500 hover:bg-red-600'
-                                    : 'bg-[#576238] hover:bg-[#6b7c3f]'
+                                        ? 'bg-red-500 hover:bg-red-600'
+                                        : 'bg-[#576238] hover:bg-[#6b7c3f]'
                                     }`}
                             >
                                 {actionLoading ? (
