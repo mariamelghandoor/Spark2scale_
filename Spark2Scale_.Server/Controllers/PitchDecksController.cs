@@ -74,6 +74,7 @@ namespace Spark2Scale_.Server.Controllers
                                      deck.video_url,
                                      pitchname = deck.pitchname ?? "Untitled Pitch",
                                      deck.is_current,
+                                     deck.canaccess,
                                      deck.analysis,
                                      tags = deck.tags ?? new List<string>(),
                                      deck.countlikes,
@@ -276,6 +277,7 @@ namespace Spark2Scale_.Server.Controllers
                 startup_id = d.startup_id,
                 video_url = d.video_url,
                 is_current = d.is_current,
+                canaccess = d.canaccess,
                 pitchname = d.pitchname ?? "Untitled Pitch",
                 tags = d.tags ?? new List<string>(),
                 countlikes = d.countlikes,
@@ -410,6 +412,31 @@ namespace Spark2Scale_.Server.Controllers
             catch (Exception ex)
             {
                 return StatusCode(500, $"Error: {ex.Message}");
+            }
+        }
+
+        // PATCH: api/pitchdecks/visibility
+        [HttpPatch("visibility")]
+        public async Task<IActionResult> ToggleVisibility([FromBody] VisibilityDto request)
+        {
+            try
+            {
+                // We use RPC to call the secure SQL function we created
+                // This ensures the "Only One Public" rule is enforced by the database
+                var parameters = new Dictionary<string, object>
+        {
+            { "p_pitch_id", request.pitchDeckId },
+            { "p_startup_id", request.startupId },
+            { "p_is_public", request.isPublic }
+        };
+
+                await _supabase.Rpc("set_pitch_visibility", parameters);
+
+                return Ok(new { message = "Visibility updated successfully" });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, $"Error updating visibility: {ex.Message}");
             }
         }
     }

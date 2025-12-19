@@ -1,6 +1,6 @@
 // src/services/pitchDeckService.ts
 
-// 1. CHANGE 7123 TO 7155 (Your actual backend port)
+// 1. Your actual backend port
 const API_BASE_URL = "https://localhost:7155/api/PitchDecks";
 
 export interface AnalysisData {
@@ -35,8 +35,9 @@ export interface PitchDeck {
     pitchdeckid: string;
     startup_id: string;
     video_url: string;
-    pitchname: string; // <--- NEW PROPERTY
+    pitchname: string;
     is_current: boolean;
+    canaccess: boolean; // <--- Ensure this is here
     analysis?: AnalysisData;
     created_at: string;
     tags?: string[];
@@ -96,12 +97,9 @@ export const pitchDeckService = {
     },
 
     getPitchById: async (pitchDeckId: string): Promise<PitchDeck> => {
-        
         const response = await fetch(`${API_BASE_URL}/details/${pitchDeckId}`, {
             method: "GET",
         });
-
-    
 
         if (!response.ok) throw new Error("Failed to fetch pitch details");
 
@@ -124,6 +122,27 @@ export const pitchDeckService = {
         }
     },
 
+    // 4. Toggle Visibility (Public/Private)
+    togglePitchVisibility: async (pitchDeckId: string, startupId: string, isPublic: boolean) => {
+        const response = await fetch(`${API_BASE_URL}/visibility`, {
+            method: "PATCH",
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                pitchDeckId,
+                startupId,
+                isPublic
+            })
+        });
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(errorText || "Failed to update visibility");
+        }
+
+        return await response.json();
+    },
 
     getPitchCount: async (startupId: string): Promise<number> => {
         try {
@@ -138,7 +157,7 @@ export const pitchDeckService = {
             }
 
             const data = await response.json();
-            return data.count; // Matches the backend response: { count: 5 }
+            return data.count;
         } catch (error) {
             console.error(error);
             return 0; // Return 0 on network error
