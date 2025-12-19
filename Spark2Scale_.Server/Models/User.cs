@@ -34,6 +34,8 @@ namespace Spark2Scale_.Server.Models
         // FIX: Ensure this property exists to resolve the compiler error
         [Column("avatar_url")]
         public string? avatar_url { get; set; }
+        [Column("user_type")]
+        public string user_type { get; set; } = string.Empty;
     }
 
     public class UserDto
@@ -46,5 +48,6 @@ namespace Spark2Scale_.Server.Models
         public string address_region { get; set; } = string.Empty;
         public DateTime created_at { get; set; }
         public string avatar_url { get; set; } = string.Empty;
+        public string user_type { get; set; } = string.Empty;
     }
 }
