@@ -1,34 +1,30 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk.Web">
 
-	<PropertyGroup>
-		<TargetFramework>net8.0</TargetFramework>
-		<Nullable>enable</Nullable>
-		<ImplicitUsings>enable</ImplicitUsings>
-		<RootNamespace>Spark2Scale_.Server</RootNamespace>
-		<!-- MOVE INSIDE PropertyGroup -->
-		<SpaRoot>..\spark2scale_.client</SpaRoot>
-		<SpaProxyLaunchCommand>npm run dev</SpaProxyLaunchCommand>
-		<SpaProxyServerUrl>https://localhost:64102</SpaProxyServerUrl>
-	</PropertyGroup>
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <SpaRoot>..\spark2scale_.client</SpaRoot>
+    <SpaProxyLaunchCommand>npm run dev</SpaProxyLaunchCommand>
+    <SpaProxyServerUrl>https://localhost:64102</SpaProxyServerUrl>
+  </PropertyGroup>
 
-	<ItemGroup>
-		<PackageReference Include="DotNetEnv" Version="3.1.1" />
-		<PackageReference Include="Microsoft.AspNetCore.Identity" Version="2.3.1" />
-		<PackageReference Include="Microsoft.AspNetCore.SpaProxy">
-			<Version>8.*-*</Version>
-		</PackageReference>
-		<PackageReference Include="Supabase" Version="1.1.1" />
-		<PackageReference Include="Supabase.Gotrue" Version="6.0.3" />
-		<PackageReference Include="Supabase.Postgrest" Version="4.1.0" />
-		<PackageReference Include="Supabase.Realtime" Version="7.2.0" />
-		<PackageReference Include="Supabase.Storage" Version="2.4.1" />
-		<PackageReference Include="Swashbuckle.AspNetCore" Version="6.6.2" />
-	</ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="DotNetEnv" Version="3.1.1" />
+    <PackageReference Include="Microsoft.AspNetCore.SpaProxy">
+      <Version>8.*-*</Version>
+    </PackageReference>
+    <PackageReference Include="Supabase" Version="1.1.1" />
+    <PackageReference Include="Supabase.Postgrest" Version="4.1.0" />
+    <PackageReference Include="Supabase.Realtime" Version="7.2.0" />
+    <PackageReference Include="Supabase.Storage" Version="2.4.1" />
+    <PackageReference Include="Swashbuckle.AspNetCore" Version="6.6.2" />
+  </ItemGroup>
 
-	<ItemGroup>
-		<ProjectReference Include="..\spark2scale_.client\spark2scale_.client.esproj">
-			<ReferenceOutputAssembly>false</ReferenceOutputAssembly>
-		</ProjectReference>
-	</ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\spark2scale_.client\spark2scale_.client.esproj">
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+    </ProjectReference>
+  </ItemGroup>
 
-</Project>	
+</Project>

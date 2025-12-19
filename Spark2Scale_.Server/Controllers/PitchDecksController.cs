@@ -1,4 +1,5 @@
-﻿using Microsoft.AspNetCore.Http;
+
+﻿using Microsoft.AspNetCore.Http; // Required for IFormFile
 using Microsoft.AspNetCore.Mvc;
 using Spark2Scale_.Server.Models;
 using System;
@@ -20,6 +21,7 @@ namespace Spark2Scale_.Server.Controllers
         {
             _supabase = supabase;
         }
+
 
         // GET: api/pitchdecks/with-startups
         [HttpGet("with-startups")]
@@ -104,6 +106,31 @@ namespace Spark2Scale_.Server.Controllers
             }
         }
 
+        //[HttpGet("details/{pitchDeckId}")]
+        //public async Task<IActionResult> GetPitchDeckById(Guid pitchDeckId)
+        //{
+        //    var result = await _supabase.From<PitchDeck>()
+        //                                .Where(x => x.pitchdeckid == pitchDeckId)
+        //                                .Get();
+
+        //    var deck = result.Models.FirstOrDefault();
+        //    if (deck == null) return NotFound();
+
+        //    var responseDto = new PitchDeckResponseDto
+        //    {
+        //        pitchdeckid = deck.pitchdeckid,
+        //        startup_id = deck.startup_id,
+        //        video_url = deck.video_url,
+        //        is_current = deck.is_current,
+        //        analysis = deck.analysis,
+        //        tags = deck.tags,
+        //        countlikes = deck.countlikes,
+        //        created_at = deck.created_at
+        //    };
+
+        //    return Ok(responseDto);
+        //}
+
         // GET: api/pitchdecks/details/{pitchDeckId}
         [HttpGet("details/{pitchDeckId}")]
         public async Task<IActionResult> GetPitchDeckById(Guid pitchDeckId)
@@ -168,19 +195,25 @@ namespace Spark2Scale_.Server.Controllers
             }
         }
 
+ 
+       
         [HttpPost("upload")]
         public async Task<IActionResult> UploadPitchDeck([FromForm] PitchDeckUploadDto input)
         {
+            // Validate
             if (input.startup_id == Guid.Empty) return BadRequest("Startup ID is required.");
             if (input.file == null || input.file.Length == 0) return BadRequest("No file uploaded.");
 
             try
             {
+                // 1. UPDATE EXISTING VIDEOS: Set is_current = false for this startup
+                // This ensures only the new one will be true
                 await _supabase.From<PitchDeck>()
                              .Where(x => x.startup_id == input.startup_id)
                              .Set(x => x.is_current, false)
                              .Update();
 
+                // 2. Upload Video to Supabase Storage
                 var fileName = $"{input.startup_id}/{Guid.NewGuid()}_{input.file.FileName}";
                 string publicUrl = "";
 
@@ -188,18 +221,21 @@ namespace Spark2Scale_.Server.Controllers
                 {
                     await input.file.CopyToAsync(memoryStream);
                     var bytes = memoryStream.ToArray();
+
+                    // Make sure "pitch-videos" bucket exists in Supabase Storage!
                     await _supabase.Storage.From("pitch-videos").Upload(bytes, fileName);
+
                     publicUrl = _supabase.Storage.From("pitch-videos").GetPublicUrl(fileName);
                 }
 
+                // 3. Save Metadata to Database (Set is_current = true)
                 var newDeck = new PitchDeck
                 {
                     startup_id = input.startup_id,
                     video_url = publicUrl,
-                    pitchname = "Untitled Pitch",
                     tags = new List<string>(),
                     countlikes = 0,
-                    is_current = true,
+                    is_current = true, // <--- Set this to TRUE
                     created_at = DateTime.UtcNow
                 };
 
@@ -213,10 +249,8 @@ namespace Spark2Scale_.Server.Controllers
                     pitchdeckid = inserted.pitchdeckid,
                     startup_id = inserted.startup_id,
                     video_url = inserted.video_url,
-                    pitchname = inserted.pitchname,
-                    is_current = inserted.is_current,
+                    is_current = inserted.is_current, // Return status
                     tags = inserted.tags,
-                    countlikes = inserted.countlikes,
                     created_at = inserted.created_at
                 });
             }
@@ -229,10 +263,12 @@ namespace Spark2Scale_.Server.Controllers
         [HttpGet("{startupId}")]
         public async Task<IActionResult> GetPitchDecks(Guid startupId)
         {
+            // Fetch only for specific startup
             var result = await _supabase.From<PitchDeck>()
-                                    .Select("*")
-                                    .Filter("startup_id", Supabase.Postgrest.Constants.Operator.Equals, startupId.ToString())
-                                    .Get();
+                                        .Select("*")
+                                        .Filter("startup_id", Supabase.Postgrest.Constants.Operator.Equals, startupId.ToString())
+                                        .Get();
+
 
             var dtos = result.Models.Select(d => new PitchDeckResponseDto
             {
@@ -264,6 +300,8 @@ namespace Spark2Scale_.Server.Controllers
                                         .Update();
 
                 var result = update.Models.FirstOrDefault();
+
+
                 if (result == null) return NotFound("Pitch deck not found.");
 
                 return Ok(new { message = "Renamed successfully", pitchname = result.pitchname });
@@ -280,6 +318,9 @@ namespace Spark2Scale_.Server.Controllers
             try
             {
                 Console.WriteLine($"[INFO] Generating analysis for: {pitchDeckId}");
+
+
+                // 1. Mock Data Generation
 
                 var mockAnalysis = new AnalysisContent
                 {
@@ -312,6 +353,7 @@ namespace Spark2Scale_.Server.Controllers
                     }
                 };
 
+
                 var update = await _supabase.From<PitchDeck>()
                                         .Where(x => x.pitchdeckid == pitchDeckId)
                                         .Set(x => x.analysis, mockAnalysis)
@@ -319,6 +361,7 @@ namespace Spark2Scale_.Server.Controllers
 
                 var updatedModel = update.Models.FirstOrDefault();
                 if (updatedModel == null) return NotFound("Pitch deck not found or update failed.");
+
 
                 var responseDto = new PitchDeckResponseDto
                 {
@@ -342,17 +385,26 @@ namespace Spark2Scale_.Server.Controllers
             }
         }
 
+
+
+
+
+        // Inside PitchDecksController.cs
+
         [HttpGet("count/{startupId}")]
         public async Task<IActionResult> GetPitchCount(Guid startupId)
         {
             try
             {
+
                 var result = await _supabase.From<PitchDeck>()
                                             .Select("pitchdeckid")
                                             .Filter("startup_id", Supabase.Postgrest.Constants.Operator.Equals, startupId.ToString())
                                             .Get();
 
+                // 2. Count the items in the list using standard C# LINQ
                 int count = result.Models.Count;
+
                 return Ok(new { count = count });
             }
             catch (Exception ex)
@@ -361,4 +413,5 @@ namespace Spark2Scale_.Server.Controllers
             }
         }
     }
+  
 }

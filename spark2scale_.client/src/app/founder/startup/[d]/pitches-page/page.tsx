@@ -1,9 +1,9 @@
 ﻿"use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { ArrowLeft, Play, Upload, Plus, Eye, Download, Edit2 } from "lucide-react";
+import { ArrowLeft, Play, Eye, Download, Edit2, Loader2, Calendar, X, Users } from "lucide-react";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { useParams, useRouter } from "next/navigation";
@@ -17,94 +17,100 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { pitchDeckService, PitchDeck } from "@/services/pitchDeckService";
 
 export default function PitchesPage() {
     const params = useParams();
     const router = useRouter();
-    const [pitches, setPitches] = useState([
-        {
-            id: 1,
-            title: "Investor Pitch - Series A",
-            thumbnail: "🎬",
-            duration: "5:30",
-            date: "2024-01-15",
-            views: 124,
-            type: "video",
-        },
-        {
-            id: 2,
-            title: "Product Demo Presentation",
-            thumbnail: "🎥",
-            duration: "8:15",
-            date: "2024-01-12",
-            views: 89,
-            type: "video",
-        },
-        {
-            id: 3,
-            title: "Elevator Pitch Recording",
-            thumbnail: "🎤",
-            duration: "2:00",
-            date: "2024-01-10",
-            views: 156,
-            type: "video",
-        },
-        {
-            id: 4,
-            title: "Q&A Session Highlights",
-            thumbnail: "💬",
-            duration: "12:45",
-            date: "2024-01-08",
-            views: 67,
-            type: "video",
-        },
-        {
-            id: 5,
-            title: "Team Introduction Video",
-            thumbnail: "👥",
-            duration: "4:20",
-            date: "2024-01-05",
-            views: 203,
-            type: "video",
-        },
-        {
-            id: 6,
-            title: "Market Opportunity Slides",
-            thumbnail: "📊",
-            duration: "6:30",
-            date: "2024-01-03",
-            views: 145,
-            type: "slides",
-        },
-    ]);
 
+    // Extract ID
+    const rawId = params?.d || params?.id;
+    const startupId = rawId ? (Array.isArray(rawId) ? rawId[0] : rawId).toString() : "";
+
+    // State
+    const [pitches, setPitches] = useState<PitchDeck[]>([]);
+    const [isLoading, setIsLoading] = useState(true);
+
+    // Rename Dialog State
     const [renameDialog, setRenameDialog] = useState(false);
-    const [selectedPitchId, setSelectedPitchId] = useState<number | null>(null);
+    const [selectedPitchId, setSelectedPitchId] = useState<string | null>(null);
     const [newPitchName, setNewPitchName] = useState("");
 
-    const handleRename = (pitchId: number, currentName: string) => {
-        setSelectedPitchId(pitchId);
-        setNewPitchName(currentName);
-        setRenameDialog(true);
-    };
+    // Manage Access Dialog State
+    const [accessDialog, setAccessDialog] = useState(false);
+    const [inviteEmail, setInviteEmail] = useState("");
 
-    const handleSaveRename = () => {
-        if (selectedPitchId !== null && newPitchName.trim()) {
-            setPitches(
-                pitches.map((pitch) =>
-                    pitch.id === selectedPitchId
-                        ? { ...pitch, title: newPitchName }
-                        : pitch
-                )
-            );
-            setRenameDialog(false);
-            setSelectedPitchId(null);
-            setNewPitchName("");
+    // Video Preview Dialog State
+    const [previewDialog, setPreviewDialog] = useState(false);
+    const [selectedVideoUrl, setSelectedVideoUrl] = useState<string | null>(null);
+    const [selectedVideoTitle, setSelectedVideoTitle] = useState("");
+
+    // Fetch Pitches on Load
+    useEffect(() => {
+        if (startupId) {
+            loadPitches();
+        }
+    }, [startupId]);
+
+    const loadPitches = async () => {
+        try {
+            const data = await pitchDeckService.getPitches(startupId);
+            setPitches(data);
+        } catch (error) {
+            console.error("Failed to load pitches", error);
+        } finally {
+            setIsLoading(false);
         }
     };
 
-    const handleViewDetails = (pitchId: number) => {
-        router.push(`/founder/startup/${params.id}/pitches/${pitchId}/details`);
+    // --- Rename Handlers ---
+    const handleRename = (pitchId: string, currentName: string) => {
+        setSelectedPitchId(pitchId);
+        setNewPitchName(currentName || "Untitled Pitch");
+        setRenameDialog(true);
+    };
+
+    const handleSaveRename = async () => {
+        if (selectedPitchId && newPitchName.trim()) {
+            try {
+                await pitchDeckService.updatePitchTitle(selectedPitchId, newPitchName);
+                setPitches(pitches.map(p =>
+                    p.pitchdeckid === selectedPitchId
+                        ? { ...p, pitchname: newPitchName }
+                        : p
+                ));
+                setRenameDialog(false);
+                setSelectedPitchId(null);
+                setNewPitchName("");
+            } catch (error) {
+                console.error("Rename failed", error);
+                alert("Failed to rename pitch. Please try again.");
+            }
+        }
+    };
+
+    // --- Manage Access Handlers ---
+    const handleManageAccess = (pitchId: string) => {
+        setSelectedPitchId(pitchId);
+        setAccessDialog(true);
+        setInviteEmail(""); // Reset field
+    };
+
+    const handleInvite = () => {
+        // Logic to send invite to backend would go here
+        alert(`Invited ${inviteEmail} to view pitch!`);
+        setAccessDialog(false);
+    };
+
+    // --- Video Preview ---
+    const handleViewVideo = (videoUrl: string, title: string) => {
+        setSelectedVideoUrl(videoUrl);
+        setSelectedVideoTitle(title || "Pitch Video");
+        setPreviewDialog(true);
+    };
+
+    const handleViewDetails = (pitchId: string) => {
+        router.push(`/founder/startup/${startupId}/pitches/${pitchId}/details?source=resources`);
     };
 
     return (
@@ -113,7 +119,7 @@ export default function PitchesPage() {
             <div className="border-b bg-white/80 backdrop-blur-lg">
                 <div className="container mx-auto px-4 py-4 flex justify-between items-center">
                     <div className="flex items-center gap-4">
-                        <Link href={`/founder/startup/${params.id}`}>
+                        <Link href={`/founder/startup/${startupId}`}>
                             <Button variant="ghost" size="icon">
                                 <ArrowLeft className="h-5 w-5" />
                             </Button>
@@ -126,16 +132,6 @@ export default function PitchesPage() {
                                 Manage all your pitch videos and presentations
                             </p>
                         </div>
-                    </div>
-                    <div className="flex gap-2">
-                        <Button variant="outline">
-                            <Upload className="mr-2 h-4 w-4" />
-                            Upload Video
-                        </Button>
-                        <Button className="bg-[#576238] hover:bg-[#6b7c3f] text-white">
-                            <Plus className="mr-2 h-4 w-4" />
-                            Record New
-                        </Button>
                     </div>
                 </div>
             </div>
@@ -150,138 +146,171 @@ export default function PitchesPage() {
                                 Perfect Your Pitch
                             </h3>
                             <p className="text-sm text-muted-foreground">
-                                Upload your pitch videos and presentations. Get AI-powered
-                                feedback to improve your delivery and impress investors.
+                                Access your history of pitch videos. Review previous attempts, check analysis scores, and track your improvement over time.
                             </p>
                         </div>
                     </div>
                 </Card>
 
-                {/* Pitches Grid */}
-                <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {pitches.map((pitch, index) => (
-                        <motion.div
-                            key={pitch.id}
-                            initial={{ opacity: 0, y: 20 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            transition={{ delay: index * 0.1 }}
-                        >
-                            <Card className="overflow-hidden hover:shadow-lg transition-all cursor-pointer border-2 hover:border-[#FFD95D] bg-white">
-                                {/* Thumbnail */}
-                                <div className="relative bg-gradient-to-br from-[#576238] to-[#6b7c3f] h-48 flex items-center justify-center">
-                                    <div className="text-7xl">{pitch.thumbnail}</div>
-                                    <div className="absolute top-3 right-3 bg-black/70 text-white text-xs px-2 py-1 rounded">
-                                        {pitch.duration}
-                                    </div>
-                                    <div className="absolute inset-0 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity bg-black/40">
-                                        <Play className="h-12 w-12 text-white" />
-                                    </div>
-                                </div>
+                {/* Loading State */}
+                {isLoading ? (
+                    <div className="flex justify-center py-20">
+                        <Loader2 className="h-8 w-8 animate-spin text-[#576238]" />
+                    </div>
+                ) : pitches.length === 0 ? (
+                    <div className="text-center py-20 bg-white/50 rounded-xl border-2 border-dashed">
+                        <p className="text-muted-foreground">No pitches found. Go to the Pitch Deck stage to upload one!</p>
+                        <Button className="mt-4 bg-[#576238]" asChild>
+                            <Link href={`/founder/startup/${startupId}/pitch-deck`}>
+                                Go to Upload
+                            </Link>
+                        </Button>
+                    </div>
+                ) : (
+                    /* Pitches Grid */
+                    <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+                        {pitches.map((pitch, index) => (
+                            <motion.div
+                                key={pitch.pitchdeckid}
+                                initial={{ opacity: 0, y: 20 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                transition={{ delay: index * 0.1 }}
+                            >
+                                <Card className={`overflow-hidden hover:shadow-lg transition-all cursor-pointer border-2 ${pitch.is_current ? 'border-green-500 ring-1 ring-green-500' : 'hover:border-[#FFD95D]'} bg-white`}>
 
-                                {/* Content */}
-                                <div className="p-4">
-                                    <div className="flex items-start justify-between mb-3">
-                                        <div className="flex-grow">
-                                            <h3 className="font-bold text-[#576238] mb-1 line-clamp-2">
-                                                {pitch.title}
-                                            </h3>
-                                            <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                                                <span>{pitch.date}</span>
-                                                <span>•</span>
-                                                <span>{pitch.views} views</span>
+                                    {/* Thumbnail / Video Preview */}
+                                    <div
+                                        className="relative bg-black h-48 flex items-center justify-center group"
+                                        onClick={() => handleViewVideo(pitch.video_url, pitch.pitchname)}
+                                    >
+                                        <video
+                                            src={pitch.video_url}
+                                            className="w-full h-full object-cover opacity-80 group-hover:opacity-60 transition-opacity"
+                                        />
+
+                                        {/* Status Badge */}
+                                        {pitch.is_current && (
+                                            <div className="absolute top-3 left-3 bg-green-600 text-white text-xs px-2 py-1 rounded font-bold shadow-md z-10">
+                                                Active Version
+                                            </div>
+                                        )}
+
+                                        <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                                            <Play className="h-12 w-12 text-white drop-shadow-lg" />
+                                        </div>
+                                    </div>
+
+                                    {/* Content */}
+                                    <div className="p-4">
+                                        <div className="flex items-start justify-between mb-3">
+                                            <div className="flex-grow">
+                                                <h3 className="font-bold text-[#576238] mb-1 line-clamp-2">
+                                                    {pitch.pitchname || "Untitled Pitch"}
+                                                </h3>
+                                                <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                                                    <span className="flex items-center gap-1">
+                                                        <Calendar className="h-3 w-3" />
+                                                        {new Date(pitch.created_at).toLocaleDateString()}
+                                                    </span>
+                                                    {(pitch.analysis?.Short?.Score || pitch.analysis?.short?.score) && (
+                                                        <span className="bg-[#F0EADC] text-[#576238] px-1.5 py-0.5 rounded font-medium">
+                                                            Score: {pitch.analysis?.Short?.Score || pitch.analysis?.short?.score}
+                                                        </span>
+                                                    )}
+                                                </div>
                                             </div>
                                         </div>
-                                        <span className="text-xs bg-[#FFD95D] text-[#576238] px-2 py-1 rounded-full font-semibold">
-                                            {pitch.type}
-                                        </span>
-                                    </div>
 
-                                    {/* Actions */}
-                                    <div className="flex flex-col gap-2 mt-4">
-                                        <div className="flex gap-2">
+                                        {/* Actions Grid (2x2) */}
+                                        <div className="grid grid-cols-2 gap-2 mt-4">
                                             <Button
                                                 variant="outline"
                                                 size="sm"
-                                                className="flex-1"
-                                                onClick={() => handleViewDetails(pitch.id)}
+                                                onClick={() => handleViewVideo(pitch.video_url, pitch.pitchname)}
                                             >
                                                 <Eye className="h-3 w-3 mr-1" />
-                                                View Details
+                                                View
                                             </Button>
+
                                             <Button
                                                 variant="default"
                                                 size="sm"
-                                                className="flex-1 bg-[#576238] hover:bg-[#6b7c3f] text-white"
+                                                className="bg-[#576238] hover:bg-[#6b7c3f] text-white"
+                                                asChild
                                             >
-                                                <Download className="h-3 w-3 mr-1" />
-                                                Share
+                                                <a href={pitch.video_url} download target="_blank" rel="noopener noreferrer">
+                                                    <Download className="h-3 w-3 mr-1" />
+                                                    Save
+                                                </a>
+                                            </Button>
+
+                                            <Button
+                                                variant="ghost"
+                                                size="sm"
+                                                className="border border-gray-200"
+                                                onClick={() => handleRename(pitch.pitchdeckid, pitch.pitchname)}
+                                            >
+                                                <Edit2 className="h-3 w-3 mr-1" />
+                                                Rename
+                                            </Button>
+
+                                            {/* NEW: Manage Access Button */}
+                                            <Button
+                                                variant="ghost"
+                                                size="sm"
+                                                className="border border-gray-200 text-[#576238]"
+                                                onClick={() => handleManageAccess(pitch.pitchdeckid)}
+                                            >
+                                                <Users className="h-3 w-3 mr-1" />
+                                                Access
                                             </Button>
                                         </div>
+
+                                        {/* Full Width Details Button */}
                                         <Button
-                                            variant="ghost"
+                                            variant="outline"
                                             size="sm"
-                                            className="w-full"
-                                            onClick={() => handleRename(pitch.id, pitch.title)}
+                                            className="w-full mt-2"
+                                            onClick={() => handleViewDetails(pitch.pitchdeckid)}
                                         >
-                                            <Edit2 className="h-3 w-3 mr-1" />
-                                            Rename
+                                            View Analysis Report &rarr;
                                         </Button>
                                     </div>
-                                </div>
-                            </Card>
-                        </motion.div>
-                    ))}
-
-                    {/* Add New Pitch Card */}
-                    <motion.div
-                        initial={{ opacity: 0, y: 20 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ delay: pitches.length * 0.1 }}
-                    >
-                        <Card className="h-full flex flex-col items-center justify-center border-2 border-dashed border-[#576238] bg-white/50 hover:bg-[#F0EADC]/30 transition-all cursor-pointer min-h-[320px]">
-                            <div className="text-5xl mb-4">➕</div>
-                            <h3 className="font-bold text-[#576238] mb-2">
-                                Add New Pitch
-                            </h3>
-                            <p className="text-xs text-muted-foreground text-center px-4">
-                                Record or upload a new pitch video
-                            </p>
-                        </Card>
-                    </motion.div>
-                </div>
-
-                {/* Quick Tips */}
-                <div className="mt-12">
-                    <h2 className="text-2xl font-bold text-[#576238] mb-6">
-                        Pitch Perfect Tips 💡
-                    </h2>
-                    <div className="grid md:grid-cols-3 gap-4">
-                        {[
-                            {
-                                title: "Keep It Short",
-                                desc: "Aim for 3-5 minutes for elevator pitches",
-                                icon: "⏱️",
-                            },
-                            {
-                                title: "Tell a Story",
-                                desc: "Make it memorable with compelling narratives",
-                                icon: "📖",
-                            },
-                            {
-                                title: "Practice Makes Perfect",
-                                desc: "Record multiple versions and iterate",
-                                icon: "🎯",
-                            },
-                        ].map((tip, index) => (
-                            <Card key={index} className="p-6 bg-[#F0EADC]/30">
-                                <div className="text-3xl mb-3">{tip.icon}</div>
-                                <h4 className="font-bold text-[#576238] mb-2">{tip.title}</h4>
-                                <p className="text-sm text-muted-foreground">{tip.desc}</p>
-                            </Card>
+                                </Card>
+                            </motion.div>
                         ))}
                     </div>
-                </div>
+                )}
             </main>
+
+            {/* Video Preview Dialog */}
+            <Dialog open={previewDialog} onOpenChange={setPreviewDialog}>
+                <DialogContent className="sm:max-w-[800px] p-0 overflow-hidden bg-black/95 border-0">
+                    <div className="relative">
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            className="absolute top-2 right-2 text-white hover:bg-white/20 z-10 rounded-full"
+                            onClick={() => setPreviewDialog(false)}
+                        >
+                            <X className="h-5 w-5" />
+                        </Button>
+                        {selectedVideoUrl && (
+                            <div className="w-full aspect-video flex items-center justify-center">
+                                <video
+                                    src={selectedVideoUrl}
+                                    controls
+                                    autoPlay
+                                    className="w-full h-full max-h-[80vh]"
+                                />
+                            </div>
+                        )}
+                        <div className="p-4 bg-white">
+                            <h3 className="font-bold text-lg text-[#576238]">{selectedVideoTitle}</h3>
+                        </div>
+                    </div>
+                </DialogContent>
+            </Dialog>
 
             {/* Rename Dialog */}
             <Dialog open={renameDialog} onOpenChange={setRenameDialog}>
@@ -289,7 +318,7 @@ export default function PitchesPage() {
                     <DialogHeader>
                         <DialogTitle className="text-[#576238]">Rename Pitch</DialogTitle>
                         <DialogDescription>
-                            Enter a new name for your pitch presentation
+                            Enter a new name for your pitch presentation.
                         </DialogDescription>
                     </DialogHeader>
                     <div className="grid gap-4 py-4">
@@ -301,7 +330,7 @@ export default function PitchesPage() {
                                 id="pitch-name"
                                 value={newPitchName}
                                 onChange={(e) => setNewPitchName(e.target.value)}
-                                placeholder="Enter pitch name..."
+                                placeholder="E.g., Series A Draft 1..."
                                 className="border-[#576238]/30 focus:border-[#576238]"
                             />
                         </div>
@@ -321,6 +350,41 @@ export default function PitchesPage() {
                             Save Changes
                         </Button>
                     </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* Manage Access Dialog */}
+            <Dialog open={accessDialog} onOpenChange={setAccessDialog}>
+                <DialogContent className="sm:max-w-[500px]">
+                    <DialogHeader>
+                        <DialogTitle className="text-[#576238]">Manage Access</DialogTitle>
+                        <DialogDescription>
+                            Share this pitch video with investors or team members.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="grid gap-4 py-4">
+                        <div className="grid gap-2">
+                            <Label className="text-[#576238]">Invite via Email</Label>
+                            <div className="flex gap-2">
+                                <Input
+                                    placeholder="investor@example.com"
+                                    value={inviteEmail}
+                                    onChange={(e) => setInviteEmail(e.target.value)}
+                                    className="border-[#576238]/30 focus:border-[#576238]"
+                                />
+                                <Button onClick={handleInvite} className="bg-[#576238] text-white hover:bg-[#6b7c3f]">
+                                    Invite
+                                </Button>
+                            </div>
+                        </div>
+                        <div className="text-sm text-muted-foreground mt-2">
+                            <p className="font-semibold mb-2">People with access:</p>
+                            <div className="flex items-center gap-2 p-2 bg-gray-50 rounded border">
+                                <div className="bg-[#576238] text-white rounded-full w-6 h-6 flex items-center justify-center text-xs">You</div>
+                                <span>You (Owner)</span>
+                            </div>
+                        </div>
+                    </div>
                 </DialogContent>
             </Dialog>
         </div>

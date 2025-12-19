@@ -23,6 +23,11 @@ namespace Spark2Scale_.Server.Models
         [Column("path")]
         public string Path { get; set; }
 
+        // --- ADDED THIS PROPERTY ---
+        [Column("generated_by")]
+        public string GeneratedBy { get; set; } // "manual" or "AI"
+        // ---------------------------
+
         [Column("created_at")]
         public DateTime CreatedAt { get; set; }
     }

@@ -1,35 +1,43 @@
 ﻿using System;
+using System.Text.Json.Serialization;
 
 namespace Spark2Scale_.Server.Models
 {
-    public class SignUpRequest
+    public class FullSignUpRequest
     {
-        public string Name { get; set; } = string.Empty;
-        public string Email { get; set; } = string.Empty;
-        public string Password { get; set; } = string.Empty;
-        public string ConfirmPassword { get; set; } = string.Empty;
-        public string Phone { get; set; } = string.Empty;
+        public string Name { get; set; } = "";
+        public string Email { get; set; } = "";
+        public string Password { get; set; } = "";
+        public string ConfirmPassword { get; set; } = "";
+        public string Phone { get; set; } = "";
+        public string AddressRegion { get; set; } = "";
         public string UserType { get; set; } = "founder";
         public string[] Tags { get; set; } = Array.Empty<string>();
     }
 
     public class SignInRequest
     {
-        public string Email { get; set; } = string.Empty;
-        public string Password { get; set; } = string.Empty;
+        public string Email { get; set; } = "";
+        public string Password { get; set; } = "";
     }
 
-    // Used for the initial form submission on the frontend to trigger the email
     public class ForgotPasswordRequest
     {
-        public string Email { get; set; } = string.Empty;
+        public string Email { get; set; } = "";
     }
 
-    // Used after the user clicks the email link and lands on the reset page
     public class ResetPasswordRequest
     {
-        public string AccessToken { get; set; } = string.Empty;
-        public string NewPassword { get; set; } = string.Empty;
-        public string ConfirmPassword { get; set; } = string.Empty;
+        public string AccessToken { get; set; } = "";
+        public string RefreshToken { get; set; } = "";
+        public string NewPassword { get; set; } = "";
+        public string ConfirmPassword { get; set; } = "";
+    }
+
+    public class VerifyEmailRequest
+    {
+        public string AccessToken { get; set; } = "";
+        public string RefreshToken { get; set; } = "";
     }
 }
+
