@@ -3,13 +3,20 @@
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { ArrowLeft, Calendar, Download, FileText, Lock, Clock, Loader2, Ban } from "lucide-react"; // Added Ban icon
+import { ArrowLeft, Calendar, Download, FileText, Lock, Clock, Loader2, Ban, AlertTriangle, RefreshCw } from "lucide-react"; // Added Icons
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { useParams } from "next/navigation";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import apiClient from "@/lib/apiClient";
 import { toast } from "sonner";
+
+// --- NEW IMPORTS FOR SCHEDULING ---
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { meetingService } from "@/services/meetingService";
+import { userService } from "@/services/userService";
 
 interface Startup {
     sid: string;
@@ -19,6 +26,7 @@ interface Startup {
     region?: string;
     startup_stage?: string;
     created_at?: string;
+    founder_id?: string; // Added founder_id to interface
 }
 
 interface PitchDeck {
@@ -58,6 +66,18 @@ export default function InvestorStartupProfile() {
     const [error, setError] = useState<string | null>(null);
     const [requestLoading, setRequestLoading] = useState(false);
 
+    // --- SCHEDULING STATE ---
+    const [founderEmail, setFounderEmail] = useState<string>("");
+    const [isScheduleOpen, setIsScheduleOpen] = useState(false);
+    const [isScheduling, setIsScheduling] = useState(false);
+    const [scheduleError, setScheduleError] = useState("");
+    const [newMeeting, setNewMeeting] = useState({
+        date: "",
+        time: "",
+        link: ""
+    });
+    const todayStr = new Date().toISOString().split('T')[0];
+
     useEffect(() => {
         if (!id) {
             setError("Invalid Startup ID.");
@@ -72,6 +92,18 @@ export default function InvestorStartupProfile() {
 
                 const startupRes = await apiClient.get<Startup>(`/api/startups/${id}`);
                 setStartup(startupRes.data);
+
+                // --- FETCH FOUNDER EMAIL FOR SCHEDULING ---
+                if (startupRes.data.founder_id) {
+                    try {
+                        const profile = await userService.getProfile(startupRes.data.founder_id);
+                        if (profile?.user?.email) {
+                            setFounderEmail(profile.user.email);
+                        }
+                    } catch (err) {
+                        console.warn("Failed to fetch founder email", err);
+                    }
+                }
 
                 try {
                     const pitchesRes = await apiClient.get<PitchDeck[]>(`/api/pitchdecks/${id}?onlyPublic=true`);
@@ -117,6 +149,56 @@ export default function InvestorStartupProfile() {
             toast.error("Failed to request access.");
         } finally {
             setRequestLoading(false);
+        }
+    };
+
+    // --- SCHEDULING LOGIC ---
+    const generateMeetLink = () => {
+        const roomName = `Spark2Scale-${Math.random().toString(36).substring(7)}`;
+        setNewMeeting({ ...newMeeting, link: `https://meet.jit.si/${roomName}` });
+    };
+
+    const handleScheduleMeeting = async () => {
+        setScheduleError("");
+        if (!newMeeting.date || !newMeeting.time || !newMeeting.link) {
+            setScheduleError("Please fill in all fields.");
+            return;
+        }
+
+        // Validate date
+        const inputDate = new Date(newMeeting.date + "T00:00:00");
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        if (inputDate < today) {
+            setScheduleError("Cannot schedule in the past.");
+            return;
+        }
+
+        if (!founderEmail) {
+            setScheduleError("Founder contact information is missing.");
+            return;
+        }
+
+        setIsScheduling(true);
+        try {
+            await meetingService.createMeeting({
+                sender_id: investorId,
+                invitee_email: founderEmail,
+                meeting_date: newMeeting.date,
+                meeting_time: newMeeting.time + ":00",
+                meeting_link: newMeeting.link
+            });
+            
+            toast.success("Meeting invitation sent successfully!");
+            setIsScheduleOpen(false);
+            setNewMeeting({ date: "", time: "", link: "" });
+        } catch (error: any) {
+            console.error("Error scheduling:", error);
+            const msg = error.response?.data?.title || "Failed to schedule meeting.";
+            setScheduleError(msg);
+            toast.error(msg);
+        } finally {
+            setIsScheduling(false);
         }
     };
 
@@ -167,45 +249,115 @@ export default function InvestorStartupProfile() {
                                 </div>
 
                                 <div className="flex gap-3">
-                                    {/* --- UPDATED DYNAMIC BUTTON LOGIC --- */}
-
-                                    {/* Case 0: No Documents Available at all */}
+                                    {/* --- DYNAMIC ACCESS BUTTONS --- */}
                                     {!hasDocuments ? (
                                         <Button disabled className="flex-1 bg-gray-100 text-gray-400 border-gray-200">
                                             <Ban className="mr-2 h-4 w-4" />
                                             No Documents Available
                                         </Button>
-                                    )
-                                        /* Case 1: Locked Docs Exist -> Show Request Button */
-                                        : hasLockedDocs ? (
-                                            <Button
-                                                onClick={handleRequestAccess}
-                                                disabled={requestLoading}
-                                                className="flex-1 bg-[#576238] hover:bg-[#6b7c3f] transition-all"
-                                            >
-                                                {requestLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Lock className="mr-2 h-4 w-4" />}
-                                                Request Full Access
-                                            </Button>
-                                        )
-                                            /* Case 2: Request Sent -> Show Pending */
-                                            : hasPendingDocs ? (
-                                                <Button disabled className="flex-1 bg-gray-200 text-gray-600 cursor-not-allowed">
-                                                    <Clock className="mr-2 h-4 w-4" />
-                                                    Full Access request is pending
-                                                </Button>
-                                            )
-                                                /* Case 3: All Public or Granted -> Show Access Granted */
-                                                : (
-                                                    <Button variant="outline" className="flex-1 border-green-600 text-green-600 cursor-default bg-green-50">
-                                                        <Download className="mr-2 h-4 w-4" />
-                                                        Full Access Granted
-                                                    </Button>
-                                                )}
+                                    ) : hasLockedDocs ? (
+                                        <Button
+                                            onClick={handleRequestAccess}
+                                            disabled={requestLoading}
+                                            className="flex-1 bg-[#576238] hover:bg-[#6b7c3f] transition-all"
+                                        >
+                                            {requestLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Lock className="mr-2 h-4 w-4" />}
+                                            Request Full Access
+                                        </Button>
+                                    ) : hasPendingDocs ? (
+                                        <Button disabled className="flex-1 bg-gray-200 text-gray-600 cursor-not-allowed">
+                                            <Clock className="mr-2 h-4 w-4" />
+                                            Full Access request is pending
+                                        </Button>
+                                    ) : (
+                                        <Button variant="outline" className="flex-1 border-green-600 text-green-600 cursor-default bg-green-50">
+                                            <Download className="mr-2 h-4 w-4" />
+                                            Full Access Granted
+                                        </Button>
+                                    )}
 
-                                    <Button variant="outline" className="flex-1 border-[#576238] text-[#576238] hover:bg-[#576238]/10">
-                                        <Calendar className="mr-2 h-4 w-4" />
-                                        Schedule Meeting
-                                    </Button>
+                                    {/* --- SCHEDULE MEETING BUTTON WITH DIALOG --- */}
+                                    <Dialog open={isScheduleOpen} onOpenChange={setIsScheduleOpen}>
+                                        <DialogTrigger asChild>
+                                            <Button 
+                                                variant="outline" 
+                                                className="flex-1 border-[#576238] text-[#576238] hover:bg-[#576238]/10"
+                                                onClick={() => {
+                                                    setScheduleError("");
+                                                    if (!founderEmail) toast.warning("Founder contact info unavailable.");
+                                                }}
+                                            >
+                                                <Calendar className="mr-2 h-4 w-4" />
+                                                Schedule Meeting
+                                            </Button>
+                                        </DialogTrigger>
+                                        <DialogContent className="sm:max-w-[425px]">
+                                            <DialogHeader>
+                                                <DialogTitle>Schedule Meeting</DialogTitle>
+                                                <DialogDescription>
+                                                    Send a meeting invite to <strong>{startup.startupname}</strong>'s founder.
+                                                </DialogDescription>
+                                            </DialogHeader>
+                                            <div className="grid gap-4 py-4">
+                                                {scheduleError && (
+                                                    <div className="bg-red-50 text-red-600 p-3 rounded-md text-sm border border-red-200 flex items-center gap-2">
+                                                        <AlertTriangle className="h-4 w-4" /> {scheduleError}
+                                                    </div>
+                                                )}
+                                                
+                                                <div className="space-y-2">
+                                                    <Label>Founder Email</Label>
+                                                    <Input value={founderEmail || "Loading..."} disabled className="bg-gray-100" />
+                                                </div>
+
+                                                <div className="grid grid-cols-2 gap-4">
+                                                    <div className="space-y-2">
+                                                        <Label htmlFor="date">Date</Label>
+                                                        <Input 
+                                                            id="date" 
+                                                            type="date" 
+                                                            min={todayStr} 
+                                                            value={newMeeting.date} 
+                                                            onChange={(e) => setNewMeeting({ ...newMeeting, date: e.target.value })} 
+                                                        />
+                                                    </div>
+                                                    <div className="space-y-2">
+                                                        <Label htmlFor="time">Time</Label>
+                                                        <Input 
+                                                            id="time" 
+                                                            type="time" 
+                                                            value={newMeeting.time} 
+                                                            onChange={(e) => setNewMeeting({ ...newMeeting, time: e.target.value })} 
+                                                        />
+                                                    </div>
+                                                </div>
+
+                                                <div className="space-y-2">
+                                                    <Label htmlFor="link">Meeting Link</Label>
+                                                    <div className="flex gap-2">
+                                                        <Input 
+                                                            id="link" 
+                                                            placeholder="https://meet.jit.si/..." 
+                                                            value={newMeeting.link} 
+                                                            readOnly 
+                                                            className="bg-gray-50 flex-grow" 
+                                                        />
+                                                        <Button type="button" variant="outline" size="icon" onClick={generateMeetLink}>
+                                                            <RefreshCw className="h-4 w-4 text-[#576238]" />
+                                                        </Button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <Button 
+                                                onClick={handleScheduleMeeting} 
+                                                disabled={isScheduling || !founderEmail} 
+                                                className="w-full bg-[#576238] hover:bg-[#6b7c3f]"
+                                            >
+                                                {isScheduling ? "Sending Invite..." : "Send Invite"}
+                                            </Button>
+                                        </DialogContent>
+                                    </Dialog>
+
                                 </div>
                             </CardContent>
                         </Card>
