@@ -1,5 +1,4 @@
-
-﻿using Microsoft.AspNetCore.Http; // Required for IFormFile
+using Microsoft.AspNetCore.Http; // Required for IFormFile
 using Microsoft.AspNetCore.Mvc;
 using Spark2Scale_.Server.Models;
 using System;
@@ -25,7 +24,7 @@ namespace Spark2Scale_.Server.Controllers
 
         // GET: api/pitchdecks/with-startups
         [HttpGet("with-startups")]
-        public async Task<IActionResult> GetAllPitchDecksWithStartups()
+        public async Task<IActionResult> GetAllPitchDecksWithStartups([FromQuery] bool onlyPublic = false)
         {
             try
             {
@@ -33,10 +32,18 @@ namespace Spark2Scale_.Server.Controllers
 
                 // 1. Fetch all Pitch Decks
                 Console.WriteLine("[DEBUG] Fetching pitch decks...");
-                var decksResponse = await _supabase
+
+                var query = _supabase
                     .From<PitchDeck>()
-                    .Order("created_at", Supabase.Postgrest.Constants.Ordering.Descending)
-                    .Get();
+                    .Order("created_at", Supabase.Postgrest.Constants.Ordering.Descending);
+
+                // Added: Filter by canaccess if requested
+                if (onlyPublic)
+                {
+                    query = query.Filter("canaccess", Supabase.Postgrest.Constants.Operator.Equals, "true");
+                }
+
+                var decksResponse = await query.Get();
 
                 var decks = decksResponse.Models;
                 Console.WriteLine($"[DEBUG] Found {decks?.Count ?? 0} pitch decks");
@@ -106,31 +113,6 @@ namespace Spark2Scale_.Server.Controllers
             }
         }
 
-        //[HttpGet("details/{pitchDeckId}")]
-        //public async Task<IActionResult> GetPitchDeckById(Guid pitchDeckId)
-        //{
-        //    var result = await _supabase.From<PitchDeck>()
-        //                                .Where(x => x.pitchdeckid == pitchDeckId)
-        //                                .Get();
-
-        //    var deck = result.Models.FirstOrDefault();
-        //    if (deck == null) return NotFound();
-
-        //    var responseDto = new PitchDeckResponseDto
-        //    {
-        //        pitchdeckid = deck.pitchdeckid,
-        //        startup_id = deck.startup_id,
-        //        video_url = deck.video_url,
-        //        is_current = deck.is_current,
-        //        analysis = deck.analysis,
-        //        tags = deck.tags,
-        //        countlikes = deck.countlikes,
-        //        created_at = deck.created_at
-        //    };
-
-        //    return Ok(responseDto);
-        //}
-
         // GET: api/pitchdecks/details/{pitchDeckId}
         [HttpGet("details/{pitchDeckId}")]
         public async Task<IActionResult> GetPitchDeckById(Guid pitchDeckId)
@@ -195,8 +177,8 @@ namespace Spark2Scale_.Server.Controllers
             }
         }
 
- 
-       
+
+
         [HttpPost("upload")]
         public async Task<IActionResult> UploadPitchDeck([FromForm] PitchDeckUploadDto input)
         {
@@ -261,14 +243,20 @@ namespace Spark2Scale_.Server.Controllers
         }
 
         [HttpGet("{startupId}")]
-        public async Task<IActionResult> GetPitchDecks(Guid startupId)
+        public async Task<IActionResult> GetPitchDecks(Guid startupId, [FromQuery] bool onlyPublic = false)
         {
             // Fetch only for specific startup
-            var result = await _supabase.From<PitchDeck>()
+            var query = _supabase.From<PitchDeck>()
                                         .Select("*")
-                                        .Filter("startup_id", Supabase.Postgrest.Constants.Operator.Equals, startupId.ToString())
-                                        .Get();
+                                        .Filter("startup_id", Supabase.Postgrest.Constants.Operator.Equals, startupId.ToString());
 
+            // Added: Filter by canaccess if requested
+            if (onlyPublic)
+            {
+                query = query.Filter("canaccess", Supabase.Postgrest.Constants.Operator.Equals, "true");
+            }
+
+            var result = await query.Get();
 
             var dtos = result.Models.Select(d => new PitchDeckResponseDto
             {
@@ -385,12 +373,6 @@ namespace Spark2Scale_.Server.Controllers
             }
         }
 
-
-
-
-
-        // Inside PitchDecksController.cs
-
         [HttpGet("count/{startupId}")]
         public async Task<IActionResult> GetPitchCount(Guid startupId)
         {
@@ -413,5 +395,5 @@ namespace Spark2Scale_.Server.Controllers
             }
         }
     }
-  
+
 }

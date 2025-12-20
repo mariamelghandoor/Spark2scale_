@@ -99,8 +99,8 @@ export default function InvestorFeed() {
                     console.warn("Could not fetch investor tags:", err);
                 }
 
-                // 2. Fetch pitch decks
-                const response = await fetch(`${API_BASE}/pitchdecks/with-startups`);
+                // 2. Fetch pitch decks - ADDED onlyPublic=true
+                const response = await fetch(`${API_BASE}/pitchdecks/with-startups?onlyPublic=true`);
 
                 if (!response.ok) {
                     throw new Error(`HTTP ${response.status}`);
