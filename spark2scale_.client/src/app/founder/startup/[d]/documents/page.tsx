@@ -164,6 +164,7 @@ export default function DocumentsPage() {
                 setMessages(prev => [...prev, { role: "assistant", content: "❌ Error: Could not generate document." }]);
             }
         } catch (error) {
+            console.error("Generation error:", error); // <--- FIX: Use the variable here
             setMessages(prev => [...prev, { role: "assistant", content: "❌ Connection error." }]);
         } finally {
             setIsGeneratingDoc(false);

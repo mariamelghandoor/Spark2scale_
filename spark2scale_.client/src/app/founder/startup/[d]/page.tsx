@@ -5,190 +5,108 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import {
     ArrowLeft, Share2, FolderOpen, Video, Calendar as CalendarIcon,
-    ChevronLeft, ChevronRight, Bell, User, Lightbulb, FileText,
+    ChevronLeft, ChevronRight, User, Lightbulb, FileText,
     BarChart3, Target, RefreshCw, Presentation, Check, AlertCircle,
-    Clock, Link as LinkIcon, AlertOctagon, Timer, Info
+    Link as LinkIcon, AlertOctagon, Timer, Info, Clock // <--- Added Clock here
 } from "lucide-react";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import LegoProgress from "@/components/lego/LegoProgress";
 import { useParams, useRouter } from "next/navigation";
 import {
-    Dialog,
-    DialogContent,
-    DialogDescription,
-    DialogFooter,
-    DialogHeader,
-    DialogTitle,
+    Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-    Tooltip,
-    TooltipContent,
-    TooltipProvider,
-    TooltipTrigger
-} from "@/components/ui/tooltip";
-import { pitchDeckService } from "@/services/pitchDeckService";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import NotificationsDropdown from "@/components/shared/NotificationsDropdown";
 
-// --- Interfaces ---
-interface WorkflowData {
-    startupId: string;
-    ideaCheck: boolean;
-    marketResearch: boolean;
-    evaluation: boolean;
-    recommendation: boolean;
-    documents: boolean;
-    pitchDeck: boolean;
-}
-
-interface Meeting {
-    meeting_id: string;
-    sender_id: string;
-    receiver_id: string;
-    meeting_date: string; // ISO String
-    meeting_time: string; // HH:mm:ss
-    meeting_link?: string;
-    with_whom_name: string;
-    status: "pending" | "accepted" | "rejected" | "canceled";
-}
+// Import the new service
+import { startupDashboardService, WorkflowData, Meeting } from "@/services/startupDashboardService";
 
 export default function StartupDashboard() {
     const params = useParams();
     const router = useRouter();
     const [userName] = useState("Alex");
 
-    // State
+    // --- State ---
     const [startupName, setStartupName] = useState("Loading...");
     const [workflowData, setWorkflowData] = useState<WorkflowData | null>(null);
     const [docCount, setDocCount] = useState(0);
+    const [videoCount, setVideoCount] = useState(0);
     const [isLoading, setIsLoading] = useState(true);
 
     // Meeting & Calendar State
     const [currentMonthDate, setCurrentMonthDate] = useState(new Date());
     const [meetings, setMeetings] = useState<Meeting[]>([]);
-    const [currentUserId, setCurrentUserId] = useState<string>("");
 
     // Invite State
     const [inviteDialogOpen, setInviteDialogOpen] = useState(false);
     const [inviteEmail, setInviteEmail] = useState("");
-    const [isInviting, setIsInviting] = useState(false); // Loading state
-    const [videoCount, setVideoCount] = useState(0);
+    const [isInviting, setIsInviting] = useState(false);
 
-    // 1. Fetch User & Dashboard Data
+    // ID Logic
+    const rawId = params?.d;
+    const cleanId = rawId ? (Array.isArray(rawId) ? rawId[0] : rawId).toString() : "";
+
+    // Mock Auth ID
+    const currentUserId = "3e59c30f-e3d2-43d2-ba48-818e69b7a9fd";
+
+    // ---------------------------------------------------------
+    // 1. Initial Data Fetch via Service
+    // ---------------------------------------------------------
     useEffect(() => {
-        const fetchDashboardData = async () => {
-            if (!params || !params.d) return;
+        const init = async () => {
+            if (!cleanId) return;
 
-            const rawId = Array.isArray(params.d) ? params.d[0] : params.d;
-            const cleanId = decodeURIComponent(rawId).replace(/\s/g, '');
+            const data = await startupDashboardService.getDashboardData(cleanId, currentUserId);
 
-            // --- MOCK AUTH: REPLACE THIS WITH YOUR ACTUAL AUTH CONTEXT ---
-            const mockUserId = "3e59c30f-e3d2-43d2-ba48-818e69b7a9fd"; // Replace with real ID
-            setCurrentUserId(mockUserId);
-
-            try {
-                const baseUrl = "https://localhost:7155/api";
-
-                const [workflowRes, startupRes, docCountRes, meetingsRes] = await Promise.all([
-                    fetch(`${baseUrl}/StartupWorkflow/${cleanId}`),
-                    fetch(`${baseUrl}/startups/${cleanId}`),
-                    fetch(`${baseUrl}/DocumentVersions/count/${cleanId}`),
-                    fetch(`${baseUrl}/Meetings?userId=${mockUserId}`) // Fetch Meetings
-                ]);
-
-                // Handle Workflow
-                if (workflowRes.ok) {
-                    const data = await workflowRes.json();
-                    setWorkflowData(data);
-                }
-
-                // Handle Name
-                if (startupRes.ok) {
-                    const data = await startupRes.json();
-                    setStartupName(data.startupname);
-                } else {
-                    setStartupName("Unknown Startup");
-                }
-
-                // Handle Document Count
-                if (docCountRes.ok) {
-                    const data = await docCountRes.json();
-                    setDocCount(data.count);
-                }
-
-                // Handle Meetings
-                if (meetingsRes.ok) {
-                    const data = await meetingsRes.json();
-                    setMeetings(data);
-                }
-
-            } catch (error) {
-                console.error("Error connecting to backend:", error);
-                setStartupName("Error Loading Data");
-            } finally {
-                setIsLoading(false);
-            }
+            setWorkflowData(data.workflow);
+            setStartupName(data.startupName);
+            setDocCount(data.docCount);
+            setVideoCount(data.videoCount);
+            setMeetings(data.meetings);
+            setIsLoading(false);
         };
 
-        fetchDashboardData();
-    }, [params]);
+        init();
+    }, [cleanId]);
 
-    const startupId = params?.d ? String(params.d) : "";
+    // ---------------------------------------------------------
+    // 2. Logic & Handlers
+    // ---------------------------------------------------------
 
-    useEffect(() => {
-        const fetchCount = async () => {
-            if (!startupId) return;
-            const count = await pitchDeckService.getPitchCount(startupId);
-            setVideoCount(count);
-        };
-        fetchCount();
-    }, [startupId]);
-
-    // --- Workflow Stages Logic ---
+    // Workflow Stages
     const currentData = workflowData || {
         ideaCheck: false, marketResearch: false, evaluation: false,
         recommendation: false, documents: false, pitchDeck: false
     };
 
     const stages = [
-        { id: 1, name: "Idea Check", icon: Lightbulb, completed: currentData.ideaCheck, hasError: false, path: `/founder/startup/${startupId}/idea-check` },
-        { id: 2, name: "Market Research", icon: BarChart3, completed: currentData.marketResearch, hasError: false, errorMessage: "Missing required data", path: `/founder/startup/${startupId}/market-research` },
-        { id: 3, name: "Evaluation", icon: Target, completed: currentData.evaluation, hasError: false, path: `/founder/startup/${startupId}/evaluate` },
-        { id: 4, name: "Recommendation", icon: RefreshCw, completed: currentData.recommendation, hasError: false, path: `/founder/startup/${startupId}/recommendations` },
-        { id: 5, name: "Documents", icon: FileText, completed: currentData.documents, hasError: false, path: `/founder/startup/${startupId}/documents` },
-        { id: 6, name: "Pitch Deck", icon: Presentation, completed: currentData.pitchDeck, hasError: false, path: `/founder/startup/${startupId}/pitch-deck` },
+        { id: 1, name: "Idea Check", icon: Lightbulb, completed: currentData.ideaCheck, hasError: false, path: `/founder/startup/${cleanId}/idea-check` },
+        { id: 2, name: "Market Research", icon: BarChart3, completed: currentData.marketResearch, hasError: false, errorMessage: "Missing required data", path: `/founder/startup/${cleanId}/market-research` },
+        { id: 3, name: "Evaluation", icon: Target, completed: currentData.evaluation, hasError: false, path: `/founder/startup/${cleanId}/evaluate` },
+        { id: 4, name: "Recommendation", icon: RefreshCw, completed: currentData.recommendation, hasError: false, path: `/founder/startup/${cleanId}/recommendations` },
+        { id: 5, name: "Documents", icon: FileText, completed: currentData.documents, hasError: false, path: `/founder/startup/${cleanId}/documents` },
+        { id: 6, name: "Pitch Deck", icon: Presentation, completed: currentData.pitchDeck, hasError: false, path: `/founder/startup/${cleanId}/pitch-deck` },
     ];
 
     const completedCount = stages.filter(stage => stage.completed).length;
     const stageErrors = stages.map(stage => stage.hasError || false);
 
+    // Calendar Logic
+    const prevMonth = () => setCurrentMonthDate(new Date(currentMonthDate.getFullYear(), currentMonthDate.getMonth() - 1, 1));
+    const nextMonth = () => setCurrentMonthDate(new Date(currentMonthDate.getFullYear(), currentMonthDate.getMonth() + 1, 1));
 
-    // --- CALENDAR LOGIC START ---
-
-    // Navigation handlers
-    const prevMonth = () => {
-        setCurrentMonthDate(new Date(currentMonthDate.getFullYear(), currentMonthDate.getMonth() - 1, 1));
-    };
-
-    const nextMonth = () => {
-        setCurrentMonthDate(new Date(currentMonthDate.getFullYear(), currentMonthDate.getMonth() + 1, 1));
-    };
-
-    // Generate days for grid
     const generateCalendarDays = () => {
         const year = currentMonthDate.getFullYear();
         const month = currentMonthDate.getMonth();
-
         const firstDayOfMonth = new Date(year, month, 1);
         const daysInMonth = new Date(year, month + 1, 0).getDate();
         const startDayIndex = firstDayOfMonth.getDay();
-
         const days = [];
         for (let i = 0; i < startDayIndex; i++) days.push(null);
         for (let i = 1; i <= daysInMonth; i++) days.push(i);
-
         return days;
     };
 
@@ -197,110 +115,69 @@ export default function StartupDashboard() {
     const isCurrentMonth = todayObj.getMonth() === currentMonthDate.getMonth() && todayObj.getFullYear() === currentMonthDate.getFullYear();
     const todayDate = isCurrentMonth ? todayObj.getDate() : null;
 
-    // Helper to check if a specific calendar day has a meeting
     const getMeetingsForDay = (day: number | null) => {
         if (!day) return [];
         return meetings.filter(m => {
             const mDate = new Date(m.meeting_date);
-            return mDate.getDate() === day &&
-                mDate.getMonth() === currentMonthDate.getMonth() &&
-                mDate.getFullYear() === currentMonthDate.getFullYear();
+            return mDate.getDate() === day && mDate.getMonth() === currentMonthDate.getMonth() && mDate.getFullYear() === currentMonthDate.getFullYear();
         });
     };
 
-    // --- SORTING LOGIC START ---
+    // Meeting Sorting
     const now = new Date();
-
-    const sortedMeetings = [...meetings].sort((a, b) => {
-        return new Date(a.meeting_date).getTime() - new Date(b.meeting_date).getTime();
-    });
-
-    // 1. Get ALL upcoming (future or today)
+    const sortedMeetings = [...meetings].sort((a, b) => new Date(a.meeting_date).getTime() - new Date(b.meeting_date).getTime());
     const allUpcoming = sortedMeetings.filter(m => {
         const mDate = new Date(m.meeting_date);
         return mDate >= now || (mDate.getDate() === now.getDate() && mDate.getMonth() === now.getMonth() && mDate.getFullYear() === now.getFullYear());
     });
-
-    // 2. Filter Upcoming: Only ACCEPTED goes to the top list
     const acceptedUpcoming = allUpcoming.filter(m => m.status === 'accepted');
-
-    // 3. Filter Upcoming: PENDING or CANCELLED or REJECTED
     const otherUpcoming = allUpcoming.filter(m => m.status !== 'accepted');
-
-    // 4. Past Meetings
     const pastMeetings = sortedMeetings.filter(m => {
         const mDate = new Date(m.meeting_date);
         return mDate < now && !(mDate.getDate() === now.getDate() && mDate.getMonth() === now.getMonth());
     }).reverse();
+    const otherMeetings = [...otherUpcoming, ...pastMeetings].sort((a, b) => new Date(b.meeting_date).getTime() - new Date(a.meeting_date).getTime());
 
-    // 5. Combine "Other" (Pending/Cancelled) + "Past" into one History/Activity list
-    const otherMeetings = [...otherUpcoming, ...pastMeetings].sort((a, b) => {
-        // Sort descending (newest first) for history list
-        return new Date(b.meeting_date).getTime() - new Date(a.meeting_date).getTime();
-    });
-    // --- SORTING LOGIC END ---
-
-    // Color helper
     const getStatusColor = (status: string) => {
         switch (status.toLowerCase()) {
             case 'accepted': return "bg-[#576238] text-white";
             case 'pending': return "bg-[#FFD95D] text-[#576238]";
-            case 'rejected':
-            case 'canceled': return "bg-red-500 text-white";
+            case 'rejected': case 'canceled': return "bg-red-500 text-white";
             default: return "bg-gray-200 text-gray-600";
         }
     };
 
-    // Dot color helper for calendar
     const getDotColor = (status: string) => {
         switch (status.toLowerCase()) {
             case 'accepted': return "bg-[#576238]";
             case 'pending': return "bg-[#FFD95D]";
-            case 'rejected':
-            case 'canceled': return "bg-red-500";
+            case 'rejected': case 'canceled': return "bg-red-500";
             default: return "bg-gray-400";
         }
     };
 
-    // --- CALENDAR LOGIC END ---
-
-    // --- INVITE LOGIC START ---
+    // Invite Handler
     const handleSendInvite = async () => {
         if (!inviteEmail) return;
         setIsInviting(true);
 
-        try {
-            const response = await fetch("https://localhost:7155/api/Contributor/invite", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    email: inviteEmail,
-                    startupId: startupId
-                })
-            });
+        const result = await startupDashboardService.inviteTeamMember(inviteEmail, cleanId);
 
-            if (response.ok) {
-                alert(`Invitation sent to ${inviteEmail}`);
-                setInviteEmail("");
-                setInviteDialogOpen(false);
-            } else {
-                const err = await response.text();
-                alert(`Failed to invite: ${err}`);
-            }
-        } catch (error) {
-            console.error(error);
-            alert("An error occurred while sending the invite.");
-        } finally {
-            setIsInviting(false);
+        if (result.success) {
+            alert(`Invitation sent to ${inviteEmail}`);
+            setInviteEmail("");
+            setInviteDialogOpen(false);
+        } else {
+            alert(`Failed to invite: ${result.message}`);
         }
-    };
-    // --- INVITE LOGIC END ---
-
-    // Handle clicking a card
-    const handleEventClick = () => {
-        router.push('/founder/schedule');
+        setIsInviting(false);
     };
 
+    const handleEventClick = () => router.push('/founder/schedule');
+
+    // ---------------------------------------------------------
+    // 3. Render
+    // ---------------------------------------------------------
     return (
         <div className="min-h-screen bg-gradient-to-br from-[#F0EADC] via-[#fff] to-[#FFD95D]/20">
             {/* Top Navigation Bar */}
@@ -387,7 +264,7 @@ export default function StartupDashboard() {
                         <div>
                             <h3 className="text-2xl font-bold text-[#576238] mb-4">Resources & Content</h3>
                             <div className="grid md:grid-cols-2 gap-6">
-                                <Link href={`/founder/startup/${startupId}/documents-page`}>
+                                <Link href={`/founder/startup/${cleanId}/documents-page`}>
                                     <Card className="p-8 hover:shadow-xl transition-all cursor-pointer border-2 hover:border-[#FFD95D] bg-[#F0EADC]/50 group">
                                         <div className="flex items-center gap-4">
                                             <div className="bg-[#576238] p-4 rounded-2xl group-hover:scale-110 transition-transform">
@@ -406,7 +283,7 @@ export default function StartupDashboard() {
                                     </Card>
                                 </Link>
 
-                                <Link href={`/founder/startup/${startupId}/pitches-page`}>
+                                <Link href={`/founder/startup/${cleanId}/pitches-page`}>
                                     <Card className="p-8 hover:shadow-xl transition-all cursor-pointer border-2 hover:border-[#FFD95D] bg-[#F0EADC]/50 group">
                                         <div className="flex items-center gap-4">
                                             <div className="bg-[#576238] p-4 rounded-2xl group-hover:scale-110 transition-transform">
@@ -429,7 +306,6 @@ export default function StartupDashboard() {
                         <div>
                             <h3 className="text-2xl font-bold text-[#576238] mb-4">Startup Calendar</h3>
                             <Card className="p-6 bg-white border-2">
-                                {/* Calendar Header */}
                                 <div className="flex items-center justify-between mb-6">
                                     <h4 className="text-lg font-bold text-[#576238]">
                                         {currentMonthDate.toLocaleDateString("en-US", { month: "long", year: "numeric" })}
@@ -440,7 +316,6 @@ export default function StartupDashboard() {
                                     </div>
                                 </div>
 
-                                {/* Calendar Grid */}
                                 <div className="grid grid-cols-7 gap-2">
                                     {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => (
                                         <div key={day} className="text-center text-xs font-semibold text-muted-foreground py-2">{day}</div>
@@ -453,14 +328,9 @@ export default function StartupDashboard() {
                                         return (
                                             <div
                                                 key={index}
-                                                className={`
-                                                    group relative aspect-square flex flex-col items-center justify-center text-sm rounded-lg cursor-pointer transition-all 
-                                                    ${!day ? "bg-transparent" : isToday ? "bg-[#576238] text-white font-bold" : hasMeetings ? "bg-[#FFD95D]/30 hover:bg-[#FFD95D]/50" : "hover:bg-[#F0EADC]"}
-                                                `}
+                                                className={`group relative aspect-square flex flex-col items-center justify-center text-sm rounded-lg cursor-pointer transition-all ${!day ? "bg-transparent" : isToday ? "bg-[#576238] text-white font-bold" : hasMeetings ? "bg-[#FFD95D]/30 hover:bg-[#FFD95D]/50" : "hover:bg-[#F0EADC]"}`}
                                             >
                                                 {day}
-
-                                                {/* Dots for meetings */}
                                                 {hasMeetings && (
                                                     <div className="flex gap-1 mt-1">
                                                         {dayMeetings.slice(0, 3).map((m, i) => (
@@ -468,8 +338,6 @@ export default function StartupDashboard() {
                                                         ))}
                                                     </div>
                                                 )}
-
-                                                {/* TOOLTIP ON HOVER */}
                                                 {hasMeetings && (
                                                     <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 w-48 bg-white border border-gray-200 p-3 rounded-lg shadow-xl opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity z-50">
                                                         <div className="text-xs font-bold text-[#576238] mb-1 border-b pb-1">
@@ -483,7 +351,6 @@ export default function StartupDashboard() {
                                                                 </div>
                                                             ))}
                                                         </div>
-                                                        {/* Tooltip arrow */}
                                                         <div className="absolute top-full left-1/2 -translate-x-1/2 -mt-1 border-4 border-transparent border-t-white"></div>
                                                     </div>
                                                 )}
@@ -494,8 +361,7 @@ export default function StartupDashboard() {
 
                                 {/* Meetings List Container */}
                                 <div className="mt-8 grid md:grid-cols-2 gap-8 pt-6 border-t">
-
-                                    {/* COLUMN 1: UPCOMING & ACCEPTED (The actionable ones) */}
+                                    {/* Upcoming Events */}
                                     <div>
                                         <h5 className="font-bold text-[#576238] mb-3 flex items-center gap-2">
                                             <CalendarIcon className="h-4 w-4" /> Upcoming Events
@@ -507,7 +373,7 @@ export default function StartupDashboard() {
                                                 acceptedUpcoming.slice(0, 4).map((meeting) => (
                                                     <div
                                                         key={meeting.meeting_id}
-                                                        onClick={handleEventClick} // <-- CLICK REDIRECT
+                                                        onClick={handleEventClick}
                                                         className="cursor-pointer flex items-start gap-3 p-3 rounded-lg bg-[#F0EADC]/50 border border-[#F0EADC] hover:border-[#576238]/30 hover:bg-[#F0EADC] transition-all group"
                                                     >
                                                         <div className="text-center min-w-[50px] bg-white rounded-md p-1 border group-hover:border-[#576238]/30 transition-colors">
@@ -519,21 +385,18 @@ export default function StartupDashboard() {
                                                                 {meeting.with_whom_name || "Meeting"}
                                                             </div>
                                                             <div className="flex items-center gap-2 text-xs text-muted-foreground mt-1">
-                                                                <Clock className="w-3 h-3" /> {meeting.meeting_time}
+                                                                <Clock className="w-3 h-3" /> {meeting.meeting_time.slice(0, 5)}
                                                             </div>
-                                                            {/* STYLED LINK SECTION START */}
                                                             {meeting.meeting_link && (
                                                                 <a
                                                                     href={meeting.meeting_link}
                                                                     target="_blank"
-                                                                    onClick={(e) => e.stopPropagation()} // <-- PREVENT REDIRECT WHEN CLICKING JOIN
+                                                                    onClick={(e) => e.stopPropagation()}
                                                                     className="inline-flex items-center gap-1.5 px-3 py-1 mt-1 bg-blue-50 text-blue-600 text-xs font-medium rounded-full border border-blue-100 hover:bg-blue-100 transition-colors"
                                                                 >
-                                                                    <LinkIcon className="w-3 h-3" />
-                                                                    Join Link
+                                                                    <LinkIcon className="w-3 h-3" /> Join Link
                                                                 </a>
                                                             )}
-                                                            {/* STYLED LINK SECTION END */}
                                                         </div>
                                                         <div className={`text-[10px] px-2 py-1 rounded-full uppercase font-bold ${getStatusColor(meeting.status)}`}>
                                                             {meeting.status}
@@ -544,7 +407,7 @@ export default function StartupDashboard() {
                                         </div>
                                     </div>
 
-                                    {/* COLUMN 2: ACTIVITY & HISTORY (Pending, Cancelled, Past) */}
+                                    {/* Activity & History */}
                                     <div>
                                         <h5 className="font-bold text-gray-500 mb-3 flex items-center gap-2">
                                             <RefreshCw className="h-4 w-4" /> Activity & History
@@ -578,7 +441,6 @@ export default function StartupDashboard() {
                                             )}
                                         </div>
                                     </div>
-
                                 </div>
                             </Card>
                         </div>
@@ -608,10 +470,7 @@ export default function StartupDashboard() {
                         </div>
 
                         <div className="grid gap-2">
-                            <Label htmlFor="role" className="text-[#576238] flex items-center gap-2">
-                                Role
-                            </Label>
-
+                            <Label htmlFor="role" className="text-[#576238] flex items-center gap-2">Role</Label>
                             <TooltipProvider>
                                 <Tooltip>
                                     <TooltipTrigger asChild>
