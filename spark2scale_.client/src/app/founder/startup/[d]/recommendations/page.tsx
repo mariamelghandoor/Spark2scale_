@@ -7,24 +7,7 @@ import { ArrowLeft, RefreshCw, Sparkles, CheckCircle2, Loader2, AlertTriangle, R
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { useParams, useRouter } from "next/navigation";
-
-// --- Types ---
-interface RecommendationContent {
-    summary: string;
-    score: number;
-    keyPoints: string[];
-    actionPlan: string;
-}
-
-interface DBRecommendation {
-    rid: string;
-    startup_id: string;
-    type: string;
-    content: RecommendationContent;
-    version: number;
-    created_at: string;
-    is_current: boolean;
-}
+import { recommendationService, DBRecommendation } from "@/services/recommendationService"; // Adjust import path
 
 export default function RecommendationsPage() {
     const params = useParams();
@@ -45,26 +28,20 @@ export default function RecommendationsPage() {
     const cleanId = getCleanId();
 
     // ---------------------------------------------------------
-    // 1. Fetch Recommendations on Load
+    // 1. Fetch Data
     // ---------------------------------------------------------
-    const fetchData = async () => {
-        if (!cleanId) return;
-        setIsLoadingData(true);
-        try {
-            const response = await fetch(`https://localhost:7155/api/Recommendations/${cleanId}/idea_check`);
-
-            if (response.ok) {
-                const data: DBRecommendation[] = await response.json();
-                setRecommendations(data);
-            }
-        } catch (error) {
-            console.error("Error fetching recommendations:", error);
-        } finally {
-            setIsLoadingData(false);
-        }
-    };
-
     useEffect(() => {
+        const fetchData = async () => {
+            if (!cleanId) return;
+            setIsLoadingData(true);
+            try {
+                const data = await recommendationService.getRecommendations(cleanId);
+                setRecommendations(data);
+            } finally {
+                setIsLoadingData(false);
+            }
+        };
+
         fetchData();
     }, [cleanId]);
 
@@ -77,139 +54,38 @@ export default function RecommendationsPage() {
     // 3. Workflow Actions
     // ---------------------------------------------------------
     const handleComplete = async () => {
-        setIsLoadingButtons(true);
         if (!cleanId) return;
-
-        try {
-            // Get current workflow status to preserve other flags
-            const getRes = await fetch(`https://localhost:7155/api/StartupWorkflow/${cleanId}`);
-            let currentData = { ideaCheck: false, marketResearch: false, evaluation: false, recommendation: false, documents: false, pitchDeck: false };
-            if (getRes.ok) {
-                const json = await getRes.json();
-                currentData = {
-                    ideaCheck: json.ideaCheck || json.IdeaCheck,
-                    marketResearch: json.marketResearch || json.MarketResearch,
-                    evaluation: json.evaluation || json.Evaluation,
-                    recommendation: json.recommendation || json.Recommendation,
-                    documents: json.documents || json.Documents,
-                    pitchDeck: json.pitchDeck || json.PitchDeck,
-                };
-            }
-
-            const updatePayload = {
-                StartupId: cleanId,
-                IdeaCheck: currentData.ideaCheck,
-                MarketResearch: currentData.marketResearch,
-                Evaluation: currentData.evaluation,
-                Recommendation: true,
-                Documents: currentData.documents,
-                PitchDeck: currentData.pitchDeck
-            };
-
-            await fetch(`https://localhost:7155/api/StartupWorkflow/update`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(updatePayload),
-            });
-
+        setIsLoadingButtons(true);
+        const success = await recommendationService.completeStage(cleanId);
+        if (success) {
             router.push(`/founder/startup/${cleanId}`);
-
-        } catch (error) {
-            console.error("Error completing stage:", error);
-        } finally {
-            setIsLoadingButtons(false);
         }
+        setIsLoadingButtons(false);
     };
 
     const handleLoopBack = async () => {
-        setIsLoadingButtons(true);
         if (!cleanId) return;
-
-        try {
-            // --- NEW LOGIC: Create a Fresh Chat Session for Idea Check ---
-            // This ensures when they land on the page, the chat is empty/new.
-            await fetch(`https://localhost:7155/api/Chat/start-new`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    StartupId: cleanId,
-                    FeatureType: 'idea_check'
-                })
-            });
-
-            // --- Reset Workflow to Idea Stage ---
-            const resetPayload = {
-                StartupId: cleanId,
-                IdeaCheck: false,
-                MarketResearch: false,
-                Evaluation: false,
-                Recommendation: false,
-                Documents: false,
-                PitchDeck: false
-            };
-
-            await fetch(`https://localhost:7155/api/StartupWorkflow/update`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(resetPayload),
-            });
-
-            // Redirect back to the Idea Check page
+        setIsLoadingButtons(true);
+        const success = await recommendationService.loopBackToStart(cleanId);
+        if (success) {
             router.push(`/founder/startup/${cleanId}/idea-check`);
-
-        } catch (error) {
-            console.error("Error looping back:", error);
-        } finally {
-            setIsLoadingButtons(false);
         }
+        setIsLoadingButtons(false);
     };
 
     const handleRegenerate = async () => {
-        setIsLoadingButtons(true);
         if (!cleanId) return;
-
-        try {
-            // Logic: Reset 'Recommendation' status only
-            const getRes = await fetch(`https://localhost:7155/api/StartupWorkflow/${cleanId}`);
-            let currentData = { ideaCheck: false, marketResearch: false, evaluation: false, recommendation: false, documents: false, pitchDeck: false };
-            if (getRes.ok) {
-                const json = await getRes.json();
-                currentData = {
-                    ideaCheck: json.ideaCheck || json.IdeaCheck,
-                    marketResearch: json.marketResearch || json.MarketResearch,
-                    evaluation: json.evaluation || json.Evaluation,
-                    recommendation: json.recommendation || json.Recommendation,
-                    documents: json.documents || json.Documents,
-                    pitchDeck: json.pitchDeck || json.PitchDeck,
-                };
-            }
-
-            const updatePayload = {
-                StartupId: cleanId,
-                IdeaCheck: currentData.ideaCheck,
-                MarketResearch: currentData.marketResearch,
-                Evaluation: currentData.evaluation,
-                Recommendation: false, // Force reset this stage
-                Documents: currentData.documents,
-                PitchDeck: currentData.pitchDeck
-            };
-
-            await fetch(`https://localhost:7155/api/StartupWorkflow/update`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(updatePayload),
-            });
-
-            // Reload to show "Generate New" UI
+        setIsLoadingButtons(true);
+        const success = await recommendationService.regenerateRecommendation(cleanId);
+        if (success) {
             window.location.reload();
-
-        } catch (error) {
-            console.error("Error regenerating:", error);
-        } finally {
-            setIsLoadingButtons(false);
         }
+        setIsLoadingButtons(false);
     };
 
+    // ---------------------------------------------------------
+    // 4. Helper UI Functions
+    // ---------------------------------------------------------
     const getPriorityColor = (text: string) => {
         if (text.includes("High") || text.includes("Critical") || text.includes("Risk")) return "text-red-600 bg-red-50 border-red-200";
         if (text.includes("Medium") || text.includes("Moderate")) return "text-yellow-600 bg-yellow-50 border-yellow-200";
