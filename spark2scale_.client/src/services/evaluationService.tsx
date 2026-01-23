@@ -1,31 +1,23 @@
-// services/evaluationService.ts
-
 export interface EvaluationDocument {
     did: string;
     startup_id: string;
     document_name: string;
     type: string;
-    current_path: string; // The URL to the PDF
+    current_path: string;
     current_version: number;
     updated_at: string;
 }
 
-export interface WorkflowStatus {
-    evaluation: boolean; // true if stage is completed
-}
-
-const API_BASE_URL = "https://localhost:7155/api"; // Adjust to your actual API port
+const API_BASE_URL = "https://localhost:7155/api";
 
 export const evaluationService = {
-    // 1. Fetch the specific Evaluation Document (IsCurrent = true)
+    // 1. Fetch the specific Evaluation Document
     async getCurrentEvaluation(startupId: string): Promise<EvaluationDocument | null> {
         try {
             const response = await fetch(`${API_BASE_URL}/Documents?startupId=${startupId}`);
             if (!response.ok) throw new Error("Failed to fetch documents");
 
             const docs: EvaluationDocument[] = await response.json();
-
-            // Filter for Type "Evaluation" (Case insensitive just in case)
             const evalDoc = docs.find(d => d.type.toLowerCase() === "evaluation");
 
             return evalDoc || null;
@@ -35,49 +27,56 @@ export const evaluationService = {
         }
     },
 
-    // 2. Check if the "Evaluation" stage is marked as complete in the workflow
+    // 2. Check if the "Evaluation" stage is complete
     async getWorkflowStatus(startupId: string): Promise<boolean> {
         try {
             const response = await fetch(`${API_BASE_URL}/StartupWorkflow/${startupId}`);
             if (!response.ok) return false;
 
             const workflow = await response.json();
-            return workflow.evaluation === true;
+            // Handle potential casing (camelCase vs PascalCase)
+            return workflow.evaluation === true || workflow.Evaluation === true;
         } catch (error) {
             console.error("Error fetching workflow:", error);
             return false;
         }
     },
 
-    // 3. Mark the stage as Complete
+    // 3. Mark the stage as Complete (Logic moved here)
     async markAsComplete(startupId: string): Promise<boolean> {
         try {
-            const payload = {
-                startupId: startupId,
-                evaluation: true,
-                // We must preserve other flags, but ideally the backend Upsert logic 
-                // in your controller handles this or we send a partial update if supported.
-                // Based on your Controller, we need to send the object. 
-                // NOTE: For a real app, fetching the current workflow first then updating is safer,
-                // or creating a specific PATCH endpoint. 
-                // For now, we assume the backend handles the merge or we send just the flag if modified.
-                // *In your specific C# Controller, you are replacing values. 
-                // To be safe, we should ideally fetch, change one flag, then push back.*
+            // A. Fetch current state to preserve other flags
+            const getRes = await fetch(`${API_BASE_URL}/StartupWorkflow/${startupId}`);
+            if (!getRes.ok) throw new Error("Failed to fetch current workflow");
+
+            const currentData = await getRes.json();
+
+            // B. Construct Payload (Mapping to C# DTO structure)
+            const updatePayload = {
+                StartupId: startupId,
+                IdeaCheck: currentData.ideaCheck || currentData.IdeaCheck,
+                MarketResearch: currentData.marketResearch || currentData.MarketResearch,
+                Evaluation: true, // <--- The change
+                Recommendation: currentData.recommendation || currentData.Recommendation,
+                Documents: currentData.documents || currentData.Documents,
+                PitchDeck: currentData.pitchDeck || currentData.PitchDeck
             };
 
-            // Simplified approach: We assume the user wants to set Evaluation=true.
-            // Since your C# `UpdateWorkflow` takes a DTO, we really should fetch current state first.
-            // *Correction*: I will implement the fetch-then-update logic inside the Page component 
-            // to ensure data integrity, or assume the backend handles partials (which your code currently doesn't).
-            // Let's rely on the Page to pass the full current state + the change.
-            return true;
+            // C. Send Update
+            const updateRes = await fetch(`${API_BASE_URL}/StartupWorkflow/update`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(updatePayload),
+            });
+
+            return updateRes.ok;
         } catch (error) {
             console.error("Error marking complete:", error);
             return false;
         }
     },
 
-    // 4. Trigger Generation (Using the GenerateMock endpoint from previous context)
+    // 4. Trigger Generation
     async generateEvaluation(startupId: string): Promise<boolean> {
         try {
             const response = await fetch(`${API_BASE_URL}/Documents/generate-mock`, {

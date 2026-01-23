@@ -9,6 +9,7 @@ import { motion } from "framer-motion";
 import { useParams } from "next/navigation";
 import { Progress } from "@/components/ui/progress";
 import { evaluationService, EvaluationDocument } from "@/services/evaluationService";
+
 export default function EvaluatePage() {
     const params = useParams();
     const startupId = params.d as string;
@@ -49,8 +50,7 @@ export default function EvaluatePage() {
             const newDoc = await evaluationService.getCurrentEvaluation(startupId);
             setEvalDoc(newDoc);
 
-            // CRITICAL REQUIREMENT: "Regenerate... so it will be yellow again"
-            // We verify that complete is reset to false locally so user can click it again
+            // CRITICAL: Reset complete status so user can re-approve the new version
             setIsWorkflowComplete(false);
         }
         setIsGenerating(false);
@@ -60,36 +60,15 @@ export default function EvaluatePage() {
     const handleCompleteStage = async () => {
         if (!startupId) return;
 
-        try {
-            // 1. We need to fetch current workflow state first to avoid overwriting other flags
-            // (Assuming your API requires the full object)
-            const response = await fetch(`https://localhost:7155/api/StartupWorkflow/${startupId}`);
-            const currentWorkflow = await response.json();
+        // Call the service to handle the data logic
+        const success = await evaluationService.markAsComplete(startupId);
 
-            // 2. Set evaluation to true
-            const updatedWorkflow = {
-                ...currentWorkflow,
-                evaluation: true,
-                startupId: startupId // Ensure ID is present
-            };
-
-            // 3. Send update
-            const updateResponse = await fetch(`https://localhost:7155/api/StartupWorkflow/update`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(updatedWorkflow)
-            });
-
-            if (updateResponse.ok) {
-                setIsWorkflowComplete(true); // Turn button Grey
-            }
-        } catch (error) {
-            console.error("Failed to complete stage", error);
+        if (success) {
+            setIsWorkflowComplete(true); // Update UI state
         }
     };
 
-    // Hardcoded demo data for the visual score (since the real PDF doesn't return JSON scores yet)
-    // In a real app, you might read this from the DB or Parse the PDF.
+    // Hardcoded demo data for visual score
     const demoScoreData = {
         overallScore: 85,
         categories: [
@@ -179,7 +158,7 @@ export default function EvaluatePage() {
                             initial={{ opacity: 0, y: 20 }}
                             animate={{ opacity: 1, y: 0 }}
                         >
-                            {/* Regenerate Option (Optional, or puts us back to logic above) */}
+                            {/* Regenerate Option */}
                             <div className="flex justify-end mb-4">
                                 <Button
                                     variant="outline"
@@ -275,8 +254,8 @@ export default function EvaluatePage() {
                                     className={`
                                         font-semibold transition-all duration-300
                                         ${isWorkflowComplete
-                                            ? "bg-gray-300 text-gray-500 cursor-not-allowed hover:bg-gray-300" // Grey when done
-                                            : "bg-[#FFD95D] hover:bg-[#ffe89a] text-black" // Yellow when active
+                                            ? "bg-gray-300 text-gray-500 cursor-not-allowed hover:bg-gray-300"
+                                            : "bg-[#FFD95D] hover:bg-[#ffe89a] text-black"
                                         }
                                     `}
                                 >
