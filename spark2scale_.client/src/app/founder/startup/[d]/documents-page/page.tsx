@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { ArrowLeft, Eye, Users, Loader2, Globe, Lock } from "lucide-react"; // Added Globe/Lock icons
+import { ArrowLeft, Eye, Users, Loader2, Globe, Lock } from "lucide-react";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { useParams } from "next/navigation";
@@ -11,35 +11,27 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch"; // Make sure you have this component, or use a standard checkbox
+import { Switch } from "@/components/ui/switch";
 
-// --- Interfaces ---
-interface DocumentVersion {
-    vid: string;
-    version_number: number;
-    path: string;
-    created_at: string;
-    generated_by: string;
-    is_public: boolean; // <--- NEW FIELD
-}
+// --- Import Merged Service ---
+import {
+    documentsService,
+    DocumentData
+} from "@/services/documentsService"; // Ensure this path is correct
 
-interface DocumentData {
-    did: string;
-    document_name: string;
-    type: string;
-    current_path: string;
-    updated_at: string;
-    is_current: boolean;
-    versions: DocumentVersion[];
-}
-
-export default function DocumentsPage() {
+export default function DocumentsHistoryPage() {
     const params = useParams();
     const [documents, setDocuments] = useState<DocumentData[]>([]);
     const [loading, setLoading] = useState(true);
 
     // ID Logic
-    const startupId = params?.id || params?.d;
+    // Handle potential array or undefined params safely
+    const getCleanId = () => {
+        const raw = params?.id || params?.d;
+        if (!raw) return "";
+        return Array.isArray(raw) ? raw[0] : raw;
+    };
+    const startupId = getCleanId();
 
     // Upload State
     const [isUploadOpen, setIsUploadOpen] = useState(false);
@@ -48,148 +40,91 @@ export default function DocumentsPage() {
     const [uploadName, setUploadName] = useState("");
     const [uploadType, setUploadType] = useState("");
 
-    // Version Selection State
+    // Version Selection State (Tracks selected VID per document Type)
     const [selectedVersions, setSelectedVersions] = useState<{ [type: string]: string }>({});
 
-    // Change this to your actual backend port
-    const API_BASE_URL = "https://localhost:7155";
-
-    useEffect(() => {
-        if (startupId) fetchDocuments();
-        else setLoading(false);
-    }, [startupId]);
-
-    const fetchDocuments = async () => {
+    // ---------------------------------------------------------
+    // 1. Fetch Data
+    // ---------------------------------------------------------
+    const loadDocuments = async () => {
+        if (!startupId) {
+            setLoading(false);
+            return;
+        }
+        setLoading(true);
         try {
-            setLoading(true);
-            // 1. Fetch All Docs
-            const res = await fetch(`${API_BASE_URL}/api/documents/all?startupId=${startupId}`);
-            if (!res.ok) throw new Error("Failed to fetch documents");
-            const docs: DocumentData[] = await res.json();
-
-            // 2. Fetch History for each
-            const docsWithHistory = await Promise.all(
-                docs.map(async (doc) => {
-                    try {
-                        const hRes = await fetch(`${API_BASE_URL}/api/documentversions/${doc.did}`);
-                        const history: DocumentVersion[] = hRes.ok ? await hRes.json() : [];
-                        return { ...doc, versions: history };
-                    } catch (err) {
-                        console.warn(`Could not load history for ${doc.did}`, err);
-                        return { ...doc, versions: [] };
-                    }
-                })
-            );
-
-            // 3. Group
-            const groupedDocs = processAndGroupDocuments(docsWithHistory);
-            setDocuments(groupedDocs);
-        } catch (error) {
-            console.error("Error fetching docs:", error);
+            // Using the new 'getGroupedDocuments' method from the merged service
+            const data = await documentsService.getGroupedDocuments(startupId);
+            setDocuments(data);
         } finally {
             setLoading(false);
         }
     };
 
-    const processAndGroupDocuments = (rawDocs: DocumentData[]): DocumentData[] => {
-        const groups: Record<string, DocumentData> = {};
+    useEffect(() => {
+        loadDocuments();
+    }, [startupId]);
 
-        rawDocs.forEach(doc => {
-            const type = doc.type;
-            if (!groups[type]) {
-                groups[type] = { ...doc, versions: [...doc.versions] };
-            } else {
-                groups[type].versions = [...groups[type].versions, ...doc.versions];
-                if (new Date(doc.updated_at) > new Date(groups[type].updated_at)) {
-                    groups[type].did = doc.did;
-                    groups[type].document_name = doc.document_name;
-                    groups[type].current_path = doc.current_path;
-                    groups[type].updated_at = doc.updated_at;
-                    groups[type].is_current = doc.is_current;
-                }
-            }
-        });
+    // ---------------------------------------------------------
+    // 2. Handlers
+    // ---------------------------------------------------------
 
-        return Object.values(groups).map(group => {
-            group.versions.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-            // Deduplicate versions
-            const uniqueVersions = Array.from(new Map(group.versions.map(v => [v.vid, v])).values());
-            group.versions = uniqueVersions;
-            return group;
-        });
-    };
-
-    // --- TOGGLE VISIBILITY ---
+    // Toggle Public/Private Visibility
     const handleToggleVisibility = async (docType: string, versionId: string, currentStatus: boolean) => {
-        try {
-            // 1. Optimistic UI Update
-            const updatedDocs = documents.map(doc => {
-                if (doc.type === docType) {
-                    return {
-                        ...doc,
-                        versions: doc.versions.map(v =>
-                            v.vid === versionId ? { ...v, is_public: !currentStatus } : v
-                        )
-                    };
-                }
-                return doc;
-            });
-            setDocuments(updatedDocs);
+        const newStatus = !currentStatus;
 
-            // 2. API Call
-            const res = await fetch(`${API_BASE_URL}/api/documentversions/visibility/${versionId}`, {
-                method: "PATCH",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(!currentStatus)
-            });
+        // A. Optimistic Update (Update UI immediately for responsiveness)
+        const updatedDocs = documents.map(doc => {
+            if (doc.type === docType) {
+                return {
+                    ...doc,
+                    versions: doc.versions.map(v =>
+                        v.vid === versionId ? { ...v, is_public: newStatus } : v
+                    )
+                };
+            }
+            return doc;
+        });
+        setDocuments(updatedDocs);
 
-            if (!res.ok) throw new Error("Failed to update visibility");
+        // B. API Call via Service
+        const success = await documentsService.toggleVersionVisibility(versionId, newStatus);
 
-        } catch (error) {
-            console.error(error);
-            // Revert on error (optional: reload docs)
-            fetchDocuments();
+        // C. Revert if failed
+        if (!success) {
             alert("Failed to change visibility settings.");
+            loadDocuments(); // Re-fetch to restore correct state
         }
     };
 
+    // Upload Submit
     const handleUploadSubmit = async () => {
-        // ... (Existing upload logic unchanged) ...
         if (!uploadFile || !uploadName || !uploadType || !startupId) return;
 
         setIsUploading(true);
-        const formData = new FormData();
-        formData.append("File", uploadFile);
-        formData.append("StartupId", startupId as string);
-        formData.append("DocName", uploadName);
-        formData.append("Type", uploadType);
-
         try {
-            const res = await fetch(`${API_BASE_URL}/api/documents/upload`, {
-                method: "POST",
-                body: formData,
-            });
-            if (!res.ok) throw new Error("Upload failed");
+            // Using the shared upload method
+            const success = await documentsService.uploadDocument(startupId, uploadType, uploadFile);
 
-            setIsUploadOpen(false);
-            setUploadFile(null);
-            setUploadName("");
-            setUploadType("");
-
-            fetchDocuments();
-        } catch (error) {
-            console.error(error);
-            alert("Failed to upload");
+            if (success) {
+                setIsUploadOpen(false);
+                setUploadFile(null);
+                setUploadName("");
+                setUploadType("");
+                loadDocuments(); // Refresh the list to show new upload
+            } else {
+                alert("Upload failed. Please try again.");
+            }
         } finally {
             setIsUploading(false);
         }
     };
 
-    // Helper to get the actual currently selected version object
+    // Helper: Get the specific version object being viewed
     const getCurrentVersionObj = (doc: DocumentData) => {
         const selectedVid = selectedVersions[doc.type];
-        // If nothing selected or "latest", pick the first one (sorted by date)
-        if (!selectedVid || selectedVid === "latest") {
+        // If nothing selected, pick the first one (latest, as sorted by service)
+        if (!selectedVid) {
             return doc.versions[0];
         }
         return doc.versions.find(v => v.vid === selectedVid) || doc.versions[0];
@@ -200,13 +135,18 @@ export default function DocumentsPage() {
         if (version?.path) window.open(version.path, "_blank");
     };
 
+    // Helper: Icon Selection based on file type
     const getIcon = (type: string) => {
         const t = type.toLowerCase();
         if (t.includes("pdf")) return "📄";
-        if (t.includes("excel") || t.includes("financial")) return "📊";
-        return "📈";
+        if (t.includes("excel") || t.includes("financial") || t.includes("cap")) return "📊";
+        if (t.includes("ppt") || t.includes("deck")) return "📽️";
+        return "📁";
     };
 
+    // ---------------------------------------------------------
+    // 3. Render
+    // ---------------------------------------------------------
     return (
         <div className="min-h-screen bg-gradient-to-br from-[#F0EADC] via-[#fff] to-[#FFD95D]/20">
             {/* Nav */}
@@ -267,7 +207,7 @@ export default function DocumentsPage() {
                                                     <div className="flex-grow">
                                                         <Label className="text-xs text-muted-foreground mb-1 block">Version</Label>
                                                         <Select
-                                                            value={selectedVersions[doc.type] || (doc.versions[0]?.vid)} // Default to first VID
+                                                            value={selectedVersions[doc.type] || (doc.versions[0]?.vid)}
                                                             onValueChange={(val) => setSelectedVersions({ ...selectedVersions, [doc.type]: val })}
                                                         >
                                                             <SelectTrigger className="w-full h-9">
