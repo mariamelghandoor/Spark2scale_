@@ -9,7 +9,7 @@ import { motion } from "framer-motion";
 import { useParams } from "next/navigation";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
-import { marketResearchService, MarketResearchDoc } from "@/services/marketResearchService";
+import { marketResearchService, MarketResearchDoc } from "@/services/marketResearchService"; // Adjust import path
 
 export default function MarketResearchPage() {
     const params = useParams();
@@ -26,26 +26,12 @@ export default function MarketResearchPage() {
     const [category, setCategory] = useState("");
 
     // Initial Load
-    // Inside MarketResearchPage.tsx
-
     useEffect(() => {
         const loadData = async () => {
             if (!startupId) return;
             setIsLoading(true);
             try {
-                // DEBUG: Fetch raw list first to see what's actually coming back
-                const response = await fetch(`https://localhost:7155/api/Documents?startupId=${startupId}`);
-                const allDocs = await response.json();
-
-                console.log("🔥 DEBUG: All Documents from API:", allDocs);
-
-                // Check specifically for your file
-                const found = allDocs.find((d: any) =>
-                    d.type.toLowerCase().includes("market") && d.is_current === true
-                );
-                console.log("🔥 DEBUG: Found Market Doc:", found);
-
-                // Now run the service logic
+                // Use service to fetch data in parallel
                 const [doc, isComplete] = await Promise.all([
                     marketResearchService.getCurrentResearch(startupId),
                     marketResearchService.getWorkflowStatus(startupId)
@@ -85,8 +71,11 @@ export default function MarketResearchPage() {
 
     // Handle Complete
     const handleComplete = async () => {
+        if (!startupId) return;
         const success = await marketResearchService.completeStage(startupId);
-        if (success) setIsWorkflowComplete(true);
+        if (success) {
+            setIsWorkflowComplete(true);
+        }
     };
 
     // Handle "Regenerate" click (Just clears the doc view so form reappears)
@@ -223,7 +212,7 @@ export default function MarketResearchPage() {
                                             variant="outline"
                                             size="sm"
                                             onClick={handleRegenerateClick}
-                                            disabled={isWorkflowComplete} // Optional: Lock regen if completed?
+                                            disabled={isWorkflowComplete}
                                             className="text-orange-600 hover:text-orange-700 hover:bg-orange-50 border-orange-200"
                                         >
                                             <RotateCcw className="h-4 w-4 mr-2" />
@@ -253,7 +242,7 @@ export default function MarketResearchPage() {
                                                 </a>
                                             </Button>
 
-                                            {/* DOWNLOAD BUTTON (Icon Only) */}
+                                            {/* DOWNLOAD BUTTON */}
                                             <Button variant="outline" size="sm" asChild>
                                                 <a href={researchDoc.current_path} download>
                                                     <Download className="h-4 w-4" />
