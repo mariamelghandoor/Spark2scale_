@@ -1,7 +1,7 @@
 // src/services/pitchDeckService.ts
 
-// 1. Your actual backend port
 const API_BASE_URL = "https://localhost:7155/api/PitchDecks";
+const WORKFLOW_API_URL = "https://localhost:7155/api/StartupWorkflow";
 
 export interface AnalysisData {
     // Support lowercase (standard JSON)
@@ -37,7 +37,7 @@ export interface PitchDeck {
     video_url: string;
     pitchname: string;
     is_current: boolean;
-    canaccess: boolean; // <--- Ensure this is here
+    canaccess: boolean;
     analysis?: AnalysisData;
     created_at: string;
     tags?: string[];
@@ -66,7 +66,6 @@ export const pitchDeckService = {
 
     // 2. Get All Pitches for a Startup
     getPitches: async (startupId: string): Promise<PitchDeck[]> => {
-        // Add a check to prevent fetching "undefined"
         if (!startupId || startupId === "undefined") {
             console.warn("Skipping fetch: Invalid Startup ID");
             return [];
@@ -107,12 +106,9 @@ export const pitchDeckService = {
     },
 
     updatePitchTitle: async (pitchId: string, newTitle: string): Promise<void> => {
-        // Now calls the dedicated rename endpoint
         const response = await fetch(`${API_BASE_URL}/rename/${pitchId}`, {
             method: "PATCH",
-            headers: {
-                'Content-Type': 'application/json',
-            },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ newTitle: newTitle })
         });
 
@@ -122,18 +118,11 @@ export const pitchDeckService = {
         }
     },
 
-    // 4. Toggle Visibility (Public/Private)
     togglePitchVisibility: async (pitchDeckId: string, startupId: string, isPublic: boolean) => {
         const response = await fetch(`${API_BASE_URL}/visibility`, {
             method: "PATCH",
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                pitchDeckId,
-                startupId,
-                isPublic
-            })
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ pitchDeckId, startupId, isPublic })
         });
 
         if (!response.ok) {
@@ -146,21 +135,62 @@ export const pitchDeckService = {
 
     getPitchCount: async (startupId: string): Promise<number> => {
         try {
-            const response = await fetch(`${API_BASE_URL}/count/${startupId}`, {
-                method: "GET",
-            });
-
-            if (!response.ok) {
-                // If it fails (e.g., 404), just return 0 so the UI doesn't break
-                console.warn("Failed to fetch pitch count");
-                return 0;
-            }
-
+            const response = await fetch(`${API_BASE_URL}/count/${startupId}`, { method: "GET" });
+            if (!response.ok) return 0;
             const data = await response.json();
             return data.count;
         } catch (error) {
             console.error(error);
-            return 0; // Return 0 on network error
+            return 0;
+        }
+    },
+
+    // --- NEW: Workflow Logic moved here ---
+
+    // Check if stage is complete
+    getWorkflowStatus: async (startupId: string): Promise<boolean> => {
+        try {
+            const response = await fetch(`${WORKFLOW_API_URL}/${startupId}`);
+            if (!response.ok) return false;
+            const data = await response.json();
+            // Check PascalCase or camelCase
+            return data.pitchDeck === true || data.PitchDeck === true;
+        } catch (error) {
+            console.error("Failed to check workflow status", error);
+            return false;
+        }
+    },
+
+    // Mark stage as complete
+    completeStage: async (startupId: string): Promise<boolean> => {
+        try {
+            // A. Fetch current state
+            const getRes = await fetch(`${WORKFLOW_API_URL}/${startupId}`);
+            if (!getRes.ok) throw new Error("Failed to fetch workflow");
+            const currentData = await getRes.json();
+
+            // B. Prepare Update
+            const updatedPayload = {
+                StartupId: startupId,
+                IdeaCheck: currentData.ideaCheck || currentData.IdeaCheck,
+                MarketResearch: currentData.marketResearch || currentData.MarketResearch,
+                Evaluation: currentData.evaluation || currentData.Evaluation,
+                Recommendation: currentData.recommendation || currentData.Recommendation,
+                Documents: currentData.documents || currentData.Documents,
+                PitchDeck: true // <--- Set this to TRUE
+            };
+
+            // C. Send Update
+            const postRes = await fetch(`${WORKFLOW_API_URL}/update`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(updatedPayload)
+            });
+
+            return postRes.ok;
+        } catch (error) {
+            console.error("Error completing pitch stage:", error);
+            return false;
         }
     }
 };

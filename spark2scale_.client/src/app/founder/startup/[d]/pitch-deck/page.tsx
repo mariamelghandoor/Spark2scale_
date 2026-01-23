@@ -3,12 +3,11 @@
 import { useState, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { ArrowLeft, ArrowRight, Upload, CheckCircle, Loader2, BarChart3, RefreshCw, CheckCheck } from "lucide-react";
+import { ArrowLeft, Upload, Loader2, BarChart3, CheckCheck } from "lucide-react";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { useParams } from "next/navigation";
 import { pitchDeckService, PitchDeck } from "@/services/pitchDeckService";
-import { workflowService } from "@/services/workflowService";
 
 export default function PitchDeckPage() {
     const params = useParams();
@@ -27,56 +26,43 @@ export default function PitchDeckPage() {
     const [isAnalyzing, setIsAnalyzing] = useState(false);
     const [isCompleting, setIsCompleting] = useState(false);
 
-    // NEW: State to track if stage is already done
+    // State to track if stage is already done
     const [isStageDone, setIsStageDone] = useState(false);
 
     const fileInputRef = useRef<HTMLInputElement>(null);
 
-    // Initial Fetch (Pitches + Workflow Status)
+    // Initial Fetch (Pitches + Workflow Status via Service)
     useEffect(() => {
-        if (startupId) {
-            loadPitches();
-            checkWorkflowStatus(); // <--- NEW CALL
-        }
+        const initData = async () => {
+            if (!startupId) return;
+            setIsLoading(true);
+            try {
+                // Parallel fetch
+                const [pitchData, isComplete] = await Promise.all([
+                    pitchDeckService.getPitches(startupId),
+                    pitchDeckService.getWorkflowStatus(startupId)
+                ]);
+
+                setPitches(pitchData);
+                setIsStageDone(isComplete);
+            } catch (error) {
+                console.error("Failed to load data", error);
+            } finally {
+                setIsLoading(false);
+            }
+        };
+
+        initData();
     }, [startupId]);
 
     useEffect(() => {
         if (pitches.length > 0) {
             const activePitch = pitches.find(p => p.is_current === true);
-
             setLatestPitch(activePitch || null);
         } else {
             setLatestPitch(null);
         }
     }, [pitches]);
-
-    const loadPitches = async () => {
-        try {
-            const data = await pitchDeckService.getPitches(startupId);
-            setPitches(data);
-        } catch (error) {
-            console.error("Failed to load pitches", error);
-        } finally {
-            setIsLoading(false);
-        }
-    };
-
-    // NEW: Function to check workflow status
-    const checkWorkflowStatus = async () => {
-        try {
-            // Using your existing endpoint to get workflow
-            const response = await fetch(`https://localhost:7155/api/StartupWorkflow/${startupId}`);
-            if (response.ok) {
-                const data = await response.json();
-                // Check if pitchDeck is true (handle case sensitivity just in case)
-                if (data.pitchDeck === true || data.PitchDeck === true) {
-                    setIsStageDone(true);
-                }
-            }
-        } catch (error) {
-            console.error("Failed to check workflow status", error);
-        }
-    };
 
     const handleUploadClick = () => fileInputRef.current?.click();
 
@@ -117,16 +103,18 @@ export default function PitchDeckPage() {
         }
     };
 
+    // Updated: Uses Service
     const handleCompleteStage = async () => {
         setIsCompleting(true);
         try {
-            await workflowService.completePitchStage(startupId);
-            setIsStageDone(true); // Update local state immediately
-            // Optional: Redirect
-            // router.push(`/founder/startup/${startupId}`);
+            const success = await pitchDeckService.completeStage(startupId);
+            if (success) {
+                setIsStageDone(true);
+            } else {
+                alert("Failed to update status.");
+            }
         } catch (error) {
             console.error("Failed to complete stage:", error);
-            alert("Failed to mark stage as complete. Please try again.");
         } finally {
             setIsCompleting(false);
         }
@@ -174,7 +162,7 @@ export default function PitchDeckPage() {
                             </p>
                         </div>
                     </div>
-                    {/* Optional: Status Badge in Header */}
+                    {/* Status Badge */}
                     {isStageDone && (
                         <div className="px-3 py-1 bg-green-100 text-green-700 rounded-full text-sm font-medium border border-green-200 flex items-center gap-2">
                             <CheckCheck className="h-4 w-4" /> Completed
@@ -268,9 +256,9 @@ export default function PitchDeckPage() {
                                                 </p>
                                             </div>
 
-                                            {safeAnalysis && (
+                                            {safeAnalysis ? (
                                                 <div className="flex items-center gap-2 bg-[#F0EADC] px-4 py-2 rounded-lg">
-                                                    <CheckCircle className="h-5 w-5 text-green-600" />
+                                                    <BarChart3 className="h-5 w-5 text-green-600" />
                                                     <div className="text-right">
                                                         <p className="text-xl font-bold text-[#576238]">
                                                             {safeAnalysis.score}
@@ -280,46 +268,30 @@ export default function PitchDeckPage() {
                                                         </p>
                                                     </div>
                                                 </div>
-                                            )}
-                                        </div>
-
-                                        {!safeAnalysis ? (
-                                            <div className="pt-4 border-t flex justify-center">
+                                            ) : (
                                                 <Button
-                                                    size="lg"
-                                                    className="bg-[#576238] hover:bg-[#6b7c3f] gap-2"
+                                                    size="sm"
+                                                    className="bg-[#576238] hover:bg-[#6b7c3f]"
                                                     onClick={handleGenerateAnalysis}
                                                     disabled={isAnalyzing}
                                                 >
-                                                    {isAnalyzing ? (
-                                                        <>
-                                                            <Loader2 className="h-4 w-4 animate-spin" />
-                                                            Analyzing Pitch...
-                                                        </>
-                                                    ) : (
-                                                        <>
-                                                            <BarChart3 className="h-4 w-4" />
-                                                            Generate AI Analysis
-                                                        </>
-                                                    )}
+                                                    {isAnalyzing ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <BarChart3 className="h-4 w-4 mr-2" />}
+                                                    Analyze
                                                 </Button>
-                                            </div>
-                                        ) : (
+                                            )}
+                                        </div>
+
+                                        {/* Analysis Display */}
+                                        {safeAnalysis && (
                                             <motion.div
                                                 initial={{ opacity: 0, height: 0 }}
                                                 animate={{ opacity: 1, height: "auto" }}
                                                 className="space-y-4 pt-4 border-t"
                                             >
-                                                <div className="flex items-center justify-between">
-                                                    <h4 className="font-semibold text-lg text-[#576238]">
-                                                        AI Quick Summary
-                                                    </h4>
-                                                </div>
-
+                                                <h4 className="font-semibold text-lg text-[#576238]">AI Quick Summary</h4>
                                                 <p className="text-muted-foreground italic border-l-4 border-[#FFD95D] pl-4">
                                                     "{safeAnalysis.summary}"
                                                 </p>
-
                                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                                                     {safeAnalysis.feedback.map((fb: any, i: number) => (
                                                         <div key={i} className="p-3 bg-gray-50 rounded-lg border border-gray-100">
@@ -337,28 +309,6 @@ export default function PitchDeckPage() {
                                                         </div>
                                                     ))}
                                                 </div>
-
-                                                <div className="flex gap-3 mt-6 pt-4 border-t">
-                                                    <Button
-                                                        variant="outline"
-                                                        className="flex-1 group"
-                                                        asChild
-                                                    >
-                                                         <Link href={`/founder/startup/${startupId}/pitches/${latestPitch.pitchdeckid}/details?source=workflow`}>
-                                                                    
-                                                            View Full Report <ArrowRight className="ml-2 h-4 w-4 group-hover:translate-x-1 transition-transform" />
-                                                        </Link>
-                                                    </Button>
-
-                                                    <Button
-                                                        className="flex-1 bg-[#576238] hover:bg-[#6b7c3f]"
-                                                        onClick={handleGenerateAnalysis}
-                                                        disabled={isAnalyzing}
-                                                    >
-                                                        <RefreshCw className="mr-2 h-4 w-4" />
-                                                        Regenerate
-                                                    </Button>
-                                                </div>
                                             </motion.div>
                                         )}
                                     </div>
@@ -367,7 +317,7 @@ export default function PitchDeckPage() {
                         </Card>
                     </motion.div>
 
-                    {/* NEW: Complete Stage Button Logic */}
+                    {/* Complete Stage Button Logic */}
                     {latestPitch && (
                         <motion.div
                             initial={{ opacity: 0 }}
@@ -376,19 +326,14 @@ export default function PitchDeckPage() {
                             className="mt-8 text-center"
                         >
                             {isStageDone ? (
-                                // STATE 1: ALREADY COMPLETED (Updated Style)
                                 <div className="flex flex-col items-center gap-2">
                                     <Button
-                                        // Removed size="lg" for default smaller size
                                         disabled
-                                        // Changed color to #576238, removed large sizing classes (h-14, text-lg, px-8)
                                         className="bg-[#576238] text-white font-semibold opacity-100 cursor-not-allowed"
                                     >
-                                        {/* Reduced icon size slightly to match smaller button */}
                                         <CheckCheck className="mr-2 h-4 w-4" />
                                         Stage Completed!
                                     </Button>
-                                    {/* Changed text color from green-700 to muted-foreground */}
                                     <p className="text-sm text-muted-foreground font-medium mt-1">
                                         Great job! You have finalized this step.
                                     </p>
@@ -397,7 +342,6 @@ export default function PitchDeckPage() {
                                     </Link>
                                 </div>
                             ) : (
-                                // STATE 2: NOT COMPLETED (Yellow, Actionable) - No changes here
                                 <>
                                     <Button
                                         size="lg"
