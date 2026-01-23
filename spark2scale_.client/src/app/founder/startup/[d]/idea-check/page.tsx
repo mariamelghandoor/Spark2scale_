@@ -9,19 +9,12 @@ import { motion } from "framer-motion";
 import { useParams, useRouter } from "next/navigation";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
-
-// --- Types ---
-interface SessionSummary {
-    sessionId: string;
-    sessionName: string;
-    createdAt: string;
-}
-
-interface ChatMessage {
-    role: string;
-    content: string;
-    timestamp?: string;
-}
+import {
+    ideaCheckService,
+    SessionSummary,
+    ChatMessage,
+    WorkflowUpdatePayload
+} from "@/services/ideaCheckService"; // Adjust import path
 
 export default function IdeaCheckPage() {
     const params = useParams();
@@ -64,33 +57,25 @@ export default function IdeaCheckPage() {
 
             try {
                 // A. Fetch Basic Startup Info
-                const startupRes = await fetch(`https://localhost:7155/api/startups/${cleanId}`);
-                if (startupRes.ok) {
-                    const data = await startupRes.json();
-                    setStartupName(data.startupname);
-                    setIdea(data.idea_description);
+                const startupData = await ideaCheckService.getStartupDetails(cleanId);
+                if (startupData) {
+                    setStartupName(startupData.startupname);
+                    setIdea(startupData.idea_description);
                 }
 
                 // B. Fetch Workflow Status
-                const wfRes = await fetch(`https://localhost:7155/api/StartupWorkflow/${cleanId}`);
-                let isLocked = false;
-                if (wfRes.ok) {
-                    const wfData = await wfRes.json();
-                    isLocked = wfData.ideaCheck || wfData.IdeaCheck || false;
-                    setIsStageCompleted(isLocked);
-                }
+                const wfData = await ideaCheckService.getWorkflowStatus(cleanId);
+                const isLocked = wfData.ideaCheck;
+                setIsStageCompleted(isLocked);
 
                 // C. Fetch Chat Sessions
-                const sessionRes = await fetch(`https://localhost:7155/api/Chat/sessions/${cleanId}/idea_check`);
-                if (sessionRes.ok) {
-                    const sessionList: SessionSummary[] = await sessionRes.json();
-                    setSessions(sessionList);
+                const sessionList = await ideaCheckService.getSessions(cleanId);
+                setSessions(sessionList);
 
-                    if (sessionList.length > 0) {
-                        loadSessionMessages(sessionList[0].sessionId);
-                    } else if (!isLocked) {
-                        await handleNewSession(cleanId);
-                    }
+                if (sessionList.length > 0) {
+                    loadSessionMessages(sessionList[0].sessionId);
+                } else if (!isLocked) {
+                    await handleNewSession(cleanId);
                 }
 
             } catch (error) {
@@ -110,44 +95,21 @@ export default function IdeaCheckPage() {
         setIsChatLoading(true);
         setCurrentSessionId(sessionId);
         try {
-            const res = await fetch(`https://localhost:7155/api/Chat/messages/${sessionId}`);
-            if (res.ok) {
-                const msgs = await res.json();
-                setMessages(msgs);
-            }
-        } catch (err) {
-            console.error("Error loading messages:", err);
+            const msgs = await ideaCheckService.getMessages(sessionId);
+            setMessages(msgs);
         } finally {
             setIsChatLoading(false);
         }
     };
 
     const handleNewSession = async (startupId: string) => {
-        // Prevent new session ONLY if stage is completed AND we are not currently forcing a reset
-        // (This check is handled by the UI button disabled state mainly)
-
         try {
-            const res = await fetch(`https://localhost:7155/api/Chat/start-new`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    StartupId: startupId,
-                    FeatureType: 'idea_check'
-                })
-            });
-
-            if (res.ok) {
-                const newSess = await res.json();
-                const newSummary: SessionSummary = {
-                    sessionId: newSess.sessionId,
-                    sessionName: newSess.sessionName,
-                    createdAt: new Date().toISOString()
-                };
-
+            const newSession = await ideaCheckService.startNewSession(startupId);
+            if (newSession) {
                 // Prepend new session to list
-                setSessions(prev => [newSummary, ...prev]);
+                setSessions(prev => [newSession, ...prev]);
                 // Select it
-                setCurrentSessionId(newSess.sessionId);
+                setCurrentSessionId(newSession.sessionId);
                 // Clear messages view
                 setMessages([]);
             }
@@ -162,49 +124,33 @@ export default function IdeaCheckPage() {
         const msgContent = newMessage;
         setNewMessage("");
 
+        // Optimistic UI update
         setMessages(prev => [...prev, { role: "user", content: msgContent }]);
 
-        try {
-            await fetch(`https://localhost:7155/api/Chat/send`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    SessionId: currentSessionId,
-                    Role: "user",
-                    Content: msgContent
-                })
-            });
-        } catch (err) {
-            console.error("Error sending message:", err);
-        }
+        await ideaCheckService.sendMessage(currentSessionId, msgContent);
     };
 
     // ---------------------------------------------------------
-    // 3. Idea & Workflow Logic (UPDATED: Force New Session)
+    // 3. Idea & Workflow Logic
     // ---------------------------------------------------------
     const handleToggleEdit = async () => {
         if (isEditing) {
+            if (!cleanId) return;
             setIsSaving(true);
             try {
                 // 1. Update the Idea Text
-                const response = await fetch(`https://localhost:7155/api/startups/update-idea/${cleanId}`, {
-                    method: 'PUT',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ ideaDescription: idea }),
-                });
+                const updateSuccess = await ideaCheckService.updateIdea(cleanId, idea);
 
-                if (response.ok) {
+                if (updateSuccess) {
                     setIsEditing(false);
 
-                    // 2. CALL THE RESET ENDPOINT (This archives documents & resets workflow)
-                    const resetResponse = await fetch(`https://localhost:7155/api/StartupWorkflow/reset/${cleanId}`, {
-                        method: 'POST',
-                    });
+                    // 2. Reset Workflow (Archives docs & resets flags)
+                    const resetSuccess = await ideaCheckService.resetWorkflow(cleanId);
 
-                    if (resetResponse.ok) {
+                    if (resetSuccess) {
                         setIsStageCompleted(false);
                         // Optional: Start new chat context
-                        if (cleanId) await handleNewSession(cleanId);
+                        await handleNewSession(cleanId);
                     }
                 } else {
                     alert("Failed to save changes.");
@@ -224,13 +170,13 @@ export default function IdeaCheckPage() {
         if (!cleanId) return;
 
         try {
-            const getRes = await fetch(`https://localhost:7155/api/StartupWorkflow/${cleanId}`);
-            let currentData = { marketResearch: false, evaluation: false, recommendation: false, documents: false, pitchDeck: false };
-            if (getRes.ok) currentData = await getRes.json();
+            // 1. Get current workflow state to preserve other flags
+            const currentData = await ideaCheckService.getWorkflowStatus(cleanId);
 
-            const updatePayload = {
+            // 2. Prepare Payload
+            const updatePayload: WorkflowUpdatePayload = {
                 StartupId: cleanId,
-                IdeaCheck: true,
+                IdeaCheck: true, // Mark this stage complete
                 MarketResearch: currentData.marketResearch,
                 Evaluation: currentData.evaluation,
                 Recommendation: currentData.recommendation,
@@ -238,13 +184,10 @@ export default function IdeaCheckPage() {
                 PitchDeck: currentData.pitchDeck
             };
 
-            const updateRes = await fetch(`https://localhost:7155/api/StartupWorkflow/update`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(updatePayload),
-            });
+            // 3. Send Update
+            const success = await ideaCheckService.updateWorkflow(updatePayload);
 
-            if (updateRes.ok) {
+            if (success) {
                 router.push(`/founder/startup/${cleanId}`);
             }
         } catch (error) {
@@ -254,6 +197,9 @@ export default function IdeaCheckPage() {
         }
     };
 
+    // ---------------------------------------------------------
+    // 4. Render (Identical to previous)
+    // ---------------------------------------------------------
     return (
         <div className="min-h-screen bg-gradient-to-br from-[#F0EADC] via-[#fff] to-[#FFD95D]/20 flex flex-col">
             {/* Top Navigation Bar */}
@@ -295,7 +241,7 @@ export default function IdeaCheckPage() {
                         </Button>
                     </div>
 
-                   
+
                     <div className="flex-1 p-3 overflow-y-auto [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-gray-300 [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-gray-400">
                         <div className="space-y-2">
                             {sessions.length === 0 && (
@@ -462,7 +408,6 @@ export default function IdeaCheckPage() {
                                 className="font-semibold"
                                 asChild
                             >
-                                {/* FIX: Use cleanId here as well */}
                                 <Link href={`/founder/startup/${cleanId}`}>
                                     Continue to Dashboard
                                 </Link>
