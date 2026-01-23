@@ -7,7 +7,7 @@ import {
     ArrowLeft, Share2, FolderOpen, Video, Calendar as CalendarIcon,
     ChevronLeft, ChevronRight, User, Lightbulb, FileText,
     BarChart3, Target, RefreshCw, Presentation, Check, AlertCircle,
-    Link as LinkIcon, AlertOctagon, Timer, Info, Clock // <--- Added Clock here
+    Link as LinkIcon, AlertOctagon, Timer, Info, Clock, Lock
 } from "lucide-react";
 import Link from "next/link";
 import { motion } from "framer-motion";
@@ -53,14 +53,12 @@ export default function StartupDashboard() {
     const currentUserId = "3e59c30f-e3d2-43d2-ba48-818e69b7a9fd";
 
     // ---------------------------------------------------------
-    // 1. Initial Data Fetch via Service
+    // 1. Initial Data Fetch
     // ---------------------------------------------------------
     useEffect(() => {
         const init = async () => {
             if (!cleanId) return;
-
             const data = await startupDashboardService.getDashboardData(cleanId, currentUserId);
-
             setWorkflowData(data.workflow);
             setStartupName(data.startupName);
             setDocCount(data.docCount);
@@ -68,7 +66,6 @@ export default function StartupDashboard() {
             setMeetings(data.meetings);
             setIsLoading(false);
         };
-
         init();
     }, [cleanId]);
 
@@ -94,10 +91,9 @@ export default function StartupDashboard() {
     const completedCount = stages.filter(stage => stage.completed).length;
     const stageErrors = stages.map(stage => stage.hasError || false);
 
-    // Calendar Logic
+    // Calendar & Other Handlers
     const prevMonth = () => setCurrentMonthDate(new Date(currentMonthDate.getFullYear(), currentMonthDate.getMonth() - 1, 1));
     const nextMonth = () => setCurrentMonthDate(new Date(currentMonthDate.getFullYear(), currentMonthDate.getMonth() + 1, 1));
-
     const generateCalendarDays = () => {
         const year = currentMonthDate.getFullYear();
         const month = currentMonthDate.getMonth();
@@ -109,12 +105,10 @@ export default function StartupDashboard() {
         for (let i = 1; i <= daysInMonth; i++) days.push(i);
         return days;
     };
-
     const calendarDays = generateCalendarDays();
     const todayObj = new Date();
     const isCurrentMonth = todayObj.getMonth() === currentMonthDate.getMonth() && todayObj.getFullYear() === currentMonthDate.getFullYear();
     const todayDate = isCurrentMonth ? todayObj.getDate() : null;
-
     const getMeetingsForDay = (day: number | null) => {
         if (!day) return [];
         return meetings.filter(m => {
@@ -146,7 +140,6 @@ export default function StartupDashboard() {
             default: return "bg-gray-200 text-gray-600";
         }
     };
-
     const getDotColor = (status: string) => {
         switch (status.toLowerCase()) {
             case 'accepted': return "bg-[#576238]";
@@ -155,14 +148,10 @@ export default function StartupDashboard() {
             default: return "bg-gray-400";
         }
     };
-
-    // Invite Handler
     const handleSendInvite = async () => {
         if (!inviteEmail) return;
         setIsInviting(true);
-
         const result = await startupDashboardService.inviteTeamMember(inviteEmail, cleanId);
-
         if (result.success) {
             alert(`Invitation sent to ${inviteEmail}`);
             setInviteEmail("");
@@ -172,7 +161,6 @@ export default function StartupDashboard() {
         }
         setIsInviting(false);
     };
-
     const handleEventClick = () => router.push('/founder/schedule');
 
     // ---------------------------------------------------------
@@ -224,43 +212,130 @@ export default function StartupDashboard() {
                     <div className="lg:col-span-4 space-y-8">
                         <div>
                             <h2 className="text-3xl font-bold text-[#576238] mb-6">Workflow Stages</h2>
-                            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-8">
-                                {stages.map((stage, index) => {
-                                    const IconComponent = stage.icon;
-                                    return (
-                                        <motion.div
-                                            key={stage.id}
-                                            initial={{ opacity: 0, y: 20 }}
-                                            animate={{ opacity: 1, y: 0 }}
-                                            transition={{ delay: index * 0.1 }}
-                                        >
-                                            <Card
-                                                className={`p-4 text-center cursor-pointer transition-all h-full flex flex-col justify-between ${stage.hasError ? "bg-red-50 hover:bg-red-100 border-red-400" : stage.completed ? "bg-[#F0EADC] hover:bg-[#e8e2d4] border-[#d4cbb8]" : "bg-white hover:border-[#d4cbb8]"} border-2 rounded-2xl`}
-                                                onClick={() => router.push(stage.path)}
+
+                            {/* WRAP IN TOOLTIP PROVIDER */}
+                            <TooltipProvider delayDuration={0}>
+                                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-8">
+                                    {stages.map((stage, index) => {
+                                        const IconComponent = stage.icon;
+
+                                        // Locking Logic
+                                        const isLocked = index > 0 && !stages[index - 1].completed;
+
+                                        return (
+                                            <motion.div
+                                                key={stage.id}
+                                                initial={{ opacity: 0, y: 20 }}
+                                                animate={{ opacity: 1, y: 0 }}
+                                                transition={{ delay: index * 0.1 }}
                                             >
-                                                <div className="flex flex-col items-center gap-3">
-                                                    <div className={`w-12 h-12 rounded-full flex items-center justify-center ${stage.hasError ? "bg-red-500" : stage.completed ? "bg-[#576238]" : "bg-gray-200"}`}>
-                                                        <IconComponent className={`w-6 h-6 ${stage.hasError || stage.completed ? "text-white" : "text-gray-400"}`} />
-                                                    </div>
-                                                    <h3 className={`font-semibold text-xs leading-tight ${stage.hasError ? "text-red-700" : stage.completed ? "text-[#576238]" : "text-gray-600"}`}>{stage.name}</h3>
-                                                </div>
-                                                <div className="mt-4">
-                                                    {stage.hasError ? (
-                                                        <div className="w-6 h-6 mx-auto rounded-full bg-red-500 flex items-center justify-center" title={stage.errorMessage}><AlertCircle className="w-4 h-4 text-white" /></div>
-                                                    ) : stage.completed ? (
-                                                        <div className="w-6 h-6 mx-auto rounded-full bg-[#576238] flex items-center justify-center"><Check className="w-4 h-4 text-white" /></div>
-                                                    ) : (
-                                                        <div className="w-6 h-6 mx-auto rounded-full border-2 border-gray-300" />
+                                                <Tooltip>
+                                                    <TooltipTrigger asChild>
+                                                        <div className="h-full relative group">
+                                                            <Card
+                                                                className={`p-4 text-center transition-all duration-300 h-full flex flex-col justify-between border-2 rounded-2xl relative
+                                                                    ${isLocked
+                                                                        ? "bg-gray-50/80 border-gray-200 cursor-not-allowed" // Professional Locked Look
+                                                                        : stage.hasError
+                                                                            ? "bg-red-50 hover:bg-red-100 border-red-400 cursor-pointer"
+                                                                            : stage.completed
+                                                                                ? "bg-[#F0EADC] hover:bg-[#e8e2d4] border-[#d4cbb8] cursor-pointer"
+                                                                                : "bg-white hover:border-[#d4cbb8] cursor-pointer hover:-translate-y-1 hover:shadow-md"
+                                                                    }
+                                                                `}
+                                                                onClick={() => {
+                                                                    if (!isLocked) {
+                                                                        router.push(stage.path);
+                                                                    }
+                                                                }}
+                                                            >
+                                                                <div className="flex flex-col items-center gap-3">
+                                                                    {/* ICON AREA */}
+                                                                    <div className="relative">
+                                                                        <div className={`w-12 h-12 rounded-full flex items-center justify-center transition-colors
+                                                                            ${isLocked
+                                                                                ? "bg-white border border-gray-100" // Locked Icon Bg
+                                                                                : stage.hasError
+                                                                                    ? "bg-red-500"
+                                                                                    : stage.completed
+                                                                                        ? "bg-[#576238]"
+                                                                                        : "bg-gray-100 group-hover:bg-[#576238]/10"
+                                                                            }`}
+                                                                        >
+                                                                            <IconComponent
+                                                                                className={`w-6 h-6 
+                                                                                    ${isLocked
+                                                                                        ? "text-gray-300" // Faded icon when locked
+                                                                                        : stage.hasError || stage.completed
+                                                                                            ? "text-white"
+                                                                                            : "text-gray-500 group-hover:text-[#576238]"
+                                                                                    }`}
+                                                                            />
+                                                                        </div>
+
+                                                                        {/* LOCK BADGE - Integrated into Icon area */}
+                                                                        {isLocked && (
+                                                                            <div className="absolute -bottom-1 -right-1 bg-white rounded-full p-1 shadow-sm border border-gray-100">
+                                                                                <Lock className="w-3 h-3 text-gray-400" />
+                                                                            </div>
+                                                                        )}
+                                                                    </div>
+
+                                                                    {/* NAME - Readable but Styled as Inactive */}
+                                                                    <h3 className={`font-semibold text-xs leading-tight 
+                                                                        ${isLocked
+                                                                            ? "text-slate-500 font-medium" // Readable slate color
+                                                                            : stage.hasError
+                                                                                ? "text-red-700"
+                                                                                : stage.completed
+                                                                                    ? "text-[#576238]"
+                                                                                    : "text-gray-600"
+                                                                        }`}
+                                                                    >
+                                                                        {stage.name}
+                                                                    </h3>
+                                                                </div>
+
+                                                                {/* BOTTOM INDICATOR */}
+                                                                <div className="mt-4">
+                                                                    {isLocked ? (
+                                                                        // Small clean dot for locked state instead of big icon
+                                                                        <div className="w-1.5 h-1.5 mx-auto rounded-full bg-gray-300" />
+                                                                    ) : stage.hasError ? (
+                                                                        <div className="w-6 h-6 mx-auto rounded-full bg-red-500 flex items-center justify-center" title={stage.errorMessage}><AlertCircle className="w-4 h-4 text-white" /></div>
+                                                                    ) : stage.completed ? (
+                                                                        <div className="w-6 h-6 mx-auto rounded-full bg-[#576238] flex items-center justify-center"><Check className="w-4 h-4 text-white" /></div>
+                                                                    ) : (
+                                                                        <div className="w-6 h-6 mx-auto rounded-full border-2 border-gray-200 group-hover:border-[#576238]" />
+                                                                    )}
+                                                                </div>
+                                                            </Card>
+                                                        </div>
+                                                    </TooltipTrigger>
+
+                                                    {/* PROFESSIONAL TOOLTIP */}
+                                                    {isLocked && (
+                                                        <TooltipContent
+                                                            side="top"
+                                                            className="bg-slate-900 text-white border-slate-800 shadow-xl px-4 py-2 text-xs font-medium rounded-lg"
+                                                            sideOffset={10}
+                                                        >
+                                                            <div className="flex items-center gap-2">
+                                                                <Lock className="w-3 h-3 text-gray-400" />
+                                                                <span>Complete previous stage</span>
+                                                            </div>
+                                                            <div className="absolute left-1/2 -translate-x-1/2 top-full w-0 h-0 border-l-[6px] border-l-transparent border-r-[6px] border-r-transparent border-t-[6px] border-t-slate-900"></div>
+                                                        </TooltipContent>
                                                     )}
-                                                </div>
-                                            </Card>
-                                        </motion.div>
-                                    );
-                                })}
-                            </div>
+                                                </Tooltip>
+                                            </motion.div>
+                                        );
+                                    })}
+                                </div>
+                            </TooltipProvider>
                         </div>
 
-                        {/* Resources & Content */}
+                        {/* Resources & Content Section */}
                         <div>
                             <h3 className="text-2xl font-bold text-[#576238] mb-4">Resources & Content</h3>
                             <div className="grid md:grid-cols-2 gap-6">
@@ -302,7 +377,7 @@ export default function StartupDashboard() {
                             </div>
                         </div>
 
-                        {/* --- CALENDAR SECTION --- */}
+                        {/* Calendar Section */}
                         <div>
                             <h3 className="text-2xl font-bold text-[#576238] mb-4">Startup Calendar</h3>
                             <Card className="p-6 bg-white border-2">
@@ -358,7 +433,6 @@ export default function StartupDashboard() {
                                         );
                                     })}
                                 </div>
-
                                 {/* Meetings List Container */}
                                 <div className="mt-8 grid md:grid-cols-2 gap-8 pt-6 border-t">
                                     {/* Upcoming Events */}
