@@ -5,9 +5,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import Link from "next/link";
 import LegoIllustration from "@/components/lego/LegoIllustration";
 import { motion } from "framer-motion";
+import { Loader2, CheckCircle2 } from "lucide-react";
 
 export default function SignupPage() {
     const [formData, setFormData] = useState({
@@ -17,18 +20,195 @@ export default function SignupPage() {
         password: "",
         confirmPassword: "",
         userType: "founder",
+        addressRegion: "",
+        tags: [] as string[],
     });
+    const [currentTag, setCurrentTag] = useState("");
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+    const [success, setSuccess] = useState(false);
+    const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
 
-    const handleSubmit = (e: React.FormEvent) => {
+    const validateForm = () => {
+        const errors: Record<string, string> = {};
+
+        if (formData.password !== formData.confirmPassword) {
+            errors.confirmPassword = "Passwords do not match";
+        }
+
+        if (formData.password.length < 8) {
+            errors.password = "Password must be at least 8 characters long";
+        }
+
+        if (!formData.name.trim()) {
+            errors.name = "Name is required";
+        }
+
+        if (!formData.email.trim()) {
+            errors.email = "Email is required";
+        } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
+            errors.email = "Please enter a valid email address";
+        }
+
+        if (!formData.phone.trim()) {
+            errors.phone = "Phone number is required";
+        }
+
+        if (!formData.addressRegion && formData.userType !== "investor") {
+            errors.addressRegion = "Address/Region is required";
+        }
+
+        setValidationErrors(errors);
+        return Object.keys(errors).length === 0;
+    };
+
+    const handleAddTag = () => {
+        if (currentTag.trim() && !formData.tags.includes(currentTag.trim())) {
+            setFormData({
+                ...formData,
+                tags: [...formData.tags, currentTag.trim()],
+            });
+            setCurrentTag("");
+        }
+    };
+
+    const handleRemoveTag = (tagToRemove: string) => {
+        setFormData({
+            ...formData,
+            tags: formData.tags.filter((tag) => tag !== tagToRemove),
+        });
+    };
+
+    const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        // Handle signup logic
-        console.log("Signup:", formData);
+        setError(null);
+
+        if (!validateForm()) {
+            return;
+        }
+
+        setLoading(true);
+
+        let response: Response | null = null;
+
+        try {
+            const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5231';
+            const url = `${apiUrl}/api/Auth/signup`;
+            
+            // Backend expects PascalCase properties (Name, Email, UserType, AddressRegion, etc.)
+            const requestBody = {
+                Name: formData.name.trim(),
+                Email: formData.email.trim().toLowerCase(),
+                Phone: formData.phone.trim(),
+                Password: formData.password,
+                ConfirmPassword: formData.confirmPassword,
+                UserType: formData.userType,
+                AddressRegion: formData.addressRegion || "",
+                Tags: formData.userType === "investor" ? formData.tags : [],
+            };
+
+            console.log('Sending request to:', url);
+            console.log('Request body:', { ...requestBody, Password: '***', ConfirmPassword: '***' });
+
+            response = await fetch(url, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(requestBody),
+            });
+
+            console.log('Response status:', response.status);
+            console.log('Response headers:', Object.fromEntries(response.headers.entries()));
+
+            // Check if response has content before parsing JSON
+            const contentType = response.headers.get('content-type');
+            let data: any = {};
+
+            if (contentType && contentType.includes('application/json')) {
+                const text = await response.text();
+                if (text) {
+                    try {
+                        data = JSON.parse(text);
+                    } catch (parseError) {
+                        console.error('JSON parse error:', parseError);
+                        throw new Error('Invalid response from server. Please try again.');
+                    }
+                }
+            }
+
+            if (!response.ok) {
+                const errorMsg = data.message || data.detail || `Sign up failed (${response.status}).`;
+                if (response.status === 405) {
+                    throw new Error(`${errorMsg} The API endpoint may not be configured correctly. Please check if the backend is running on ${apiUrl}.`);
+                }
+                throw new Error(errorMsg);
+            }
+
+            // Show success message
+            setSuccess(true);
+        } catch (err: any) {
+            console.error('Signup error:', err);
+            
+            // Handle different types of errors
+            if (err.message.includes('JSON') || err.message.includes('fetch') || err.name === 'TypeError') {
+                setError('Cannot connect to server. Please ensure the backend is running on http://localhost:5231. Check the browser console for details.');
+            } else if (err.message.includes('405') || (response !== null && response.status === 405)) {
+                const statusText = response?.statusText || 'Method Not Allowed';
+                setError(`Method not allowed (405 - ${statusText}).\n\nPossible causes:\n1. Backend is not running on ${apiUrl}\n2. CORS preflight is failing\n3. Endpoint route mismatch\n\nTroubleshooting:\n- Open http://localhost:5231/swagger to verify backend is running\n- Check Network tab in browser DevTools\n- Verify the endpoint accepts POST method`);
+            } else if (err.message.includes('CORS') || err.message.includes('cors')) {
+                setError('CORS error: The backend is not allowing requests from this origin. Please check CORS configuration in the backend.');
+            } else {
+                setError(err.message || 'An error occurred during sign up. Please try again.');
+            }
+        } finally {
+            setLoading(false);
+        }
     };
 
     const handleGoogleSignUp = () => {
         console.log("Google Sign-up triggered");
-        // Handle Google OAuth logic
+        // Handle Google OAuth logic (to be implemented)
     };
+
+    if (success) {
+        return (
+            <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-[#F0EADC] via-[#fff] to-[#FFD95D]/20">
+                <motion.div
+                    initial={{ opacity: 0, scale: 0.9 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    transition={{ duration: 0.5 }}
+                    className="w-full max-w-md"
+                >
+                    <Card className="shadow-xl border-2">
+                        <CardContent className="pt-6">
+                            <div className="text-center space-y-4">
+                                <div className="flex justify-center">
+                                    <CheckCircle2 className="h-16 w-16 text-green-500" />
+                                </div>
+                                <div>
+                                    <h2 className="text-2xl font-bold text-[#576238] mb-2">
+                                        Registration Successful! ✅
+                                    </h2>
+                                    <p className="text-muted-foreground mb-4">
+                                        Please check your email ({formData.email}) to verify your account.
+                                    </p>
+                                    <p className="text-sm text-muted-foreground">
+                                        Click the verification link in the email to complete your registration.
+                                    </p>
+                                </div>
+                                <Link href="/signin">
+                                    <Button className="w-full bg-[#576238] hover:bg-[#6b7c3f] text-white">
+                                        Go to Sign In
+                                    </Button>
+                                </Link>
+                            </div>
+                        </CardContent>
+                    </Card>
+                </motion.div>
+            </div>
+        );
+    }
 
     return (
         <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-[#F0EADC] via-[#fff] to-[#FFD95D]/20">
@@ -67,6 +247,11 @@ export default function SignupPage() {
                             </CardDescription>
                         </CardHeader>
                         <CardContent>
+                            {error && (
+                                <Alert variant="destructive" className="mb-4">
+                                    <AlertDescription>{error}</AlertDescription>
+                                </Alert>
+                            )}
                             <form onSubmit={handleSubmit} className="space-y-4">
                                 {/* User Type Selection */}
                                 <div className="grid grid-cols-3 gap-2">
@@ -74,7 +259,7 @@ export default function SignupPage() {
                                         type="button"
                                         variant={formData.userType === "founder" ? "default" : "outline"}
                                         className="w-full"
-                                        onClick={() => setFormData({ ...formData, userType: "founder" })}
+                                        onClick={() => setFormData({ ...formData, userType: "founder", tags: [] })}
                                     >
                                         🚀 Founder
                                     </Button>
@@ -90,7 +275,7 @@ export default function SignupPage() {
                                         type="button"
                                         variant={formData.userType === "contributor" ? "default" : "outline"}
                                         className="w-full"
-                                        onClick={() => setFormData({ ...formData, userType: "contributor" })}
+                                        onClick={() => setFormData({ ...formData, userType: "contributor", tags: [] })}
                                     >
                                         👥 Contributor
                                     </Button>
@@ -102,11 +287,13 @@ export default function SignupPage() {
                                         id="name"
                                         placeholder="John Doe"
                                         value={formData.name}
-                                        onChange={(e) =>
-                                            setFormData({ ...formData, name: e.target.value })
-                                        }
+                                        onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                                         required
+                                        className={validationErrors.name ? "border-red-500" : ""}
                                     />
+                                    {validationErrors.name && (
+                                        <p className="text-sm text-red-500">{validationErrors.name}</p>
+                                    )}
                                 </div>
 
                                 <div className="space-y-2">
@@ -116,11 +303,13 @@ export default function SignupPage() {
                                         type="email"
                                         placeholder="john@example.com"
                                         value={formData.email}
-                                        onChange={(e) =>
-                                            setFormData({ ...formData, email: e.target.value })
-                                        }
+                                        onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                                         required
+                                        className={validationErrors.email ? "border-red-500" : ""}
                                     />
+                                    {validationErrors.email && (
+                                        <p className="text-sm text-red-500">{validationErrors.email}</p>
+                                    )}
                                 </div>
 
                                 <div className="space-y-2">
@@ -130,12 +319,83 @@ export default function SignupPage() {
                                         type="tel"
                                         placeholder="+1 (555) 123-4567"
                                         value={formData.phone}
-                                        onChange={(e) =>
-                                            setFormData({ ...formData, phone: e.target.value })
-                                        }
+                                        onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
                                         required
+                                        className={validationErrors.phone ? "border-red-500" : ""}
                                     />
+                                    {validationErrors.phone && (
+                                        <p className="text-sm text-red-500">{validationErrors.phone}</p>
+                                    )}
                                 </div>
+
+                                <div className="space-y-2">
+                                    <Label htmlFor="addressRegion">Address/Region</Label>
+                                    <Select
+                                        value={formData.addressRegion}
+                                        onValueChange={(value) => setFormData({ ...formData, addressRegion: value })}
+                                    >
+                                        <SelectTrigger id="addressRegion" className={validationErrors.addressRegion ? "border-red-500" : ""}>
+                                            <SelectValue placeholder="Select region" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="north-america">North America</SelectItem>
+                                            <SelectItem value="europe">Europe</SelectItem>
+                                            <SelectItem value="asia">Asia</SelectItem>
+                                            <SelectItem value="africa">Africa</SelectItem>
+                                            <SelectItem value="south-america">South America</SelectItem>
+                                            <SelectItem value="oceania">Oceania</SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                    {validationErrors.addressRegion && (
+                                        <p className="text-sm text-red-500">{validationErrors.addressRegion}</p>
+                                    )}
+                                </div>
+
+                                {formData.userType === "investor" && (
+                                    <div className="space-y-2">
+                                        <Label htmlFor="tags">Investment Tags (Optional)</Label>
+                                        <div className="flex gap-2">
+                                            <Input
+                                                id="tags"
+                                                placeholder="e.g., Technology, Healthcare"
+                                                value={currentTag}
+                                                onChange={(e) => setCurrentTag(e.target.value)}
+                                                onKeyPress={(e) => {
+                                                    if (e.key === 'Enter') {
+                                                        e.preventDefault();
+                                                        handleAddTag();
+                                                    }
+                                                }}
+                                            />
+                                            <Button
+                                                type="button"
+                                                onClick={handleAddTag}
+                                                variant="outline"
+                                            >
+                                                Add
+                                            </Button>
+                                        </div>
+                                        {formData.tags.length > 0 && (
+                                            <div className="flex flex-wrap gap-2 mt-2">
+                                                {formData.tags.map((tag) => (
+                                                    <span
+                                                        key={tag}
+                                                        className="inline-flex items-center gap-1 px-2 py-1 bg-[#F0EADC] text-[#576238] rounded-md text-sm"
+                                                    >
+                                                        {tag}
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleRemoveTag(tag)}
+                                                            className="hover:text-red-500"
+                                                        >
+                                                            ×
+                                                        </button>
+                                                    </span>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
 
                                 <div className="space-y-2">
                                     <Label htmlFor="password">Password</Label>
@@ -144,11 +404,16 @@ export default function SignupPage() {
                                         type="password"
                                         placeholder="••••••••"
                                         value={formData.password}
-                                        onChange={(e) =>
-                                            setFormData({ ...formData, password: e.target.value })
-                                        }
+                                        onChange={(e) => setFormData({ ...formData, password: e.target.value })}
                                         required
+                                        className={validationErrors.password ? "border-red-500" : ""}
                                     />
+                                    {validationErrors.password && (
+                                        <p className="text-sm text-red-500">{validationErrors.password}</p>
+                                    )}
+                                    <p className="text-xs text-muted-foreground">
+                                        Must be at least 8 characters long
+                                    </p>
                                 </div>
 
                                 <div className="space-y-2">
@@ -158,19 +423,29 @@ export default function SignupPage() {
                                         type="password"
                                         placeholder="••••••••"
                                         value={formData.confirmPassword}
-                                        onChange={(e) =>
-                                            setFormData({ ...formData, confirmPassword: e.target.value })
-                                        }
+                                        onChange={(e) => setFormData({ ...formData, confirmPassword: e.target.value })}
                                         required
+                                        className={validationErrors.confirmPassword ? "border-red-500" : ""}
                                     />
+                                    {validationErrors.confirmPassword && (
+                                        <p className="text-sm text-red-500">{validationErrors.confirmPassword}</p>
+                                    )}
                                 </div>
 
                                 <Button
                                     type="submit"
                                     className="w-full bg-[#576238] hover:bg-[#6b7c3f] text-white font-semibold"
                                     size="lg"
+                                    disabled={loading}
                                 >
-                                    Create Account
+                                    {loading ? (
+                                        <>
+                                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                            Creating Account...
+                                        </>
+                                    ) : (
+                                        'Create Account'
+                                    )}
                                 </Button>
 
                                 {/* Divider */}

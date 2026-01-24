@@ -1,35 +1,137 @@
 ﻿"use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import Link from "next/link";
 import LegoIllustration from "@/components/lego/LegoIllustration";
 import { motion } from "framer-motion";
 import { useRouter } from "next/navigation";
+import { Loader2 } from "lucide-react";
 
 export default function SigninPage() {
     const router = useRouter();
     const [formData, setFormData] = useState({
         email: "",
         password: "",
-        userType: "founder",
     });
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState<string | null>(null);
 
-    const handleSubmit = (e: React.FormEvent) => {
+    // Check if already logged in
+    useEffect(() => {
+        const token = localStorage.getItem('auth_token');
+        if (token) {
+            const userStr = localStorage.getItem('user');
+            if (userStr) {
+                try {
+                    const user = JSON.parse(userStr);
+                    if (user.user_type === 'founder') {
+                        router.push('/founder/dashboard');
+                    } else if (user.user_type === 'investor') {
+                        router.push('/investor/feed');
+                    } else {
+                        router.push('/contributor/dashboard');
+                    }
+                } catch (e) {
+                    // Invalid user data, continue with signin
+                }
+            }
+        }
+    }, [router]);
+
+    const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        // Handle signin logic
-        console.log("Signin:", formData);
+        setLoading(true);
+        setError(null);
 
-        // Redirect based on user type
-        if (formData.userType === "founder") {
-            router.push("/founder/dashboard");
-        } else if (formData.userType === "investor") {
-            router.push("/investor/feed");
-        } else {
-            router.push("/contributor/dashboard");
+        try {
+            const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5231';
+            const response = await fetch(`${apiUrl}/api/Auth/signin`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    email: formData.email.trim().toLowerCase(),
+                    password: formData.password,
+                }),
+            });
+
+            // Check if response has content before parsing JSON
+            const contentType = response.headers.get('content-type');
+            let data: any = {};
+
+            if (contentType && contentType.includes('application/json')) {
+                const text = await response.text();
+                if (text) {
+                    try {
+                        data = JSON.parse(text);
+                    } catch (parseError) {
+                        console.error('JSON parse error:', parseError);
+                        throw new Error('Invalid response from server. Please check if the backend is running.');
+                    }
+                }
+            }
+
+            if (!response.ok) {
+                throw new Error(data.message || data.detail || `Sign in failed (${response.status}). Please check your credentials.`);
+            }
+
+            // Store token
+            localStorage.setItem('auth_token', data.token);
+
+            // Get full user profile
+            const meResponse = await fetch(`${apiUrl}/api/Auth/me`, {
+                headers: {
+                    'Authorization': `Bearer ${data.token}`,
+                },
+            });
+
+            if (!meResponse.ok) {
+                throw new Error('Failed to fetch user profile');
+            }
+
+            // Check if response has content before parsing JSON
+            const meContentType = meResponse.headers.get('content-type');
+            let meData: any = {};
+
+            if (meContentType && meContentType.includes('application/json')) {
+                const meText = await meResponse.text();
+                if (meText) {
+                    try {
+                        meData = JSON.parse(meText);
+                    } catch (parseError) {
+                        console.error('JSON parse error for /me:', parseError);
+                        throw new Error('Invalid response when fetching user profile.');
+                    }
+                }
+            }
+
+            // Store user data
+            localStorage.setItem('user', JSON.stringify(meData.user));
+
+            // Redirect based on user type from backend
+            const userType = meData.user.user_type;
+            if (userType === 'founder') {
+                router.push('/founder/dashboard');
+            } else if (userType === 'investor') {
+                router.push('/investor/feed');
+            } else {
+                router.push('/contributor/dashboard');
+            }
+        } catch (err: any) {
+            console.error('Signin error:', err);
+            if (err.message.includes('JSON') || err.message.includes('fetch')) {
+                setError('Server connection error. Please check if the backend is running and try again.');
+            } else {
+                setError(err.message || 'An error occurred during sign in. Please try again.');
+            }
+        } finally {
+            setLoading(false);
         }
     };
 
@@ -75,35 +177,12 @@ export default function SigninPage() {
                             </CardDescription>
                         </CardHeader>
                         <CardContent>
+                            {error && (
+                                <Alert variant="destructive" className="mb-4">
+                                    <AlertDescription>{error}</AlertDescription>
+                                </Alert>
+                            )}
                             <form onSubmit={handleSubmit} className="space-y-4">
-                                {/* User Type Selection */}
-                                <div className="grid grid-cols-3 gap-2">
-                                    <Button
-                                        type="button"
-                                        variant={formData.userType === "founder" ? "default" : "outline"}
-                                        className="w-full"
-                                        onClick={() => setFormData({ ...formData, userType: "founder" })}
-                                    >
-                                        🚀 Founder
-                                    </Button>
-                                    <Button
-                                        type="button"
-                                        variant={formData.userType === "investor" ? "default" : "outline"}
-                                        className="w-full"
-                                        onClick={() => setFormData({ ...formData, userType: "investor" })}
-                                    >
-                                        💼 Investor
-                                    </Button>
-                                    <Button
-                                        type="button"
-                                        variant={formData.userType === "contributor" ? "default" : "outline"}
-                                        className="w-full"
-                                        onClick={() => setFormData({ ...formData, userType: "contributor" })}
-                                    >
-                                        👥 Contributor
-                                    </Button>
-                                </div>
-
                                 <div className="space-y-2">
                                     <Label htmlFor="email">Email</Label>
                                     <Input
@@ -122,7 +201,7 @@ export default function SigninPage() {
                                     <div className="flex items-center justify-between">
                                         <Label htmlFor="password">Password</Label>
                                         <Link
-                                            href="/reset-password"
+                                            href="/forgot-password"
                                             className="text-sm text-[#576238] hover:text-[#6b7c3f] hover:underline"
                                         >
                                             Forgot password?
@@ -144,8 +223,16 @@ export default function SigninPage() {
                                     type="submit"
                                     className="w-full bg-[#576238] hover:bg-[#6b7c3f] text-white font-semibold"
                                     size="lg"
+                                    disabled={loading}
                                 >
-                                    Sign In
+                                    {loading ? (
+                                        <>
+                                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                            Signing in...
+                                        </>
+                                    ) : (
+                                        'Sign In'
+                                    )}
                                 </Button>
 
                                 {/* Divider */}
