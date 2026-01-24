@@ -121,3 +121,6 @@ ts-debug.log*
 # --- OS Junk ---
 .DS_Store
 Thumbs.db
+
+
+/lib/apiClient.ts
