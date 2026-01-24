@@ -1,15 +1,32 @@
 ﻿"use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Calendar, User, FolderOpen, Video } from "lucide-react";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import NotificationsDropdown from "@/components/shared/NotificationsDropdown";
+import ProtectedRoute from "@/components/auth/ProtectedRoute";
 
-export default function ContributorDashboard() {
-    const [userName] = useState("Sarah");
+function ContributorDashboardContent() {
+    const [userName, setUserName] = useState("");
+
+    useEffect(() => {
+        // Get user data from localStorage
+        const userStr = localStorage.getItem('user');
+        if (userStr) {
+            try {
+                const user = JSON.parse(userStr);
+                const name = user.fname && user.lname 
+                    ? `${user.fname} ${user.lname}` 
+                    : user.email?.split('@')[0] || 'User';
+                setUserName(name);
+            } catch (e) {
+                setUserName('User');
+            }
+        }
+    }, []);
     const [startups] = useState([
         {
             id: 1,
@@ -88,7 +105,11 @@ export default function ContributorDashboard() {
                                                     {startup.name}
                                                 </CardTitle>
                                                 <CardDescription>
+<<<<<<< Updated upstream
                                                     {startup.field} • {startup.region}
+=======
+                                                    {startup.field} � {startup.region}
+>>>>>>> Stashed changes
                                                 </CardDescription>
                                             </div>
                                             <span className="text-xs px-2 py-1 rounded-full bg-[#FFD95D] text-[#576238] font-semibold">
@@ -187,5 +208,13 @@ export default function ContributorDashboard() {
                 </div>
             </main>
         </div>
+    );
+}
+
+export default function ContributorDashboard() {
+    return (
+        <ProtectedRoute allowedUserTypes={['contributor']}>
+            <ContributorDashboardContent />
+        </ProtectedRoute>
     );
 }

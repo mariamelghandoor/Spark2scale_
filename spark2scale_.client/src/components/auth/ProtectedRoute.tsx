@@ -1,0 +1,86 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+
+interface ProtectedRouteProps {
+    children: React.ReactNode;
+    allowedUserTypes?: string[];
+}
+
+export default function ProtectedRoute({ 
+    children, 
+    allowedUserTypes 
+}: ProtectedRouteProps) {
+    const router = useRouter();
+    const [isAuthenticated, setIsAuthenticated] = useState(false);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        const checkAuth = async () => {
+            const token = localStorage.getItem('auth_token');
+            
+            if (!token) {
+                router.push('/signin');
+                return;
+            }
+
+            try {
+                const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5231';
+                const response = await fetch(`${apiUrl}/api/Auth/me`, {
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+
+                if (!response.ok) {
+                    throw new Error('Unauthorized');
+                }
+
+                const data = await response.json();
+                const userType = data.user.user_type;
+
+                if (allowedUserTypes && !allowedUserTypes.includes(userType)) {
+                    // Redirect to correct dashboard based on user type
+                    if (userType === 'founder') {
+                        router.push('/founder/dashboard');
+                    } else if (userType === 'investor') {
+                        router.push('/investor/feed');
+                    } else {
+                        router.push('/contributor/dashboard');
+                    }
+                    return;
+                }
+
+                setIsAuthenticated(true);
+            } catch (error) {
+                // Invalid token - clear storage and redirect
+                localStorage.removeItem('auth_token');
+                localStorage.removeItem('user');
+                router.push('/signin');
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        checkAuth();
+    }, [router, allowedUserTypes]);
+
+    if (loading) {
+        return (
+            <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-[#F0EADC] via-[#fff] to-[#FFD95D]/20">
+                <div className="text-center">
+                    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#576238] mx-auto mb-4"></div>
+                    <p className="text-muted-foreground">Loading...</p>
+                </div>
+            </div>
+        );
+    }
+
+    if (!isAuthenticated) {
+        return null;
+    }
+
+    return <>{children}</>;
+}
+

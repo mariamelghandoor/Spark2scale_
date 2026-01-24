@@ -1,15 +1,35 @@
 ﻿"use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Calendar, X, Heart, Eye } from "lucide-react";
 import Link from "next/link";
 import { motion, useMotionValue, useTransform } from "framer-motion";
+<<<<<<< Updated upstream
 import NotificationsDropdown from "@/components/shared/NotificationsDropdown";
+=======
+import ProtectedRoute from "@/components/auth/ProtectedRoute";
+>>>>>>> Stashed changes
 
-export default function InvestorFeed() {
-    const [userName] = useState("Sarah");
+function InvestorFeedContent() {
+    const [userName, setUserName] = useState("");
+
+    useEffect(() => {
+        // Get user data from localStorage
+        const userStr = localStorage.getItem('user');
+        if (userStr) {
+            try {
+                const user = JSON.parse(userStr);
+                const name = user.fname && user.lname 
+                    ? `${user.fname} ${user.lname}` 
+                    : user.email?.split('@')[0] || 'User';
+                setUserName(name);
+            } catch (e) {
+                setUserName('User');
+            }
+        }
+    }, []);
     const [currentIndex, setCurrentIndex] = useState(0);
     const [startups] = useState([
         {
@@ -250,5 +270,13 @@ export default function InvestorFeed() {
                 </div>
             </main>
         </div>
+    );
+}
+
+export default function InvestorFeed() {
+    return (
+        <ProtectedRoute allowedUserTypes={['investor']}>
+            <InvestorFeedContent />
+        </ProtectedRoute>
     );
 }

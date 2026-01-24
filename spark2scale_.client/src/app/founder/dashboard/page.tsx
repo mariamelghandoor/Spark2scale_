@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Calendar, Plus, User } from "lucide-react";
@@ -10,10 +10,30 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+<<<<<<< Updated upstream
 import NotificationsDropdown from "@/components/shared/NotificationsDropdown";
+=======
+import ProtectedRoute from "@/components/auth/ProtectedRoute";
+>>>>>>> Stashed changes
 
-export default function FounderDashboard() {
-    const [userName] = useState("Alex");
+function FounderDashboardContent() {
+    const [userName, setUserName] = useState("");
+
+    useEffect(() => {
+        // Get user data from localStorage
+        const userStr = localStorage.getItem('user');
+        if (userStr) {
+            try {
+                const user = JSON.parse(userStr);
+                const name = user.fname && user.lname 
+                    ? `${user.fname} ${user.lname}` 
+                    : user.email?.split('@')[0] || 'User';
+                setUserName(name);
+            } catch (e) {
+                setUserName('User');
+            }
+        }
+    }, []);
     const [startups, setStartups] = useState([
         {
             id: 1,
@@ -244,4 +264,16 @@ export default function FounderDashboard() {
             </main>
         </div>
     );
+<<<<<<< Updated upstream
 }
+=======
+}
+
+export default function FounderDashboard() {
+    return (
+        <ProtectedRoute allowedUserTypes={['founder']}>
+            <FounderDashboardContent />
+        </ProtectedRoute>
+    );
+}
+>>>>>>> Stashed changes
