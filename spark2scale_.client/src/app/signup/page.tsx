@@ -11,8 +11,11 @@ import Link from "next/link";
 import LegoIllustration from "@/components/lego/LegoIllustration";
 import { motion } from "framer-motion";
 import { Loader2, CheckCircle2 } from "lucide-react";
+import { useRouter } from "next/navigation";
+
 
 export default function SignupPage() {
+    const router = useRouter();
     const [formData, setFormData] = useState({
         name: "",
         email: "",
@@ -28,6 +31,26 @@ export default function SignupPage() {
     const [error, setError] = useState<string | null>(null);
     const [success, setSuccess] = useState(false);
     const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
+
+    // Check if already logged in - REMOVED to allow creating new accounts
+    // useEffect(() => {
+    //     const token = localStorage.getItem('auth_token');
+    //     if (token) {
+    //         const userStr = localStorage.getItem('user');
+    //         if (userStr) {
+    //             try {
+    //                 const user = JSON.parse(userStr);
+    //                 const userType = resolveUserType(user);
+    //                 if (userType) {
+    //                     const route = getDashboardRoute(userType);
+    //                     router.push(route);
+    //                 }
+    //             } catch {
+    //                 // Invalid user data, continue with signup
+    //             }
+    //         }
+    //     }
+    // }, [router]);
 
     const validateForm = () => {
         const errors: Record<string, string> = {};
@@ -90,11 +113,27 @@ export default function SignupPage() {
         setLoading(true);
 
         let response: Response | null = null;
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5231';
 
         try {
-            const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5231';
-            const url = `${apiUrl}/api/Auth/signup`;
-            
+            // First, check if backend is reachable
+            try {
+                const healthCheck = await fetch(`${apiUrl}/swagger`, { method: 'GET', signal: AbortSignal.timeout(3000) });
+                if (!healthCheck.ok && healthCheck.status !== 404) {
+                    throw new Error(`Backend health check failed with status ${healthCheck.status}`);
+                }
+            } catch (healthError: unknown) {
+                const error = healthError as Error;
+                if (error.name === 'AbortError' || error.message?.includes('fetch')) {
+                    throw new Error(`Cannot reach backend at ${apiUrl}. Please ensure:\n1. Backend is running\n2. Backend is accessible at ${apiUrl}\n3. No firewall is blocking the connection`);
+                }
+            }
+
+            // Clean API URL: remove trailing slash and /api if present
+            let cleanApiUrl = apiUrl.replace(/\/$/, ''); // Remove trailing slash
+            cleanApiUrl = cleanApiUrl.replace(/\/api$/, ''); // Remove /api if at the end
+            const url = `${cleanApiUrl}/api/Auth/signup`;
+
             // Backend expects PascalCase properties (Name, Email, UserType, AddressRegion, etc.)
             const requestBody = {
                 Name: formData.name.trim(),
@@ -107,23 +146,28 @@ export default function SignupPage() {
                 Tags: formData.userType === "investor" ? formData.tags : [],
             };
 
-            console.log('Sending request to:', url);
-            console.log('Request body:', { ...requestBody, Password: '***', ConfirmPassword: '***' });
+            console.log('=== SIGNUP REQUEST ===');
+            console.log('API URL:', cleanApiUrl);
+            console.log('Full URL:', url);
+            console.log('Request body (passwords hidden):', { ...requestBody, Password: '***', ConfirmPassword: '***' });
 
             response = await fetch(url, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
+                    'Accept': 'application/json'
                 },
                 body: JSON.stringify(requestBody),
             });
 
-            console.log('Response status:', response.status);
-            console.log('Response headers:', Object.fromEntries(response.headers.entries()));
+            console.log('=== SIGNUP RESPONSE ===');
+            console.log('Status:', response.status, response.statusText);
+            console.log('URL:', response.url);
+            console.log('Headers:', Object.fromEntries(response.headers.entries()));
 
             // Check if response has content before parsing JSON
             const contentType = response.headers.get('content-type');
-            let data: any = {};
+            let data: { message?: string; detail?: string;[key: string]: unknown } = {};
 
             if (contentType && contentType.includes('application/json')) {
                 const text = await response.text();
@@ -138,28 +182,58 @@ export default function SignupPage() {
             }
 
             if (!response.ok) {
-                const errorMsg = data.message || data.detail || `Sign up failed (${response.status}).`;
-                if (response.status === 405) {
-                    throw new Error(`${errorMsg} The API endpoint may not be configured correctly. Please check if the backend is running on ${apiUrl}.`);
+                // Try to get more detailed error information
+                let responseText = '';
+                try {
+                    const clonedResponse = response.clone();
+                    responseText = await clonedResponse.text().catch(() => '');
+                    if (responseText && !data.message && !data.detail) {
+                        try {
+                            const parsedText = JSON.parse(responseText) as { message?: string; detail?: string; title?: string;[key: string]: unknown };
+                            if (parsedText.message) data.message = parsedText.message;
+                            if (parsedText.detail) data.detail = parsedText.detail;
+                            if (parsedText.title) data.title = parsedText.title as string;
+                        } catch {
+                            // If not JSON, use as is
+                        }
+                    }
+                } catch {
+                    // Ignore if we can't read response
                 }
+
+                const errorMsg = (typeof data.message === 'string' ? data.message : '') ||
+                    (typeof data.detail === 'string' ? data.detail : '') ||
+                    (typeof data.title === 'string' ? data.title : '') ||
+                    `Sign up failed (${response.status}).`;
+
+                if (response.status === 404) {
+                    throw new Error(`404 Not Found\n\nRequested URL: ${url}\n\nThis usually means:\n1. Backend is not running on ${cleanApiUrl}\n2. Endpoint route doesn't match (expected: /api/Auth/signup)\n3. Backend route is different from what frontend expects\n\nTroubleshooting:\n1. Verify backend: Open ${cleanApiUrl}/swagger in browser\n2. Check if POST /api/Auth/signup appears in Swagger\n3. Verify backend is running: Check console for "Now listening on: http://localhost:5231"\n4. Check Network tab in DevTools to see the actual request URL\n5. Rebuild backend: cd Spark2Scale/Spark2scale_/Spark2Scale_.Server && dotnet build\n\nResponse: ${responseText || errorMsg || 'No details available'}`);
+                }
+
+                if (response.status === 405) {
+                    throw new Error(`405 Method Not Allowed\n\nRequested URL: ${url}\n\nThis usually means:\n1. Backend is not running on ${cleanApiUrl}\n2. CORS preflight (OPTIONS) request is failing\n3. Endpoint route doesn't match (expected: /api/Auth/signup)\n4. Backend middleware is blocking the request\n\nTroubleshooting:\n1. Verify backend: Open ${cleanApiUrl}/swagger in browser\n2. Check DevTools → Network tab for failed OPTIONS request\n3. Verify Program.cs has app.UseCors() before other middleware\n4. Check backend console for errors\n5. Rebuild backend: dotnet build\n\nResponse: ${responseText || errorMsg || 'No details available'}`);
+                }
+
+                // Show the actual backend error message
                 throw new Error(errorMsg);
             }
 
             // Show success message
             setSuccess(true);
-        } catch (err: any) {
+        } catch (err: unknown) {
             console.error('Signup error:', err);
-            
+            const error = err as Error;
+
             // Handle different types of errors
-            if (err.message.includes('JSON') || err.message.includes('fetch') || err.name === 'TypeError') {
+            if (error.message?.includes('JSON') || error.message?.includes('fetch') || error.name === 'TypeError') {
                 setError('Cannot connect to server. Please ensure the backend is running on http://localhost:5231. Check the browser console for details.');
-            } else if (err.message.includes('405') || (response !== null && response.status === 405)) {
-                const statusText = response?.statusText || 'Method Not Allowed';
-                setError(`Method not allowed (405 - ${statusText}).\n\nPossible causes:\n1. Backend is not running on ${apiUrl}\n2. CORS preflight is failing\n3. Endpoint route mismatch\n\nTroubleshooting:\n- Open http://localhost:5231/swagger to verify backend is running\n- Check Network tab in browser DevTools\n- Verify the endpoint accepts POST method`);
-            } else if (err.message.includes('CORS') || err.message.includes('cors')) {
+            } else if (error.message?.includes('405') || (response !== null && response.status === 405)) {
+                // Error message already contains detailed troubleshooting
+                setError(error.message);
+            } else if (error.message?.includes('CORS') || error.message?.includes('cors')) {
                 setError('CORS error: The backend is not allowing requests from this origin. Please check CORS configuration in the backend.');
             } else {
-                setError(err.message || 'An error occurred during sign up. Please try again.');
+                setError(error.message || 'An error occurred during sign up. Please try again.');
             }
         } finally {
             setLoading(false);
@@ -190,18 +264,32 @@ export default function SignupPage() {
                                     <h2 className="text-2xl font-bold text-[#576238] mb-2">
                                         Registration Successful! ✅
                                     </h2>
-                                    <p className="text-muted-foreground mb-4">
-                                        Please check your email ({formData.email}) to verify your account.
-                                    </p>
-                                    <p className="text-sm text-muted-foreground">
-                                        Click the verification link in the email to complete your registration.
+                                    <div className="bg-[#FFD95D]/20 border-2 border-[#FFD95D] rounded-lg p-4 mb-4">
+                                        <p className="font-semibold text-[#576238] mb-2">
+                                            📧 Check Your Email!
+                                        </p>
+                                        <p className="text-sm text-muted-foreground mb-2">
+                                            We've sent a verification link to:
+                                        </p>
+                                        <p className="text-sm font-semibold text-[#576238] mb-3">
+                                            {formData.email}
+                                        </p>
+                                        <p className="text-sm text-muted-foreground">
+                                            Click the verification link in the email to activate your account and access your dashboard automatically.
+                                        </p>
+                                    </div>
+                                    <div className="text-center p-4 bg-gray-50 rounded-lg">
+                                        <p className="text-sm font-medium text-[#576238]">
+                                            Once verified, you will be redirected to your dashboard.
+                                        </p>
+                                        <p className="text-xs text-muted-foreground mt-2">
+                                            You can close this tab.
+                                        </p>
+                                    </div>
+                                    <p className="text-xs text-muted-foreground">
+                                        Didn't receive the email? Check your spam folder or try signing up again.
                                     </p>
                                 </div>
-                                <Link href="/signin">
-                                    <Button className="w-full bg-[#576238] hover:bg-[#6b7c3f] text-white">
-                                        Go to Sign In
-                                    </Button>
-                                </Link>
                             </div>
                         </CardContent>
                     </Card>

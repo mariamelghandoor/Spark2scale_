@@ -1,73 +1,97 @@
-using Spark2Scale_.Server.Services;
 using Supabase;
+using DotNetEnv;
+using Spark2Scale_.Server.Services;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using System.Text.Json;
+using System;
 
-// 1. Load the .env file
-DotNetEnv.Env.Load();
+// Load .env
+Env.Load();
 
 var builder = WebApplication.CreateBuilder(args);
 
-////////////// Allow CORS for linking front end with backend //////////////
-
+// CORS policy name
 var MyAllowSpecificOrigins = "_myAllowSpecificOrigins";
+
+// CORS � allow Next.js dev server
 builder.Services.AddCors(options =>
 {
-    options.AddPolicy(name: MyAllowSpecificOrigins,
-                      policy =>
-                      {
-                          // Replace with your React URL (e.g., http://localhost:5173 or http://localhost:3000)
-                          // Or use .AllowAnyOrigin() for development only
-                          policy.WithOrigins("http://localhost:5173", "http://localhost:3000")
-                                .AllowAnyHeader()
-                                .AllowAnyMethod();
-                      });
+    options.AddPolicy(name: MyAllowSpecificOrigins, policy =>
+    {
+        // Note: Using http and https covers you regardless of how you access localhost
+        policy.WithOrigins("http://localhost:3000", "https://localhost:3000")
+              .AllowAnyHeader()
+              .AllowAnyMethod();
+    });
 });
 
-// Add services to the container.
-builder.Services.AddControllers();
+// Configure JSON to accept both camelCase and PascalCase
+builder.Services.AddControllers()
+    .AddJsonOptions(options =>
+    {
+        // Accept both camelCase (from frontend) and PascalCase (C# default)
+        options.JsonSerializerOptions.PropertyNameCaseInsensitive = true;
+        options.JsonSerializerOptions.PropertyNamingPolicy = null; // Keep PascalCase
+    });
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
-// 2. Get keys from Environment Variables (Loaded from .env)
+// Email sender service (uses SMTP settings in your env)
+builder.Services.AddTransient<EmailService>();
+
+// REMOVED: Duplicate builder.Services.AddControllers();
+
+// Supabase URL + API key from environment
 var url = Environment.GetEnvironmentVariable("SUPABASE_URL");
 var key = Environment.GetEnvironmentVariable("SUPABASE_KEY");
 
-// 3. Configure and Initialize Supabase
+if (string.IsNullOrEmpty(url) || string.IsNullOrEmpty(key))
+{
+    Console.WriteLine("FATAL: SUPABASE_URL or SUPABASE_KEY missing.");
+    throw new InvalidOperationException("Supabase credentials must be set in .env");
+}
+
 var options = new SupabaseOptions
 {
     AutoRefreshToken = true,
     AutoConnectRealtime = true
 };
 
-// Create the client instance explicitly
-var supabase = new Supabase.Client(url!, key!, options);
+var supabaseClient = new Supabase.Client(url, key, options);
 
-// Await initialization (Important: Ensures connection works before app starts)
-await supabase.InitializeAsync();
+// Initialize client before app starts
+try
+{
+    await supabaseClient.InitializeAsync();
+}
+catch (Exception ex)
+{
+    Console.WriteLine($"FATAL Supabase init error: {ex.Message}");
+    throw;
+}
 
-// Register as Singleton (One instance for the whole app)
-builder.Services.AddSingleton(supabase);
+// Single shared Supabase client
+builder.Services.AddSingleton(supabaseClient);
 
-builder.Services.AddTransient<EmailService>();
 var app = builder.Build();
 
-app.UseDefaultFiles();
-app.UseStaticFiles();
-
+// Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
     app.UseSwaggerUI();
 }
 
-app.UseHttpsRedirection();
-
-
-////////////// Allow CORS for linking front end with backend //////////////
+// --- FIX: Apply CORS before other middleware ---
 app.UseCors(MyAllowSpecificOrigins);
+
+// --- FIX: Comment out HTTPS Redirection to solve "Redirect not allowed" error ---
+// app.UseHttpsRedirection(); 
 
 app.UseAuthorization();
 
 app.MapControllers();
-app.MapFallbackToFile("/index.html");
 
 app.Run();

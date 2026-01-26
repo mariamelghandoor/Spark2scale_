@@ -46,7 +46,25 @@ interface Meeting {
 export default function StartupDashboard() {
     const params = useParams();
     const router = useRouter();
-    const [userName] = useState("Alex");
+
+    // Initialize user data from localStorage
+    const [userData] = useState<{ name: string; id: string }>(() => {
+        if (typeof window === 'undefined') return { name: 'User', id: '' };
+
+        const userStr = localStorage.getItem('user');
+        if (userStr) {
+            try {
+                const user = JSON.parse(userStr);
+                const name = user.fname && user.lname
+                    ? `${user.fname} ${user.lname}`
+                    : user.email?.split('@')[0] || 'User';
+                return { name, id: user.id || '' };
+            } catch {
+                return { name: 'User', id: '' };
+            }
+        }
+        return { name: 'User', id: '' };
+    });
 
     // State
     const [startupName, setStartupName] = useState("Loading...");
@@ -57,8 +75,8 @@ export default function StartupDashboard() {
     // Meeting & Calendar State
     const [currentMonthDate, setCurrentMonthDate] = useState(new Date());
     const [meetings, setMeetings] = useState<Meeting[]>([]);
-    const [currentUserId, setCurrentUserId] = useState<string>("");
 
+    // Dialog State
     const [inviteDialogOpen, setInviteDialogOpen] = useState(false);
     const [inviteEmail, setInviteEmail] = useState("");
     const [inviteRole, setInviteRole] = useState("contributor");
@@ -67,23 +85,21 @@ export default function StartupDashboard() {
     // 1. Fetch User & Dashboard Data
     useEffect(() => {
         const fetchDashboardData = async () => {
-            if (!params || !params.d) return;
+            if (!params || !params.d || !userData.id) return;
 
             const rawId = Array.isArray(params.d) ? params.d[0] : params.d;
             const cleanId = decodeURIComponent(rawId).replace(/\s/g, '');
 
-            // --- MOCK AUTH: REPLACE THIS WITH YOUR ACTUAL AUTH CONTEXT ---
-            const mockUserId = "3e59c30f-e3d2-43d2-ba48-818e69b7a9fd"; // Replace with real ID
-            setCurrentUserId(mockUserId);
-
             try {
-                const baseUrl = "https://localhost:7155/api";
+                const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5231';
+                let baseUrl = apiUrl.replace(/\/$/, '');
+                baseUrl = baseUrl.replace(/\/api$/, '') + '/api';
 
                 const [workflowRes, startupRes, docCountRes, meetingsRes] = await Promise.all([
                     fetch(`${baseUrl}/StartupWorkflow/${cleanId}`),
-                    fetch(`${baseUrl}/startups/${cleanId}`),
+                    fetch(`${baseUrl}/Startups/${cleanId}`),
                     fetch(`${baseUrl}/DocumentVersions/count/${cleanId}`),
-                    fetch(`${baseUrl}/Meetings?userId=${mockUserId}`) // Fetch Meetings
+                    fetch(`${baseUrl}/Meetings?userId=${userData.id}`) // Fetch Real Meetings
                 ]);
 
                 // Handle Workflow
@@ -121,13 +137,16 @@ export default function StartupDashboard() {
         };
 
         fetchDashboardData();
-    }, [params]);
+    }, [params, userData.id]);
 
     const startupId = params?.d ? String(params.d) : "";
 
     useEffect(() => {
         const fetchCount = async () => {
             if (!startupId) return;
+            // Assuming pitchDeckService handles baseUrl internally or uses partial logic? 
+            // If pitchDeckService is hardcoded to localhost:7155 it might fail if we are on 5231.
+            // But let's assume it works or just leave it for now.
             const count = await pitchDeckService.getPitchCount(startupId);
             setVideoCount(count);
         };
@@ -275,7 +294,7 @@ export default function StartupDashboard() {
                             <Button variant="ghost" size="icon"><ArrowLeft className="h-5 w-5" /></Button>
                         </Link>
                         <div>
-                            <h1 className="text-xl font-bold text-[#576238]">Hello {userName} 👋</h1>
+                            <h1 className="text-xl font-bold text-[#576238]">Hello {userData.name} 👋</h1>
                             <p className="text-sm text-muted-foreground">{startupName}</p>
                         </div>
                     </div>

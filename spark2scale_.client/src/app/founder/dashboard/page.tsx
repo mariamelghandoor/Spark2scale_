@@ -1,65 +1,127 @@
 ﻿"use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Bell, Calendar, Plus, User } from "lucide-react";
+import { Calendar, Plus, User } from "lucide-react";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import ProtectedRoute from "@/components/auth/ProtectedRoute";
 
-export default function FounderDashboard() {
-    const [userName] = useState("Alex");
-    const [startups, setStartups] = useState([
-        {
-            id: "8636e054-890c-4d0b-ac7e-635719692e06",
-            name: "EcoTech Solutions",
-            region: "North America",
-            field: "Green Technology",
-            progress: 4,
-            likes: 23,
-        },
-        {
-            id: 2,
-            name: "HealthAI Platform",
-            region: "Europe",
-            field: "Healthcare Tech",
-            progress: 2,
-            likes: 15,
-        },
-    ]);
+function FounderDashboardContent() {
+    // Initialize user data from localStorage
+    const [userData] = useState<{ name: string; id: string }>(() => {
+        if (typeof window === 'undefined') return { name: 'Founder', id: '' };
+
+        const userStr = localStorage.getItem('user');
+        if (userStr) {
+            try {
+                const user = JSON.parse(userStr);
+                const name = user.fname && user.lname
+                    ? `${user.fname} ${user.lname}`
+                    : user.email?.split('@')[0] || 'Founder';
+                return { name, id: user.id || '' };
+            } catch {
+                return { name: 'Founder', id: '' };
+            }
+        }
+        return { name: 'Founder', id: '' };
+    });
+
+    const [startups, setStartups] = useState<any[]>([]);
+    const [loading, setLoading] = useState(true);
 
     const [newStartup, setNewStartup] = useState({
         name: "",
         region: "",
         field: "",
+        idea_description: "Initial idea"
     });
 
-    const handleAddStartup = () => {
-        if (newStartup.name && newStartup.region && newStartup.field) {
-            setStartups([
-                ...startups,
-                {
-                    id: startups.length + 1,
-                    ...newStartup,
-                    progress: 0,
-                    likes: 0,
-                },
-            ]);
-            setNewStartup({ name: "", region: "", field: "" });
+    useEffect(() => {
+        if (!userData.id) return;
+
+        const fetchStartups = async () => {
+            try {
+                const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5231';
+                let cleanApiUrl = apiUrl.replace(/\/$/, '');
+                cleanApiUrl = cleanApiUrl.replace(/\/api$/, '');
+
+                const response = await fetch(`${cleanApiUrl}/api/Startups?founderId=${userData.id}`);
+                if (response.ok) {
+                    const data = await response.json();
+                    const mappedStartups = data.map((s: any) => ({
+                        id: s.sid,
+                        name: s.startupname,
+                        region: s.region || "Global",
+                        field: s.field,
+                        progress: 1,
+                        likes: 0
+                    }));
+                    setStartups(mappedStartups);
+                }
+            } catch (error) {
+                console.error("Failed to fetch startups:", error);
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        fetchStartups();
+    }, [userData.id]);
+
+    const handleAddStartup = async () => {
+        if (newStartup.name && newStartup.region && newStartup.field && userData.id) {
+            try {
+                const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5231';
+                let cleanApiUrl = apiUrl.replace(/\/$/, '');
+                cleanApiUrl = cleanApiUrl.replace(/\/api$/, '');
+
+                const payload = {
+                    startupname: newStartup.name,
+                    field: newStartup.field,
+                    idea_description: newStartup.idea_description,
+                    founder_id: userData.id
+                };
+
+                const response = await fetch(`${cleanApiUrl}/api/Startups/add`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                if (response.ok) {
+                    const savedStartup = await response.json();
+
+                    setStartups([
+                        ...startups,
+                        {
+                            id: savedStartup.sid,
+                            name: savedStartup.startupname,
+                            region: newStartup.region,
+                            field: savedStartup.field,
+                            progress: 1,
+                            likes: 0,
+                        },
+                    ]);
+                    setNewStartup({ name: "", region: "", field: "", idea_description: "Initial idea" });
+                }
+            } catch (error) {
+                console.error("Failed to add startup:", error);
+            }
         }
     };
 
     return (
         <div className="min-h-screen bg-gradient-to-br from-[#F0EADC] via-[#fff] to-[#FFD95D]/20">
-            {/* Top Navigation Bar */}
             <div className="border-b bg-white/80 backdrop-blur-lg">
                 <div className="container mx-auto px-4 py-4 flex justify-between items-center">
                     <h1 className="text-2xl font-bold text-[#576238]">
-                        Hello {userName} 👋
+                        Hello {userData.name} 👋
                     </h1>
                     <div className="flex items-center gap-4">
                         <Link href="/schedule">
@@ -67,9 +129,6 @@ export default function FounderDashboard() {
                                 <Calendar className="h-5 w-5" />
                             </Button>
                         </Link>
-                        <Button variant="ghost" size="icon">
-                            <Bell className="h-5 w-5" />
-                        </Button>
                         <Link href="/profile">
                             <Button variant="ghost" size="icon">
                                 <User className="h-5 w-5" />
@@ -219,6 +278,11 @@ export default function FounderDashboard() {
                             </Link>
                         </motion.div>
                     ))}
+                    {startups.length === 0 && !loading && (
+                        <div className="col-span-full text-center py-12">
+                            <p className="text-muted-foreground">You have no startups yet. Click "Add Startup" to begin!</p>
+                        </div>
+                    )}
                 </div>
 
                 {/* Most Liked Startups Section */}
@@ -227,7 +291,7 @@ export default function FounderDashboard() {
                         Most Liked Startups
                     </h3>
                     <div className="grid md:grid-cols-2 gap-4">
-                        {startups
+                        {startups.length > 0 ? startups
                             .sort((a, b) => b.likes - a.likes)
                             .slice(0, 2)
                             .map((startup) => (
@@ -239,10 +303,19 @@ export default function FounderDashboard() {
                                         </CardDescription>
                                     </CardHeader>
                                 </Card>
-                            ))}
+                            )) : (
+                            <p className="text-muted-foreground col-span-2">No startups to display yet.</p>
+                        )}
                     </div>
                 </div>
             </main>
         </div>
+    );
+}
+export default function FounderDashboard() {
+    return (
+        <ProtectedRoute allowedUserTypes={['founder']}>
+            <FounderDashboardContent />
+        </ProtectedRoute>
     );
 }

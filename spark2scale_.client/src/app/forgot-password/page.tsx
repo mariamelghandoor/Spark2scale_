@@ -1,6 +1,6 @@
-﻿"use client";
+"use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -8,81 +8,28 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import Link from "next/link";
 import { motion } from "framer-motion";
-import { ArrowLeft, CheckCircle2 } from "lucide-react";
+import { ArrowLeft, Mail } from "lucide-react";
 import { Loader2 } from "lucide-react";
-import { useRouter } from "next/navigation";
 
-export default function ResetPasswordPage() {
-    const router = useRouter();
-    const [formData, setFormData] = useState({
-        newPassword: "",
-        confirmPassword: "",
-    });
-    const [accessToken, setAccessToken] = useState<string | null>(null);
-    const [refreshToken, setRefreshToken] = useState<string | null>(null);
+export default function ForgotPasswordPage() {
+    const [email, setEmail] = useState("");
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [success, setSuccess] = useState(false);
-    const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
-
-    useEffect(() => {
-        // Extract tokens from URL hash
-        if (typeof window !== 'undefined') {
-            const hash = window.location.hash.substring(1);
-            const params = new URLSearchParams(hash);
-            
-            const accessTokenParam = params.get('access_token');
-            const refreshTokenParam = params.get('refresh_token');
-            const type = params.get('type');
-
-            if (accessTokenParam && type === 'recovery') {
-                setAccessToken(accessTokenParam);
-                setRefreshToken(refreshTokenParam);
-            } else if (!accessTokenParam) {
-                // No token in URL - might be direct access
-                setError('Invalid or missing reset token. Please request a new password reset link.');
-            }
-        }
-    }, []);
-
-    const validateForm = () => {
-        const errors: Record<string, string> = {};
-
-        if (formData.newPassword.length < 8) {
-            errors.newPassword = "Password must be at least 8 characters long";
-        }
-
-        if (formData.newPassword !== formData.confirmPassword) {
-            errors.confirmPassword = "Passwords do not match";
-        }
-
-        setValidationErrors(errors);
-        return Object.keys(errors).length === 0;
-    };
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        setError(null);
-
-        if (!validateForm()) {
-            return;
-        }
-
-        if (!accessToken) {
-            setError('Invalid reset token. Please request a new password reset link.');
-            return;
-        }
-
         setLoading(true);
+        setError(null);
 
         try {
             const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5231';
             // Clean API URL: remove trailing slash and /api if present
             let cleanApiUrl = apiUrl.replace(/\/$/, ''); // Remove trailing slash
             cleanApiUrl = cleanApiUrl.replace(/\/api$/, ''); // Remove /api if at the end
-            const url = `${cleanApiUrl}/api/Auth/reset-password`;
+            const url = `${cleanApiUrl}/api/Auth/forgot-password`;
             
-            console.log('=== RESET PASSWORD REQUEST ===');
+            console.log('=== FORGOT PASSWORD REQUEST ===');
             console.log('Full URL:', url);
 
             const response = await fetch(url, {
@@ -92,14 +39,11 @@ export default function ResetPasswordPage() {
                     'Accept': 'application/json'
                 },
                 body: JSON.stringify({
-                    AccessToken: accessToken,
-                    RefreshToken: refreshToken || '',
-                    NewPassword: formData.newPassword,
-                    ConfirmPassword: formData.confirmPassword,
+                    Email: email.trim().toLowerCase(),
                 }),
             });
 
-            console.log('=== RESET PASSWORD RESPONSE ===');
+            console.log('=== FORGOT PASSWORD RESPONSE ===');
             console.log('Status:', response.status, response.statusText);
 
             // Check if response has content before parsing JSON
@@ -121,24 +65,19 @@ export default function ResetPasswordPage() {
             if (!response.ok) {
                 const errorMsg = (typeof data.message === 'string' ? data.message : '') || 
                                (typeof data.detail === 'string' ? data.detail : '') || 
-                               `Failed to reset password (${response.status}).`;
+                               `Failed to send reset email (${response.status}).`;
                 throw new Error(errorMsg);
             }
 
-            // Show success message
+            // Show success message (generic to prevent email enumeration)
             setSuccess(true);
-
-            // Auto-redirect to signin after 2.5 seconds
-            setTimeout(() => {
-                router.push('/signin');
-            }, 2500);
         } catch (err: unknown) {
-            console.error('Reset password error:', err);
+            console.error('Forgot password error:', err);
             const error = err as Error;
             if (error.message?.includes('JSON') || error.message?.includes('fetch') || error.name === 'TypeError') {
                 setError('Cannot connect to server. Please ensure the backend is running on http://localhost:5231.');
             } else {
-                setError(error.message || 'An error occurred while resetting your password. Please try again.');
+                setError(error.message || 'An error occurred. Please try again.');
             }
         } finally {
             setLoading(false);
@@ -158,18 +97,26 @@ export default function ResetPasswordPage() {
                         <CardContent className="pt-6">
                             <div className="text-center space-y-4">
                                 <div className="flex justify-center">
-                                    <CheckCircle2 className="h-16 w-16 text-green-500" />
+                                    <Mail className="h-16 w-16 text-[#576238]" />
                                 </div>
                                 <div>
                                     <h2 className="text-2xl font-bold text-[#576238] mb-2">
-                                        Password Reset Successful! ✅
+                                        Check Your Email
                                     </h2>
                                     <p className="text-muted-foreground mb-4">
-                                        Your password has been successfully reset.
+                                        If the email exists, a password reset link has been sent to <strong>{email}</strong>.
                                     </p>
                                     <p className="text-sm text-muted-foreground">
-                                        Redirecting to sign in page...
+                                        Please check your inbox and click the reset link to create a new password.
                                     </p>
+                                </div>
+                                <div className="flex gap-2">
+                                    <Link href="/signin" className="flex-1">
+                                        <Button variant="outline" className="w-full">
+                                            <ArrowLeft className="mr-2 h-4 w-4" />
+                                            Back to Sign In
+                                        </Button>
+                                    </Link>
                                 </div>
                             </div>
                         </CardContent>
@@ -196,11 +143,11 @@ export default function ResetPasswordPage() {
                                     </Button>
                                 </Link>
                                 <CardTitle className="text-2xl font-bold">
-                                    Reset Password
+                                    Forgot Password
                                 </CardTitle>
                             </div>
                             <CardDescription>
-                                Enter your new password below
+                                Enter your email address and we'll send you a link to reset your password.
                             </CardDescription>
                         </CardHeader>
                         <CardContent>
@@ -211,57 +158,30 @@ export default function ResetPasswordPage() {
                             )}
                             <form onSubmit={handleSubmit} className="space-y-4">
                                 <div className="space-y-2">
-                                    <Label htmlFor="newPassword">New Password</Label>
+                                    <Label htmlFor="email">Email</Label>
                                     <Input
-                                        id="newPassword"
-                                        type="password"
-                                        placeholder="••••••••"
-                                        value={formData.newPassword}
-                                        onChange={(e) =>
-                                            setFormData({ ...formData, newPassword: e.target.value })
-                                        }
+                                        id="email"
+                                        type="email"
+                                        placeholder="john@example.com"
+                                        value={email}
+                                        onChange={(e) => setEmail(e.target.value)}
                                         required
-                                        className={validationErrors.newPassword ? "border-red-500" : ""}
                                     />
-                                    {validationErrors.newPassword && (
-                                        <p className="text-sm text-red-500">{validationErrors.newPassword}</p>
-                                    )}
-                                    <p className="text-xs text-muted-foreground">
-                                        Must be at least 8 characters long
-                                    </p>
-                                </div>
-
-                                <div className="space-y-2">
-                                    <Label htmlFor="confirmPassword">Confirm New Password</Label>
-                                    <Input
-                                        id="confirmPassword"
-                                        type="password"
-                                        placeholder="••••••••"
-                                        value={formData.confirmPassword}
-                                        onChange={(e) =>
-                                            setFormData({ ...formData, confirmPassword: e.target.value })
-                                        }
-                                        required
-                                        className={validationErrors.confirmPassword ? "border-red-500" : ""}
-                                    />
-                                    {validationErrors.confirmPassword && (
-                                        <p className="text-sm text-red-500">{validationErrors.confirmPassword}</p>
-                                    )}
                                 </div>
 
                                 <Button
                                     type="submit"
                                     className="w-full bg-[#576238] hover:bg-[#6b7c3f] text-white font-semibold"
                                     size="lg"
-                                    disabled={loading || !accessToken}
+                                    disabled={loading}
                                 >
                                     {loading ? (
                                         <>
                                             <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                            Resetting Password...
+                                            Sending...
                                         </>
                                     ) : (
-                                        'Reset Password'
+                                        'Send Reset Link'
                                     )}
                                 </Button>
                             </form>
@@ -272,3 +192,4 @@ export default function ResetPasswordPage() {
         </div>
     );
 }
+

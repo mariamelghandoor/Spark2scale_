@@ -27,7 +27,10 @@ export default function ProtectedRoute({
 
             try {
                 const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5231';
-                const response = await fetch(`${apiUrl}/api/Auth/me`, {
+                // Clean API URL: remove trailing slash and /api if present
+                let cleanApiUrl = apiUrl.replace(/\/$/, ''); // Remove trailing slash
+                cleanApiUrl = cleanApiUrl.replace(/\/api$/, ''); // Remove /api if at the end
+                const response = await fetch(`${cleanApiUrl}/api/Auth/me`, {
                     headers: {
                         'Authorization': `Bearer ${token}`
                     }

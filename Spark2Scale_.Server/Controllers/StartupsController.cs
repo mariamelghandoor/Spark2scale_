@@ -57,22 +57,78 @@ namespace Spark2Scale_.Server.Controllers
 
         // GET: api/startups
         [HttpGet]
-        public async Task<IActionResult> GetStartups()
+        public async Task<IActionResult> GetStartups([FromQuery] string? founderId, [FromQuery] string? contributorId)
         {
-            var result = await _supabase.From<Startup>().Get();
-
-            // Map Database Model -> Response DTO
-            var dtos = result.Models.Select(s => new StartupResponseDto
+            try
             {
-                sid = s.Sid,
-                startupname = s.StartupName,
-                field = s.Field,
-                idea_description = s.IdeaDescription,
-                founder_id = s.FounderId,
-                created_at = s.CreatedAt
-            }).ToList();
+                // If founderId is provided, filter by it
+                if (!string.IsNullOrEmpty(founderId) && Guid.TryParse(founderId, out Guid fId))
+                {
+                    var result = await _supabase.From<Startup>()
+                        .Where(s => s.FounderId == fId)
+                        .Get();
 
-            return Ok(dtos);
+                    var dtos = result.Models.Select(s => new StartupResponseDto
+                    {
+                        sid = s.Sid,
+                        startupname = s.StartupName,
+                        field = s.Field,
+                        idea_description = s.IdeaDescription,
+                        founder_id = s.FounderId,
+                        created_at = s.CreatedAt
+                    }).ToList();
+
+                    return Ok(dtos);
+                }
+                // If contributorId is provided, filter by it
+                else if (!string.IsNullOrEmpty(contributorId) && Guid.TryParse(contributorId, out Guid cId))
+                {
+                    var links = await _supabase.From<StartupContributor>()
+                       .Where(x => x.ContributorId == cId)
+                       .Get();
+
+                    var startupIds = links.Models.Select(x => x.StartupId.ToString()).ToList();
+
+                    if (!startupIds.Any()) return Ok(new List<StartupResponseDto>());
+
+                    var result = await _supabase.From<Startup>()
+                       .Filter("sid", Supabase.Postgrest.Constants.Operator.In, startupIds)
+                       .Get();
+
+                    var dtos = result.Models.Select(s => new StartupResponseDto
+                    {
+                        sid = s.Sid,
+                        startupname = s.StartupName,
+                        field = s.Field,
+                        idea_description = s.IdeaDescription,
+                        founder_id = s.FounderId,
+                        created_at = s.CreatedAt
+                    }).ToList();
+
+                    return Ok(dtos);
+                }
+                else
+                {
+                    // Otherwise return all (e.g. for investors feed)
+                    var result = await _supabase.From<Startup>().Get();
+
+                    var dtos = result.Models.Select(s => new StartupResponseDto
+                    {
+                        sid = s.Sid,
+                        startupname = s.StartupName,
+                        field = s.Field,
+                        idea_description = s.IdeaDescription,
+                        founder_id = s.FounderId,
+                        created_at = s.CreatedAt
+                    }).ToList();
+
+                    return Ok(dtos);
+                }
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, $"Error fetching startups: {ex.Message}");
+            }
         }
 
         [HttpGet("{id}")]

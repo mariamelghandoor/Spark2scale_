@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Calendar, X, Heart, Eye } from "lucide-react";
@@ -8,43 +8,68 @@ import Link from "next/link";
 import { motion, useMotionValue, useTransform } from "framer-motion";
 
 export default function InvestorFeed() {
-    const [userName] = useState("Sarah");
+    // Initialize user data from localStorage
+    const [userData] = useState<{ name: string; id: string }>(() => {
+        if (typeof window === 'undefined') return { name: 'Investor', id: '' };
+
+        const userStr = localStorage.getItem('user');
+        if (userStr) {
+            try {
+                const user = JSON.parse(userStr);
+                const name = user.fname && user.lname
+                    ? `${user.fname} ${user.lname}`
+                    : user.email?.split('@')[0] || 'Investor';
+                return { name, id: user.id || '' };
+            } catch {
+                return { name: 'Investor', id: '' };
+            }
+        }
+        return { name: 'Investor', id: '' };
+    });
+
+    const [startups, setStartups] = useState<any[]>([]);
     const [currentIndex, setCurrentIndex] = useState(0);
-    const [startups] = useState([
-        {
-            id: 1,
-            name: "EcoTech Solutions",
-            tagline: "AI-powered sustainability for businesses",
-            region: "North America",
-            field: "Green Technology",
-            stage: "Series A",
-            funding: "$2M",
-            team: "15 people",
-            image: "https://images.unsplash.com/photo-1497435334941-8c899ee9e8e9?w=800&h=600&fit=crop",
-        },
-        {
-            id: 2,
-            name: "HealthAI Platform",
-            tagline: "Revolutionizing patient care with AI diagnostics",
-            region: "Europe",
-            field: "Healthcare Tech",
-            stage: "Seed",
-            funding: "$500K",
-            team: "8 people",
-            image: "https://images.unsplash.com/photo-1576091160399-112ba8d25d1d?w=800&h=600&fit=crop",
-        },
-        {
-            id: 3,
-            name: "FinFlow",
-            tagline: "Smart financial management for SMBs",
-            region: "Asia",
-            field: "FinTech",
-            stage: "Pre-seed",
-            funding: "$200K",
-            team: "5 people",
-            image: "https://images.unsplash.com/photo-1460925895917-afdab827c52f?w=800&h=600&fit=crop",
-        },
-    ]);
+
+    // Fetch startups
+    useEffect(() => {
+        const fetchStartups = async () => {
+            try {
+                const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5231';
+                let cleanApiUrl = apiUrl.replace(/\/$/, '');
+                cleanApiUrl = cleanApiUrl.replace(/\/api$/, '');
+
+                // Fetch ALL startups for the feed
+                const response = await fetch(`${cleanApiUrl}/api/Startups`);
+                if (response.ok) {
+                    const data = await response.json();
+
+                    // Map to UI model
+                    const mapped = data.map((s: any, index: number) => ({
+                        id: s.sid,
+                        name: s.startupname,
+                        tagline: s.idea_description ? s.idea_description.substring(0, 100) + (s.idea_description.length > 100 ? '...' : '') : "Innovative startup",
+                        region: "Global",
+                        field: s.field,
+                        stage: "Seed", // Placeholder
+                        funding: "Undisclosed", // Placeholder
+                        team: "Unknown", // Placeholder
+                        // Cycle through some placeholder images
+                        image: [
+                            "https://images.unsplash.com/photo-1497435334941-8c899ee9e8e9?w=800&h=600&fit=crop",
+                            "https://images.unsplash.com/photo-1576091160399-112ba8d25d1d?w=800&h=600&fit=crop",
+                            "https://images.unsplash.com/photo-1460925895917-afdab827c52f?w=800&h=600&fit=crop",
+                            "https://images.unsplash.com/photo-1556761175-5973dc0f32e7?w=800&h=600&fit=crop"
+                        ][index % 4],
+                    }));
+                    setStartups(mapped);
+                }
+            } catch (error) {
+                console.error("Failed to fetch startups:", error);
+            }
+        };
+
+        fetchStartups();
+    }, []);
 
     const x = useMotionValue(0);
     const rotate = useTransform(x, [-200, 200], [-25, 25]);
@@ -69,7 +94,7 @@ export default function InvestorFeed() {
             <div className="border-b bg-white/80 backdrop-blur-lg">
                 <div className="container mx-auto px-4 py-4 flex justify-between items-center">
                     <h1 className="text-2xl font-bold text-[#576238]">
-                        Hello {userName} 👋
+                        Hello {userData.name} 👋
                     </h1>
                     <div className="flex items-center gap-4">
                         <Link href="/investor/schedule">
@@ -80,7 +105,7 @@ export default function InvestorFeed() {
                         <Link href="/profile">
                             <Button variant="ghost" size="icon">
                                 <div className="w-8 h-8 rounded-full bg-[#576238] flex items-center justify-center text-white text-sm font-semibold">
-                                    {userName[0]}
+                                    {userData.name[0]}
                                 </div>
                             </Button>
                         </Link>
@@ -103,7 +128,7 @@ export default function InvestorFeed() {
                         </p>
                     </motion.div>
 
-                    {currentIndex < startups.length ? (
+                    {startups.length > 0 && currentIndex < startups.length ? (
                         <div className="relative h-[600px]">
                             {/* Card Stack Effect */}
                             {startups.slice(currentIndex, currentIndex + 2).map((startup, index) => (
@@ -203,26 +228,31 @@ export default function InvestorFeed() {
                             ))}
                         </div>
                     ) : (
-                        // Added bg-white explicitly here
+                        // Empty state or finished swiping
                         <Card className="p-12 text-center border-2 bg-white">
-                            <div className="text-6xl mb-4">🎉</div>
+                            <div className="text-6xl mb-4">
+                                {startups.length === 0 ? "📭" : "🎉"}
+                            </div>
                             <h3 className="text-2xl font-bold text-[#576238] mb-2">
-                                That's All for Now!
+                                {startups.length === 0 ? "No Startups Found" : "That's All for Now!"}
                             </h3>
                             <p className="text-muted-foreground mb-6">
-                                Check back later for more startup opportunities
+                                {startups.length === 0 ? "Check back later for new opportunities." : "Check back later for more startup opportunities"}
                             </p>
                             <Button
-                                onClick={() => setCurrentIndex(0)}
+                                onClick={() => {
+                                    if (startups.length > 0) setCurrentIndex(0);
+                                    else window.location.reload();
+                                }}
                                 className="bg-[#576238] hover:bg-[#6b7c3f]"
                             >
-                                Review Again
+                                {startups.length === 0 ? "Refresh" : "Review Again"}
                             </Button>
                         </Card>
                     )}
 
                     {/* Action Buttons */}
-                    {currentIndex < startups.length && (
+                    {startups.length > 0 && currentIndex < startups.length && (
                         <motion.div
                             initial={{ opacity: 0, y: 20 }}
                             animate={{ opacity: 1, y: 0 }}

@@ -12,10 +12,26 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
-const TEST_USER_ID = "3e59c30f-e3d2-43d2-ba48-818e69b7a9fd";
+export default function FounderSchedule() {
+    // Initialize user data from localStorage
+    const [userData] = useState<{ name: string; id: string }>(() => {
+        if (typeof window === 'undefined') return { name: 'Founder', id: '' };
 
-export default function SchedulePage() {
-    const [userName] = useState("Alex");
+        const userStr = localStorage.getItem('user');
+        if (userStr) {
+            try {
+                const user = JSON.parse(userStr);
+                const name = user.fname && user.lname
+                    ? `${user.fname} ${user.lname}`
+                    : user.email?.split('@')[0] || 'Founder';
+                return { name, id: user.id || '' };
+            } catch {
+                return { name: 'Founder', id: '' };
+            }
+        }
+        return { name: 'Founder', id: '' };
+    });
+
     const [meetings, setMeetings] = useState<MeetingDto[]>([]);
     const [isLoading, setIsLoading] = useState(true);
 
@@ -38,12 +54,15 @@ export default function SchedulePage() {
     const todayStr = new Date().toISOString().split('T')[0];
 
     useEffect(() => {
-        fetchMeetings();
-    }, []);
+        if (userData.id) {
+            fetchMeetings();
+        }
+    }, [userData.id]);
 
     const fetchMeetings = async () => {
+        if (!userData.id) return;
         try {
-            const data = await meetingService.getUserMeetings(TEST_USER_ID);
+            const data = await meetingService.getUserMeetings(userData.id);
             setMeetings(data);
         } catch (error) {
             console.error("Failed to fetch meetings", error);
@@ -78,7 +97,7 @@ export default function SchedulePage() {
         setIsScheduling(true);
         try {
             await meetingService.createMeeting({
-                sender_id: TEST_USER_ID,
+                sender_id: userData.id,
                 invitee_email: newMeeting.investorEmail,
                 meeting_date: newMeeting.date,
                 meeting_time: newMeeting.time + ":00",
@@ -189,7 +208,7 @@ export default function SchedulePage() {
                         </Link>
                         <div>
                             <h1 className="text-xl font-bold text-[#576238]">
-                                Hello {userName} 👋
+                                Hello {userData.name} 👋
                             </h1>
                             <p className="text-sm text-muted-foreground">Meeting Schedule</p>
                         </div>

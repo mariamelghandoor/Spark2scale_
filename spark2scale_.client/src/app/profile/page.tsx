@@ -40,13 +40,43 @@ interface Profile {
 }
 
 export default function ProfilePage() {
-    const [profile, setProfile] = useState<Profile>({
-        name: "Alex Johnson",
-        email: "alex@example.com",
-        phone: "+1 (555) 123-4567",
-        currentPassword: "",
-        newPassword: "",
-        confirmPassword: "",
+    const [profile, setProfile] = useState<Profile>(() => {
+        if (typeof window === 'undefined') {
+            return {
+                name: "",
+                email: "",
+                phone: "",
+                currentPassword: "",
+                newPassword: "",
+                confirmPassword: "",
+            };
+        }
+
+        try {
+            const userStr = localStorage.getItem('user');
+            if (userStr) {
+                const user = JSON.parse(userStr);
+                return {
+                    name: user.fname && user.lname ? `${user.fname} ${user.lname}` : "User",
+                    email: user.email || "",
+                    phone: user.phone || "",
+                    currentPassword: "",
+                    newPassword: "",
+                    confirmPassword: "",
+                };
+            }
+        } catch (e) {
+            console.error("Error parsing user profile from local storage", e);
+        }
+
+        return {
+            name: "User",
+            email: "",
+            phone: "",
+            currentPassword: "",
+            newPassword: "",
+            confirmPassword: "",
+        };
     });
 
     /** Generic reusable handler */

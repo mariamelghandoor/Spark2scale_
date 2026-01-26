@@ -1,77 +1,76 @@
 ﻿"use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ArrowLeft, Calendar, Clock, ExternalLink, MapPin, User } from "lucide-react";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
+import { meetingService, MeetingDto } from "@/services/meetingService";
+import { motion } from "framer-motion";
 
 export default function ContributorSchedulePage() {
-    const [userName] = useState("Sarah");
+    // Initialize user data from localStorage
+    const [userData] = useState<{ name: string; id: string }>(() => {
+        if (typeof window === 'undefined') return { name: 'Contributor', id: '' };
 
-    // Sample meetings for contributor
-    const upcomingMeetings = [
-        {
-            id: 1,
-            title: "Team Sync - EcoTech Solutions",
-            startup: "EcoTech Solutions",
-            organizer: "Alex Chen",
-            date: "2024-02-15",
-            time: "2:00 PM",
-            duration: "45 min",
-            meetingLink: "https://meet.google.com/abc-defg-hij",
-            type: "Team Meeting",
-            description: "Weekly progress update and planning session",
-        },
-        {
-            id: 2,
-            title: "Document Review - HealthAI",
-            startup: "HealthAI Platform",
-            organizer: "Maria Santos",
-            date: "2024-02-18",
-            time: "10:00 AM",
-            duration: "30 min",
-            meetingLink: "https://zoom.us/j/123456789",
-            type: "Review",
-            description: "Review updated business plan and financial model",
-        },
-        {
-            id: 3,
-            title: "Strategy Discussion - EcoTech",
-            startup: "EcoTech Solutions",
-            organizer: "Alex Chen",
-            date: "2024-02-20",
-            time: "3:30 PM",
-            duration: "1 hour",
-            meetingLink: "https://meet.google.com/xyz-uvwx-rst",
-            type: "Strategy",
-            description: "Discuss Q2 marketing strategy and goals",
-        },
-    ];
+        const userStr = localStorage.getItem('user');
+        if (userStr) {
+            try {
+                const user = JSON.parse(userStr);
+                const name = user.fname && user.lname
+                    ? `${user.fname} ${user.lname}`
+                    : user.email?.split('@')[0] || 'Contributor';
+                return { name, id: user.id || '' };
+            } catch {
+                return { name: 'Contributor', id: '' };
+            }
+        }
+        return { name: 'Contributor', id: '' };
+    });
 
-    const pastMeetings = [
-        {
-            id: 4,
-            title: "Onboarding - EcoTech Solutions",
-            startup: "EcoTech Solutions",
-            organizer: "Alex Chen",
-            date: "2024-01-28",
-            time: "11:00 AM",
-            duration: "1 hour",
-            type: "Onboarding",
-        },
-        {
-            id: 5,
-            title: "Initial Review - HealthAI",
-            startup: "HealthAI Platform",
-            organizer: "Maria Santos",
-            date: "2024-01-25",
-            time: "2:00 PM",
-            duration: "45 min",
-            type: "Review",
-        },
-    ];
+    const [meetings, setMeetings] = useState<MeetingDto[]>([]);
+    const [isLoading, setIsLoading] = useState(true);
+
+    useEffect(() => {
+        if (userData.id) {
+            fetchMeetings();
+        }
+    }, [userData.id]);
+
+    const fetchMeetings = async () => {
+        try {
+            const data = await meetingService.getUserMeetings(userData.id);
+            setMeetings(data);
+        } catch (error) {
+            console.error("Failed to fetch meetings", error);
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    const formatDate = (dateString: string) => {
+        if (!dateString) return "";
+        const date = new Date(dateString);
+        return date.toLocaleDateString("en-US", {
+            weekday: "long",
+            month: "long",
+            day: "numeric",
+        });
+    };
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const upcomingMeetings = meetings.filter(m => {
+        const mDate = new Date(m.meeting_date);
+        return mDate >= today && m.status !== 'canceled' && m.status !== 'rejected';
+    });
+
+    const pastMeetings = meetings.filter(m => {
+        const mDate = new Date(m.meeting_date);
+        return mDate < today || m.status === 'canceled' || m.status === 'rejected';
+    });
 
     return (
         <div className="min-h-screen bg-gradient-to-br from-[#F0EADC] via-[#fff] to-[#FFD95D]/20">
@@ -87,7 +86,7 @@ export default function ContributorSchedulePage() {
                             </Link>
                             <div>
                                 <h1 className="text-2xl font-bold text-[#576238]">
-                                    Schedule - {userName}
+                                    Schedule - {userData.name}
                                 </h1>
                                 <p className="text-sm text-muted-foreground">
                                     Your upcoming meetings and events
@@ -106,112 +105,105 @@ export default function ContributorSchedulePage() {
                         <h2 className="text-2xl font-bold text-[#576238] mb-4">
                             Upcoming Meetings
                         </h2>
-                        <div className="space-y-4">
-                            {upcomingMeetings.map((meeting) => (
-                                <Card
-                                    key={meeting.id}
-                                    className="border-2 hover:border-[#FFD95D] transition-all"
-                                >
-                                    <CardHeader>
-                                        <div className="flex items-start justify-between">
-                                            <div className="flex-1">
-                                                <CardTitle className="text-[#576238] mb-2">
-                                                    {meeting.title}
-                                                </CardTitle>
-                                                <CardDescription className="space-y-1">
-                                                    <div className="flex items-center gap-2">
-                                                        <User className="h-4 w-4" />
-                                                        <span>Startup: <strong>{meeting.startup}</strong></span>
-                                                    </div>
-                                                    <div className="flex items-center gap-2">
-                                                        <User className="h-4 w-4" />
-                                                        <span>Organizer: {meeting.organizer}</span>
-                                                    </div>
-                                                </CardDescription>
-                                            </div>
-                                            <Badge className="bg-[#576238]">{meeting.type}</Badge>
-                                        </div>
-                                    </CardHeader>
-                                    <CardContent>
-                                        <div className="space-y-4">
-                                            {/* Date and Time */}
-                                            <div className="flex items-center gap-6">
-                                                <div className="flex items-center gap-2 text-sm">
-                                                    <Calendar className="h-4 w-4 text-[#576238]" />
-                                                    <span className="font-semibold">
-                                                        {new Date(meeting.date).toLocaleDateString("en-US", {
-                                                            weekday: "long",
-                                                            month: "long",
-                                                            day: "numeric",
-                                                        })}
-                                                    </span>
+                        {isLoading ? (
+                            <p>Loading...</p>
+                        ) : upcomingMeetings.length === 0 ? (
+                            <Card className="p-8 text-center text-muted-foreground">No upcoming meetings.</Card>
+                        ) : (
+                            <div className="space-y-4">
+                                {upcomingMeetings.map((meeting) => (
+                                    <Card
+                                        key={meeting.meeting_id}
+                                        className="border-2 hover:border-[#FFD95D] transition-all"
+                                    >
+                                        <CardHeader>
+                                            <div className="flex items-start justify-between">
+                                                <div className="flex-1">
+                                                    <CardTitle className="text-[#576238] mb-2">
+                                                        {meeting.with_whom_name || "Meeting"}
+                                                    </CardTitle>
+                                                    <CardDescription className="space-y-1">
+                                                        <div className="flex items-center gap-2">
+                                                            <User className="h-4 w-4" />
+                                                            <span>With: <strong>{meeting.with_whom_name}</strong></span>
+                                                        </div>
+                                                    </CardDescription>
                                                 </div>
-                                                <div className="flex items-center gap-2 text-sm">
-                                                    <Clock className="h-4 w-4 text-[#576238]" />
-                                                    <span>
-                                                        {meeting.time} ({meeting.duration})
-                                                    </span>
-                                                </div>
+                                                <Badge className="bg-[#576238]">{meeting.status}</Badge>
                                             </div>
+                                        </CardHeader>
+                                        <CardContent>
+                                            <div className="space-y-4">
+                                                {/* Date and Time */}
+                                                <div className="flex items-center gap-6">
+                                                    <div className="flex items-center gap-2 text-sm">
+                                                        <Calendar className="h-4 w-4 text-[#576238]" />
+                                                        <span className="font-semibold">
+                                                            {formatDate(meeting.meeting_date)}
+                                                        </span>
+                                                    </div>
+                                                    <div className="flex items-center gap-2 text-sm">
+                                                        <Clock className="h-4 w-4 text-[#576238]" />
+                                                        <span>
+                                                            {meeting.meeting_time}
+                                                        </span>
+                                                    </div>
+                                                </div>
 
-                                            {/* Description */}
-                                            {meeting.description && (
-                                                <p className="text-sm text-muted-foreground">
-                                                    {meeting.description}
-                                                </p>
-                                            )}
-
-                                            {/* Join Button */}
-                                            <Button
-                                                className="w-full bg-[#576238] hover:bg-[#6b7c3f]"
-                                                onClick={() => {
-                                                    window.open(meeting.meetingLink, "_blank");
-                                                }}
-                                            >
-                                                <ExternalLink className="mr-2 h-4 w-4" />
-                                                Join Meeting
-                                            </Button>
-                                        </div>
-                                    </CardContent>
-                                </Card>
-                            ))}
-                        </div>
+                                                {/* Join Button */}
+                                                {meeting.meeting_link && (
+                                                    <Button
+                                                        className="w-full bg-[#576238] hover:bg-[#6b7c3f]"
+                                                        onClick={() => {
+                                                            window.open(meeting.meeting_link!, "_blank");
+                                                        }}
+                                                    >
+                                                        <ExternalLink className="mr-2 h-4 w-4" />
+                                                        Join Meeting
+                                                    </Button>
+                                                )}
+                                            </div>
+                                        </CardContent>
+                                    </Card>
+                                ))}
+                            </div>
+                        )}
                     </div>
 
                     {/* Past Meetings */}
-                    <div>
-                        <h2 className="text-2xl font-bold text-[#576238] mb-4">
-                            Past Meetings
-                        </h2>
-                        <div className="space-y-3">
-                            {pastMeetings.map((meeting) => (
-                                <Card
-                                    key={meeting.id}
-                                    className="border bg-gray-50 opacity-75"
-                                >
-                                    <CardContent className="pt-6">
-                                        <div className="flex items-center justify-between">
-                                            <div className="flex-1">
-                                                <h3 className="font-semibold text-[#576238] mb-1">
-                                                    {meeting.title}
-                                                </h3>
-                                                <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                                                    <span>Startup: {meeting.startup}</span>
-                                                    <span>•</span>
-                                                    <span>
-                                                        {new Date(meeting.date).toLocaleDateString()}
-                                                    </span>
-                                                    <span>•</span>
-                                                    <span>{meeting.time}</span>
+                    {pastMeetings.length > 0 && (
+                        <div>
+                            <h2 className="text-2xl font-bold text-[#576238] mb-4">
+                                Past Meetings
+                            </h2>
+                            <div className="space-y-3">
+                                {pastMeetings.map((meeting) => (
+                                    <Card
+                                        key={meeting.meeting_id}
+                                        className="border bg-gray-50 opacity-75"
+                                    >
+                                        <CardContent className="pt-6">
+                                            <div className="flex items-center justify-between">
+                                                <div className="flex-1">
+                                                    <h3 className="font-semibold text-[#576238] mb-1">
+                                                        {meeting.with_whom_name}
+                                                    </h3>
+                                                    <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                                                        <span>
+                                                            {formatDate(meeting.meeting_date)}
+                                                        </span>
+                                                        <span>•</span>
+                                                        <span>{meeting.meeting_time}</span>
+                                                    </div>
                                                 </div>
+                                                <Badge variant="outline">{meeting.status}</Badge>
                                             </div>
-                                            <Badge variant="outline">{meeting.type}</Badge>
-                                        </div>
-                                    </CardContent>
-                                </Card>
-                            ))}
+                                        </CardContent>
+                                    </Card>
+                                ))}
+                            </div>
                         </div>
-                    </div>
+                    )}
 
                     {/* Info Card */}
                     <Card className="border-2 border-blue-200 bg-blue-50">
