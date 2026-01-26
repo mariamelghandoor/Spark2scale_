@@ -1,33 +1,5 @@
 ﻿"use client";
 
-<<<<<<< Updated upstream
-import { useState } from "react";
-import { useRouter } from "next/navigation";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import {
-    Card,
-    CardContent,
-    CardDescription,
-    CardFooter,
-    CardHeader,
-    CardTitle,
-} from "@/components/ui/card";
-import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Loader2, AlertCircle } from "lucide-react";
-import Link from "next/link";
-
-export default function SigninPage() {
-    const router = useRouter();
-
-    const [email, setEmail] = useState("");
-    const [password, setPassword] = useState("");
-    const [isLoading, setIsLoading] = useState(false);
-    const [status, setStatus] = useState<{ type: "error" | "success" | null; message: string }>({
-        type: null,
-        message: "",
-=======
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -39,115 +11,61 @@ import LegoIllustration from "@/components/lego/LegoIllustration";
 import { motion } from "framer-motion";
 import { useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
+import { handleAuthSuccess, User, getDashboardRoute, resolveUserType, setCookie } from "@/lib/auth";
 
 export default function SigninPage() {
     const router = useRouter();
+    const [redirectTo, setRedirectTo] = useState<string | null>(null);
+
     const [formData, setFormData] = useState({
         email: "",
         password: "",
->>>>>>> Stashed changes
     });
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
-<<<<<<< Updated upstream
-    const handleSubmit = async (e: React.FormEvent) => {
-        e.preventDefault();
-        setIsLoading(true);
-        setStatus({ type: null, message: "" });
-
-        try {
-            const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/Auth/signin`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    email: email.toLowerCase().trim(),
-                    password,
-                }),
-            });
-
-            const data = await res.json();
-
-            if (!res.ok) {
-                throw new Error(data.message || "Login failed");
-            }
-
-            // Store token
-            localStorage.setItem("auth_token", data.token);
-            localStorage.setItem("user", JSON.stringify(data.user));
-
-            // Get full user profile from /me endpoint
-            try {
-                const meResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/Auth/me`, {
-                    method: "GET",
-                    headers: {
-                        "Authorization": `Bearer ${data.token}`,
-                        "Content-Type": "application/json",
-                    },
-                });
-
-                if (meResponse.ok) {
-                    const meData = await meResponse.json();
-                    // Update localStorage with full user data
-                    localStorage.setItem("user", JSON.stringify(meData.user));
-                    localStorage.setItem("roleData", JSON.stringify(meData.roleData || null));
-                }
-            } catch (meError) {
-                console.error("Failed to fetch full user profile:", meError);
-                // Continue with redirect even if /me fails
-            }
-
-            setStatus({ type: "success", message: "Login successful! Redirecting..." });
-
-            // Redirect based on user type
-            setTimeout(() => {
-                const userType = data.user.userType?.toLowerCase() || "";
-                if (userType === "founder") {
-                    router.push("/founder/dashboard");
-                } else if (userType === "investor") {
-                    router.push("/investor/feed");
-                } else if (userType === "contributor") {
-                    router.push("/contributor/dashboard");
-                } else {
-                    router.push("/signin");
-                }
-            }, 1000);
-        } catch (err: unknown) {
-            const message =
-                err instanceof Error ? err.message : "Unexpected error occurred";
-
-            setStatus({
-                type: "error",
-                message,
-            });
-        } finally {
-            setIsLoading(false);
-        }
-    };
-
-=======
-    // Check if already logged in
+    // Read redirect parameter from URL on mount
     useEffect(() => {
-        const token = localStorage.getItem('auth_token');
-        if (token) {
-            // Already logged in, redirect to appropriate dashboard
-            const userStr = localStorage.getItem('user');
-            if (userStr) {
-                try {
-                    const user = JSON.parse(userStr);
-                    if (user.user_type === 'founder') {
-                        router.push('/founder/dashboard');
-                    } else if (user.user_type === 'investor') {
-                        router.push('/investor/feed');
-                    } else {
-                        router.push('/contributor/dashboard');
-                    }
-                } catch (e) {
-                    // Invalid user data, continue with signin
+        if (typeof window !== 'undefined') {
+            // Try URL parameter first
+            const params = new URLSearchParams(window.location.search);
+            let redirect = params.get('redirect');
+
+            // Fallback to cookie if no URL param
+            if (!redirect) {
+                const cookies = document.cookie.split(';');
+                const redirectCookie = cookies.find(c => c.trim().startsWith('intended_redirect='));
+                if (redirectCookie) {
+                    redirect = redirectCookie.split('=')[1];
+                    // Clear the cookie
+                    document.cookie = 'intended_redirect=; path=/; max-age=0';
                 }
             }
+
+            console.log('Detected redirect path:', redirect);
+            setRedirectTo(redirect);
         }
-    }, [router]);
+    }, []);
+
+    // Check if already logged in - REMOVED to allow switching accounts
+    // useEffect(() => {
+    //     const token = localStorage.getItem('auth_token');
+    //     if (token) {
+    //         const userStr = localStorage.getItem('user');
+    //         if (userStr) {
+    //             try {
+    //                 const user = JSON.parse(userStr);
+    //                 const userType = resolveUserType(user);
+    //                 if (userType) {
+    //                     const route = getDashboardRoute(userType);
+    //                     router.push(route);
+    //                 }
+    //             } catch {
+    //                 // Invalid user data, continue with signin
+    //             }
+    //         }
+    //     }
+    // }, [router]);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -156,53 +74,120 @@ export default function SigninPage() {
 
         try {
             const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5231';
-            const response = await fetch(`${apiUrl}/api/Auth/signin`, {
+            // Clean API URL: remove trailing slash and /api if present
+            let cleanApiUrl = apiUrl.replace(/\/$/, ''); // Remove trailing slash
+            cleanApiUrl = cleanApiUrl.replace(/\/api$/, ''); // Remove /api if at the end
+            const url = `${cleanApiUrl}/api/Auth/signin`;
+
+            console.log('=== SIGNIN REQUEST ===');
+            console.log('API URL:', cleanApiUrl);
+            console.log('Full URL:', url);
+
+            const response = await fetch(url, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
+                    'Accept': 'application/json'
                 },
                 body: JSON.stringify({
-                    email: formData.email.trim().toLowerCase(),
-                    password: formData.password,
+                    Email: formData.email.trim().toLowerCase(),
+                    Password: formData.password,
                 }),
             });
 
-            const data = await response.json();
+            console.log('=== SIGNIN RESPONSE ===');
+            console.log('Status:', response.status, response.statusText);
+            console.log('URL:', response.url);
+
+            // Check if response has content before parsing JSON
+            const contentType = response.headers.get('content-type');
+            let data: { token?: string; message?: string; detail?: string;[key: string]: unknown } = {};
+
+            if (contentType && contentType.includes('application/json')) {
+                const text = await response.text();
+                if (text) {
+                    try {
+                        data = JSON.parse(text);
+                    } catch (parseError) {
+                        console.error('JSON parse error:', parseError);
+                        throw new Error('Invalid response from server. Please check if the backend is running.');
+                    }
+                }
+            }
 
             if (!response.ok) {
-                throw new Error(data.message || 'Sign in failed. Please check your credentials.');
+                let responseText = '';
+                try {
+                    const clonedResponse = response.clone();
+                    responseText = await clonedResponse.text().catch(() => '');
+                    if (responseText && !data.message && !data.detail) {
+                        try {
+                            const parsedText = JSON.parse(responseText) as { message?: string; detail?: string;[key: string]: unknown };
+                            if (parsedText.message) data.message = parsedText.message;
+                            if (parsedText.detail) data.detail = parsedText.detail;
+                        } catch {
+                            // If not JSON, use as is
+                        }
+                    }
+                } catch {
+                    // Ignore if we can't read response
+                }
+
+                const errorMsg = (typeof data.message === 'string' ? data.message : '') ||
+                    (typeof data.detail === 'string' ? data.detail : '') ||
+                    `Sign in failed (${response.status}). Please check your credentials.`;
+
+                if (response.status === 404) {
+                    throw new Error(`404 Not Found\n\nRequested URL: ${url}\n\nThis usually means:\n1. Backend is not running on ${cleanApiUrl}\n2. Endpoint route doesn't match (expected: /api/Auth/signin)\n3. Backend route is different from what frontend expects\n\nTroubleshooting:\n1. Verify backend: Open ${cleanApiUrl}/swagger in browser\n2. Check if POST /api/Auth/signin appears in Swagger\n3. Verify backend is running: Check console for "Now listening on: http://localhost:5231"\n4. Check Network tab in DevTools to see the actual request URL\n5. Rebuild backend: cd Spark2Scale/Spark2scale_/Spark2Scale_.Server && dotnet build\n\nResponse: ${responseText || errorMsg || 'No details available'}`);
+                }
+
+                if (response.status === 405) {
+                    throw new Error(`405 Method Not Allowed\n\nRequested URL: ${url}\n\nThis usually means:\n1. Backend is not running on ${cleanApiUrl}\n2. CORS preflight (OPTIONS) request is failing\n3. Endpoint route doesn't match (expected: /api/Auth/signin)\n4. Backend middleware is blocking the request\n\nTroubleshooting:\n1. Verify backend: Open ${cleanApiUrl}/swagger in browser\n2. Check DevTools → Network tab for failed OPTIONS request\n3. Verify Program.cs has app.UseCors() before other middleware\n4. Check backend console for errors\n5. Rebuild backend: dotnet build\n\nResponse: ${responseText || errorMsg || 'No details available'}`);
+                }
+
+                throw new Error(errorMsg);
             }
 
             // Store token
+            if (!data.token || typeof data.token !== 'string') {
+                throw new Error('Invalid response: missing authentication token');
+            }
+
+            // Store token in both localStorage and cookie
             localStorage.setItem('auth_token', data.token);
+            setCookie('auth_token', data.token, 30); // 30 days expiration
 
-            // Get full user profile
-            const meResponse = await fetch(`${apiUrl}/api/Auth/me`, {
-                headers: {
-                    'Authorization': `Bearer ${data.token}`,
-                },
-            });
-
-            if (!meResponse.ok) {
-                throw new Error('Failed to fetch user profile');
+            const user = data.user as User;
+            if (!user) {
+                throw new Error('Invalid response: missing user data');
             }
 
-            const meData = await meResponse.json();
+            localStorage.setItem('user', JSON.stringify(user));
 
-            // Store user data
-            localStorage.setItem('user', JSON.stringify(meData.user));
+            console.log('=== SIGNIN SUCCESS ===');
+            console.log('User:', user);
+            console.log('Redirect parameter:', redirectTo);
 
-            // Redirect based on user type from backend
-            const userType = meData.user.user_type;
-            if (userType === 'founder') {
-                router.push('/founder/dashboard');
-            } else if (userType === 'investor') {
-                router.push('/investor/feed');
+            // Redirect to intended destination or default dashboard
+            if (redirectTo && redirectTo.startsWith('/')) {
+                console.log('Redirecting to specified URL:', redirectTo);
+                router.push(redirectTo);
             } else {
-                router.push('/contributor/dashboard');
+                // Use default dashboard based on user type
+                const userType = resolveUserType(user);
+                const defaultRoute = getDashboardRoute(userType);
+                console.log('User type:', userType);
+                console.log('Redirecting to default dashboard:', defaultRoute);
+                router.push(defaultRoute);
             }
-        } catch (err: any) {
-            setError(err.message || 'An error occurred during sign in. Please try again.');
+        } catch (err: unknown) {
+            console.error('Signin error:', err);
+            const error = err as Error;
+            if (error.message?.includes('JSON') || error.message?.includes('fetch')) {
+                setError('Server connection error. Please check if the backend is running and try again.');
+            } else {
+                setError(error.message || 'An error occurred during sign in. Please try again.');
+            }
         } finally {
             setLoading(false);
         }
@@ -210,39 +195,30 @@ export default function SigninPage() {
 
     const handleGoogleSignIn = () => {
         console.log("Google Sign-in triggered");
-        // Handle Google OAuth logic (to be implemented)
+        // Handle Google OAuth logic
     };
 
->>>>>>> Stashed changes
     return (
-        <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-[#F0EADC] via-white to-[#FFD95D]/20">
-            <Card className="w-full max-w-md shadow-xl">
-                <CardHeader>
-                    <CardTitle className="text-center text-2xl">Sign In</CardTitle>
-                    <CardDescription className="text-center">
-                        Enter your credentials to continue
-                    </CardDescription>
-                </CardHeader>
+        <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-[#F0EADC] via-[#fff] to-[#FFD95D]/20">
+            <div className="w-full max-w-6xl grid md:grid-cols-2 gap-8 items-center">
+                {/* Left side - Illustration */}
+                <motion.div
+                    initial={{ opacity: 0, x: -50 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ duration: 0.6 }}
+                    className="hidden md:block"
+                >
+                    <div className="text-center mb-8">
+                        <h2 className="text-4xl font-bold text-[#576238] mb-3">
+                            Welcome Back!
+                        </h2>
+                        <p className="text-lg text-muted-foreground">
+                            Continue building your success 🎯
+                        </p>
+                    </div>
+                    <LegoIllustration />
+                </motion.div>
 
-<<<<<<< Updated upstream
-                <CardContent>
-                    {status.type && (
-                        <Alert variant={status.type === "error" ? "destructive" : "default"} className="mb-4">
-                            <AlertCircle className="h-4 w-4 mr-2" />
-                            <AlertDescription>{status.message}</AlertDescription>
-                        </Alert>
-                    )}
-
-                    <form onSubmit={handleSubmit} className="space-y-4">
-                        <div>
-                            <Label>Email</Label>
-                            <Input value={email} onChange={(e) => setEmail(e.target.value)} required />
-                        </div>
-
-                        <div>
-                            <div className="flex items-center justify-between mb-2">
-                                <Label>Password</Label>
-=======
                 {/* Right side - Form */}
                 <motion.div
                     initial={{ opacity: 0, x: 50 }}
@@ -362,40 +338,17 @@ export default function SigninPage() {
                         <CardFooter className="flex justify-center">
                             <p className="text-sm text-muted-foreground">
                                 Don't have an account?{" "}
->>>>>>> Stashed changes
                                 <Link
-                                    href="/forgot-password"
-                                    className="text-sm text-[#576238] hover:text-[#6b7c3f] hover:underline"
+                                    href="/signup"
+                                    className="text-[#576238] hover:text-[#6b7c3f] font-semibold underline-offset-4 hover:underline"
                                 >
-                                    Forgot password?
+                                    Sign up
                                 </Link>
-                            </div>
-                            <Input
-                                type="password"
-                                value={password}
-                                onChange={(e) => setPassword(e.target.value)}
-                                required
-                            />
-                        </div>
-
-                        <Button className="w-full bg-[#576238] hover:bg-[#6b7c3f] text-white font-semibold" disabled={isLoading}>
-                            {isLoading ? <Loader2 className="animate-spin mr-2" /> : "Sign In"}
-                        </Button>
-                    </form>
-                </CardContent>
-
-                <CardFooter className="justify-center border-t pt-6">
-                    <p className="text-sm text-muted-foreground">
-                        Don't have an account?{" "}
-                        <Link
-                            href="/signup"
-                            className="text-[#576238] hover:text-[#6b7c3f] font-semibold underline-offset-4 hover:underline"
-                        >
-                            Sign up
-                        </Link>
-                    </p>
-                </CardFooter>
-            </Card>
+                            </p>
+                        </CardFooter>
+                    </Card>
+                </motion.div>
+            </div>
         </div>
     );
 }

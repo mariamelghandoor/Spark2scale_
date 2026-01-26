@@ -33,6 +33,7 @@ namespace Spark2Scale_.Server.Controllers
                     .Order("session_number", Supabase.Postgrest.Constants.Ordering.Descending) // Newest first
                     .Get();
 
+
                 var summaries = result.Models.Select(s => new SessionSummaryDto
                 {
                     SessionId = s.SessionId,

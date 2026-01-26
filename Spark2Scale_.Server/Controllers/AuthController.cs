@@ -1,4 +1,4 @@
-﻿using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc;
 using Spark2Scale_.Server.Models;
 using Spark2Scale_.Server.Services;
 using Supabase;
@@ -51,8 +51,21 @@ namespace Spark2Scale_.Server.Controllers
 
             try
             {
-                // 1️⃣ Create Auth user
-                var auth = await _supabase.Auth.SignUp(email, request.Password);
+                // 1️⃣ Create Auth user with User Metadata
+                var options = new Supabase.Gotrue.SignUpOptions
+                {
+                    Data = new Dictionary<string, object>
+                    {
+                        { "name", request.Name },
+                        { "phone", request.Phone ?? "" },
+                        { "address_region", request.AddressRegion ?? "" },
+                        { "user_type", request.UserType.ToLower() },
+                        { "tags", request.Tags ?? Array.Empty<string>() }
+                    },
+                    RedirectTo = $"{Request.Scheme}://localhost:3000/auth/callback"
+                };
+
+                var auth = await _supabase.Auth.SignUp(email, request.Password, options);
 
                 // Email confirmation ON → auth.User may be null, but user is still created in auth.users
                 // We need to get the user ID even if email confirmation is required
@@ -68,54 +81,13 @@ namespace Spark2Scale_.Server.Controllers
                 {
                     // Email confirmation ON - user exists but needs verification
                     // When email confirmation is required, auth.User is null
-                    // We can't get the user ID until email is verified
-                    // Profile will be created in verify-email callback
+                    // Data is stored in User Metadata and will be retrieved in VerifyEmail
                     requiresEmailConfirmation = true;
 
-                    // 2️⃣ Store signup data temporarily for use after email verification
-                    // Profile will be created in verify-email callback, not here
-                    var tempSignupData = new TempSignupData
-                    {
-                        email = email,
-                        name = request.Name,
-                        phone = request.Phone ?? "",
-                        address_region = request.AddressRegion ?? "",
-                        user_type = request.UserType.ToLower(),
-                        tags = request.Tags ?? Array.Empty<string>(),
-                        created_at = DateTime.UtcNow,
-                        expires_at = DateTime.UtcNow.AddHours(24) // Expire after 24 hours
-                    };
-
-                    try
-                    {
-                        // Upsert to handle case where user tries to sign up again
-                        await _supabase.From<TempSignupData>().Upsert(tempSignupData);
-                        Console.WriteLine($"Temporary signup data stored for {email}: name={tempSignupData.name}, phone={tempSignupData.phone}, region={tempSignupData.address_region}, type={tempSignupData.user_type}");
-                    }
-                    catch (PostgrestException ex)
-                    {
-                        // Check if table doesn't exist
-                        var errorMessage = ex.Message ?? "";
-                        if (errorMessage.Contains("PGRST205") || 
-                            errorMessage.Contains("Could not find the table") ||
-                            (errorMessage.Contains("temp_signup_data") && errorMessage.Contains("not found")))
-                        {
-                            Console.WriteLine($"ERROR: temp_signup_data table does not exist! Please run the SQL migration CREATE_TEMP_SIGNUP_DATA_TABLE.sql in Supabase Dashboard.");
-                            Console.WriteLine($"Signup data will be lost: name={tempSignupData.name}, phone={tempSignupData.phone}, region={tempSignupData.address_region}, type={tempSignupData.user_type}");
-                            // Continue anyway - user can still verify email, but profile will have default values
-                        }
-                        else
-                        {
-                            Console.WriteLine($"Failed to store temporary signup data: {errorMessage}");
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        Console.WriteLine($"Failed to store temporary signup data: {ex.Message}");
-                        // Continue anyway - we can still create profile with minimal data
-                    }
-
                     // Return success - profile will be created after email verification
+                    
+
+
                     return Ok(new
                     {
                         message = "Signup successful. Please check your email to verify your account.",
@@ -141,7 +113,7 @@ namespace Spark2Scale_.Server.Controllers
                     PublicUser? finalProfile = existingProfile;
                     string userType = request.UserType.ToLower();
 
-                    bool needsProfileCreation = existingProfile == null || 
+                    bool needsProfileCreation = existingProfile == null ||
                                                (existingProfile != null && string.IsNullOrEmpty(existingProfile.fname));
 
                     if (needsProfileCreation)
@@ -487,77 +459,68 @@ namespace Spark2Scale_.Server.Controllers
 
                 var existingProfile = profileResult.Models.FirstOrDefault();
 
-                // Retrieve temporary signup data BEFORE creating profile (we'll need it for role creation)
-                TempSignupData? tempData = null;
-                try
-                {
-                    var tempDataResult = await _supabase
-                        .From<TempSignupData>()
-                        .Filter("email", Supabase.Postgrest.Constants.Operator.Equals, userEmail)
-                        .Get();
+                // Retrieve signup data from User Metadata (stored during SignUp)
+                string name = "";
+                string phone = "";
+                string addressRegion = "";
+                string userType = "founder";
+                string[] tags = Array.Empty<string>();
 
-                    tempData = tempDataResult.Models.FirstOrDefault();
-                }
-                catch (PostgrestException ex)
+                if (user.UserMetadata != null)
                 {
-                    // Handle case where table doesn't exist (PGRST205 error)
-                    var errorMessage = ex.Message ?? "";
-                    if (errorMessage.Contains("PGRST205") ||
-                        errorMessage.Contains("Could not find the table") ||
-                        (errorMessage.Contains("temp_signup_data") && errorMessage.Contains("not found")))
+                    if (user.UserMetadata.TryGetValue("name", out var nameObj)) name = nameObj?.ToString() ?? "";
+                    if (user.UserMetadata.TryGetValue("phone", out var phoneObj)) phone = phoneObj?.ToString() ?? "";
+                    if (user.UserMetadata.TryGetValue("address_region", out var regionObj)) addressRegion = regionObj?.ToString() ?? "";
+                    if (user.UserMetadata.TryGetValue("user_type", out var typeObj)) userType = typeObj?.ToString() ?? "founder";
+                    
+                    if (user.UserMetadata.TryGetValue("tags", out var tagsObj))
                     {
-                        Console.WriteLine($"Warning: temp_signup_data table not found. Proceeding with default values. Error: {errorMessage}");
-                    }
-                    else
-                    {
-                        Console.WriteLine($"Warning: Failed to retrieve temp signup data: {errorMessage}. Proceeding with default values.");
-                    }
-                }
-                catch (Exception ex)
-                {
-                    var errorMessage = ex.Message ?? "";
-                    if (errorMessage.Contains("temp_signup_data") ||
-                        errorMessage.Contains("PGRST205") ||
-                        errorMessage.Contains("Could not find the table"))
-                    {
-                        Console.WriteLine($"Warning: temp_signup_data table not found. Proceeding with default values. Error: {errorMessage}");
-                    }
-                    else
-                    {
-                        Console.WriteLine($"Warning: Failed to retrieve temp signup data: {errorMessage}. Proceeding with default values.");
+                        // Handle tags which could be JArray or List
+                        try 
+                        {
+                            var jsonTags = System.Text.Json.JsonSerializer.Serialize(tagsObj);
+                            tags = System.Text.Json.JsonSerializer.Deserialize<string[]>(jsonTags) ?? Array.Empty<string>();
+                        }
+                        catch 
+                        {
+                            // Fallback if deserialization fails
+                        }
                     }
                 }
 
                 // Track if we need to update an existing incomplete profile
-                bool needsProfileUpdate = existingProfile != null && 
-                    (string.IsNullOrWhiteSpace(existingProfile.fname) || 
-                     string.IsNullOrWhiteSpace(existingProfile.lname) || 
-                     string.IsNullOrWhiteSpace(existingProfile.phone_number) || 
-                     string.IsNullOrWhiteSpace(existingProfile.address_region) || 
+                bool needsProfileUpdate = existingProfile != null &&
+                    (string.IsNullOrWhiteSpace(existingProfile.fname) ||
+                     string.IsNullOrWhiteSpace(existingProfile.lname) ||
+                     string.IsNullOrWhiteSpace(existingProfile.phone_number) ||
+                     string.IsNullOrWhiteSpace(existingProfile.address_region) ||
                      string.IsNullOrWhiteSpace(existingProfile.user_type));
 
                 // If profile doesn't exist OR has incomplete data, create/update it using signup data
                 if (existingProfile == null || needsProfileUpdate)
                 {
                     // Split name into first and last
-                    var (fname, lname) = tempData != null
-                        ? SplitName(tempData.name)
-                        : existingProfile != null && !string.IsNullOrWhiteSpace(existingProfile.fname) && !string.IsNullOrWhiteSpace(existingProfile.lname)
-                            ? (existingProfile.fname, existingProfile.lname)
-                            : ("", "");
+                    var (fname, lname) = SplitName(name);
+                    
+                    // If metadata was empty (fallback), try to keep existing profile data
+                    if (string.IsNullOrWhiteSpace(name) && existingProfile != null)
+                    {
+                        fname = existingProfile.fname;
+                        lname = existingProfile.lname;
+                    }
 
-                    // Prepare profile data - use temp data if available, otherwise keep existing values
+                    // Prepare profile data
                     var profileData = new PublicUser
                     {
                         uid = uid,
                         fname = !string.IsNullOrWhiteSpace(fname) ? fname : (existingProfile?.fname ?? ""),
                         lname = !string.IsNullOrWhiteSpace(lname) ? lname : (existingProfile?.lname ?? ""),
                         email = userEmail,
-                        phone_number = !string.IsNullOrWhiteSpace(tempData?.phone) ? tempData.phone : (existingProfile?.phone_number ?? ""),
-                        address_region = !string.IsNullOrWhiteSpace(tempData?.address_region) ? tempData.address_region : (existingProfile?.address_region ?? ""),
+                        phone_number = !string.IsNullOrWhiteSpace(phone) ? phone : (existingProfile?.phone_number ?? ""),
+                        address_region = !string.IsNullOrWhiteSpace(addressRegion) ? addressRegion : (existingProfile?.address_region ?? ""),
                         avatar_url = existingProfile?.avatar_url ?? "",
                         created_at = existingProfile?.created_at ?? DateTime.UtcNow,
-                        user_type = !string.IsNullOrWhiteSpace(tempData?.user_type) ? tempData.user_type : (existingProfile?.user_type ?? "founder")
+                        user_type = !string.IsNullOrWhiteSpace(userType) ? userType : (existingProfile?.user_type ?? "founder")
                     };
 
                     if (existingProfile == null)
@@ -582,7 +545,7 @@ namespace Spark2Scale_.Server.Controllers
                             {
                                 Console.WriteLine($"Profile insert failed: {ex.Message}");
                             }
-                            
+
                             // Try to get existing profile
                             try
                             {
@@ -643,7 +606,7 @@ namespace Spark2Scale_.Server.Controllers
                                 .Filter("uid", Supabase.Postgrest.Constants.Operator.Equals, uid.ToString())
                                 .Get();
                             existingProfile = updatedProfileResult.Models.FirstOrDefault();
-                            
+
                             Console.WriteLine($"Profile updated for user {uid} with missing data: fname={updateData.fname}, lname={updateData.lname}, phone={updateData.phone_number}, region={updateData.address_region}, type={updateData.user_type}");
                         }
                         catch (Exception updateEx)
@@ -653,9 +616,9 @@ namespace Spark2Scale_.Server.Controllers
                     }
                 }
 
-                // Create role-specific entry based on user type (use tempData for tags if available)
-                var userType = existingProfile?.user_type ?? tempData?.user_type ?? "founder";
-                switch (userType.ToLower())
+                // Create role-specific entry based on user type
+                var finalUserType = existingProfile?.user_type ?? userType ?? "founder";
+                switch (finalUserType.ToLower())
                 {
                     case "founder":
                         var founderCheck = await _supabase
@@ -668,17 +631,6 @@ namespace Spark2Scale_.Server.Controllers
                             {
                                 await _supabase.From<Founder>().Insert(new Founder { user_id = uid });
                                 Console.WriteLine($"Founder role created for user {uid}");
-                            }
-                            catch (PostgrestException ex)
-                            {
-                                if (ex.Message?.Contains("23505") == true || ex.Message?.Contains("duplicate key") == true)
-                                {
-                                    Console.WriteLine($"Founder role already exists for user {uid} (duplicate key ignored)");
-                                }
-                                else
-                                {
-                                    Console.WriteLine($"Warning: Failed to create founder role: {ex.Message}");
-                                }
                             }
                             catch (Exception ex)
                             {
@@ -699,20 +651,9 @@ namespace Spark2Scale_.Server.Controllers
                                 await _supabase.From<Investor>().Insert(new Investor
                                 {
                                     user_id = uid,
-                                    tags = tempData?.tags ?? Array.Empty<string>()
+                                    tags = tags
                                 });
                                 Console.WriteLine($"Investor role created for user {uid} with tags");
-                            }
-                            catch (PostgrestException ex)
-                            {
-                                if (ex.Message?.Contains("23505") == true || ex.Message?.Contains("duplicate key") == true)
-                                {
-                                    Console.WriteLine($"Investor role already exists for user {uid} (duplicate key ignored)");
-                                }
-                                else
-                                {
-                                    Console.WriteLine($"Warning: Failed to create investor role: {ex.Message}");
-                                }
                             }
                             catch (Exception ex)
                             {
@@ -733,50 +674,12 @@ namespace Spark2Scale_.Server.Controllers
                                 await _supabase.From<Contributor>().Insert(new Contributor { user_id = uid });
                                 Console.WriteLine($"Contributor role created for user {uid}");
                             }
-                            catch (PostgrestException ex)
-                            {
-                                if (ex.Message?.Contains("23505") == true || ex.Message?.Contains("duplicate key") == true)
-                                {
-                                    Console.WriteLine($"Contributor role already exists for user {uid} (duplicate key ignored)");
-                                }
-                                else
-                                {
-                                    Console.WriteLine($"Warning: Failed to create contributor role: {ex.Message}");
-                                }
-                            }
                             catch (Exception ex)
                             {
                                 Console.WriteLine($"Warning: Failed to create contributor role: {ex.Message}");
                             }
                         }
                         break;
-                }
-
-                // Delete temporary signup data after successful profile and role creation
-                if (tempData != null)
-                {
-                    try
-                    {
-                        await _supabase.From<TempSignupData>()
-                            .Filter("email", Supabase.Postgrest.Constants.Operator.Equals, userEmail)
-                            .Delete();
-                        Console.WriteLine($"Temporary signup data deleted for {userEmail}");
-                    }
-                    catch (PostgrestException deleteEx)
-                    {
-                        if (deleteEx.Message?.Contains("PGRST205") == true || deleteEx.Message?.Contains("Could not find the table") == true)
-                        {
-                            Console.WriteLine($"Warning: temp_signup_data table not found during cleanup. This is okay if table doesn't exist.");
-                        }
-                        else
-                        {
-                            Console.WriteLine($"Failed to delete temp signup data: {deleteEx.Message}");
-                        }
-                    }
-                    catch (Exception deleteEx)
-                    {
-                        Console.WriteLine($"Failed to delete temp signup data: {deleteEx.Message}");
-                    }
                 }
 
                 // Ensure we have a profile before returning
@@ -828,11 +731,10 @@ namespace Spark2Scale_.Server.Controllers
                     return Unauthorized(new { message = "Missing authorization token." });
                 }
 
-                // Set session with token
-                await _supabase.Auth.SetSession(token, "", false);
+                // Get current user from Supabase Auth explicitly using the token
+                // Use GetUser to validate the token against the server
+                var currentUser = await _supabase.Auth.GetUser(token);
 
-                // Get current user from Supabase Auth
-                var currentUser = _supabase.Auth.CurrentUser;
                 if (currentUser == null)
                 {
                     return Unauthorized(new { message = "Invalid or expired token." });
@@ -871,7 +773,11 @@ namespace Spark2Scale_.Server.Controllers
                             .From<Founder>()
                             .Filter("user_id", Supabase.Postgrest.Constants.Operator.Equals, uid.ToString())
                             .Get();
-                        roleData = founderResult.Models.FirstOrDefault();
+                        var founderModel = founderResult.Models.FirstOrDefault();
+                        if (founderModel != null)
+                        {
+                            roleData = new { user_id = founderModel.user_id };
+                        }
                         break;
 
                     case "investor":
@@ -879,7 +785,11 @@ namespace Spark2Scale_.Server.Controllers
                             .From<Investor>()
                             .Filter("user_id", Supabase.Postgrest.Constants.Operator.Equals, uid.ToString())
                             .Get();
-                        roleData = investorResult.Models.FirstOrDefault();
+                        var investorModel = investorResult.Models.FirstOrDefault();
+                        if (investorModel != null)
+                        {
+                            roleData = new { user_id = investorModel.user_id, tags = investorModel.tags };
+                        }
                         break;
 
                     case "contributor":
@@ -887,7 +797,11 @@ namespace Spark2Scale_.Server.Controllers
                             .From<Contributor>()
                             .Filter("user_id", Supabase.Postgrest.Constants.Operator.Equals, uid.ToString())
                             .Get();
-                        roleData = contributorResult.Models.FirstOrDefault();
+                        var contributorModel = contributorResult.Models.FirstOrDefault();
+                        if (contributorModel != null)
+                        {
+                            roleData = new { user_id = contributorModel.user_id };
+                        }
                         break;
                 }
 

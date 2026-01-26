@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
@@ -7,45 +7,87 @@ import { Calendar, User, FolderOpen, Video } from "lucide-react";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import NotificationsDropdown from "@/components/shared/NotificationsDropdown";
-import ProtectedRoute from "@/components/auth/ProtectedRoute";
 
-function ContributorDashboardContent() {
-    const [userName, setUserName] = useState("");
+export default function ContributorDashboard() {
+    // Initialize user data from localStorage
+    const [userData] = useState<{ name: string; id: string }>(() => {
+        if (typeof window === 'undefined') return { name: 'Contributor', id: '' };
 
-    useEffect(() => {
-        // Get user data from localStorage
         const userStr = localStorage.getItem('user');
         if (userStr) {
             try {
                 const user = JSON.parse(userStr);
-                const name = user.fname && user.lname 
-                    ? `${user.fname} ${user.lname}` 
-                    : user.email?.split('@')[0] || 'User';
-                setUserName(name);
-            } catch (e) {
-                setUserName('User');
+                const name = user.fname && user.lname
+                    ? `${user.fname} ${user.lname}`
+                    : user.email?.split('@')[0] || 'Contributor';
+                return { name, id: user.id || '' };
+            } catch {
+                return { name: 'Contributor', id: '' };
             }
         }
-    }, []);
-    const [startups] = useState([
-        {
-            id: 1,
-            name: "EcoTech Solutions",
-            region: "North America",
-            field: "Green Technology",
-            invitedBy: "Alex Chen",
-            role: "Contributor",
-        },
-        {
-            id: 2,
-            name: "HealthAI Platform",
-            region: "Europe",
+        return { name: 'Contributor', id: '' };
+    });
 
-            field: "Healthcare Tech",
-            invitedBy: "Maria Santos",
-            role: "Contributor",
-        },
-    ]);
+    const [startups, setStartups] = useState<any[]>([]);
+
+    useEffect(() => {
+        if (!userData.id) return;
+
+        const fetchStartups = async () => {
+            try {
+                const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5231';
+                let cleanApiUrl = apiUrl.replace(/\/$/, '');
+                cleanApiUrl = cleanApiUrl.replace(/\/api$/, '');
+
+                // Fetch startups where user is a contributor
+                const response = await fetch(`${cleanApiUrl}/api/Startups?contributorId=${userData.id}`);
+                if (response.ok) {
+                    const data = await response.json();
+
+                    // Fetch contributor relationships to get invited_by info
+                    const mapped = await Promise.all(data.map(async (s: any) => {
+                        let invitedByName = "Unknown";
+                        try {
+                            // Fetch startup contributors to get invited_by
+                            const contributorsRes = await fetch(`${cleanApiUrl}/api/StartupContributor/${s.sid}`);
+                            if (contributorsRes.ok) {
+                                const contributors = await contributorsRes.json();
+                                const contributor = contributors.find((c: any) => c.contributorId === userData.id);
+                                if (contributor?.invitedBy) {
+                                    // Fetch user name
+                                    const userRes = await fetch(`${cleanApiUrl}/api/Users`);
+                                    if (userRes.ok) {
+                                        const users = await userRes.json();
+                                        const inviter = users.find((u: any) => u.uid === contributor.invitedBy);
+                                        if (inviter) {
+                                            invitedByName = `${inviter.fname || ''} ${inviter.lname || ''}`.trim() || inviter.email || "Unknown";
+                                        }
+                                    }
+                                }
+                            }
+                        } catch (err) {
+                            console.warn("Failed to fetch inviter name", err);
+                        }
+
+                        return {
+                            id: s.sid,
+                            name: s.startupname,
+                            region: s.location || "Global",
+                            field: s.field,
+                            invitedBy: invitedByName,
+                            role: "Contributor",
+                        };
+                    }));
+
+                    setStartups(mapped);
+                }
+            } catch (error) {
+                console.error("Failed to fetch contributor startups:", error);
+            }
+        };
+
+        fetchStartups();
+    }, [userData.id]);
 
     return (
         <div className="min-h-screen bg-gradient-to-br from-[#F0EADC] via-[#fff] to-[#FFD95D]/20">
@@ -54,7 +96,7 @@ function ContributorDashboardContent() {
                 <div className="container mx-auto px-4 py-4 flex justify-between items-center">
                     <div>
                         <h1 className="text-2xl font-bold text-[#576238]">
-                            Hello {userName} 👋
+                            Hello {userData.name}!
                         </h1>
                         <p className="text-sm text-muted-foreground">Contributor Dashboard</p>
                     </div>
@@ -105,11 +147,7 @@ function ContributorDashboardContent() {
                                                     {startup.name}
                                                 </CardTitle>
                                                 <CardDescription>
-<<<<<<< Updated upstream
                                                     {startup.field} • {startup.region}
-=======
-                                                    {startup.field} � {startup.region}
->>>>>>> Stashed changes
                                                 </CardDescription>
                                             </div>
                                             <span className="text-xs px-2 py-1 rounded-full bg-[#FFD95D] text-[#576238] font-semibold">
@@ -148,7 +186,7 @@ function ContributorDashboardContent() {
                                                 size="sm"
                                                 className="w-full bg-[#576238] hover:bg-[#6b7c3f] text-white"
                                             >
-                                                View Resources →
+                                                View Resources
                                             </Button>
                                         </div>
                                     </CardContent>
@@ -156,6 +194,12 @@ function ContributorDashboardContent() {
                             </Link>
                         </motion.div>
                     ))}
+
+                    {startups.length === 0 && (
+                        <div className="col-span-full text-center py-12">
+                            <p className="text-muted-foreground">You haven't been added to any startups yet.</p>
+                        </div>
+                    )}
                 </div>
 
                 {/* Info Section */}
@@ -208,13 +252,5 @@ function ContributorDashboardContent() {
                 </div>
             </main>
         </div>
-    );
-}
-
-export default function ContributorDashboard() {
-    return (
-        <ProtectedRoute allowedUserTypes={['contributor']}>
-            <ContributorDashboardContent />
-        </ProtectedRoute>
     );
 }

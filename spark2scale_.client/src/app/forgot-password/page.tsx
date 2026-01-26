@@ -8,65 +8,123 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import Link from "next/link";
 import { motion } from "framer-motion";
-import { ArrowLeft, CheckCircle, AlertCircle, Loader2 } from "lucide-react";
-import React from "react";
-
-interface ApiResponse {
-    message: string;
-}
+import { ArrowLeft, Mail } from "lucide-react";
+import { Loader2 } from "lucide-react";
 
 export default function ForgotPasswordPage() {
     const [email, setEmail] = useState("");
-    const [status, setStatus] = useState<{
-        type: "success" | "error" | null;
-        message: string;
-    }>({ type: null, message: "" });
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+    const [success, setSuccess] = useState(false);
 
-    const [isLoading, setIsLoading] = useState(false);
-
-    const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-
-        if (!email.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-            setStatus({
-                type: "error",
-                message: "Please enter a valid email address.",
-            });
-            return;
-        }
-
-        setIsLoading(true);
-        setStatus({ type: null, message: "" });
+        setLoading(true);
+        setError(null);
 
         try {
-            const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/Auth/forgot-password`, {
-                method: "POST",
+            const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5231';
+            // Clean API URL: remove trailing slash and /api if present
+            let cleanApiUrl = apiUrl.replace(/\/$/, ''); // Remove trailing slash
+            cleanApiUrl = cleanApiUrl.replace(/\/api$/, ''); // Remove /api if at the end
+            const url = `${cleanApiUrl}/api/Auth/forgot-password`;
+            
+            console.log('=== FORGOT PASSWORD REQUEST ===');
+            console.log('Full URL:', url);
+
+            const response = await fetch(url, {
+                method: 'POST',
                 headers: {
-                    "Content-Type": "application/json",
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
                 },
-                body: JSON.stringify({ email: email.toLowerCase().trim() }),
+                body: JSON.stringify({
+                    Email: email.trim().toLowerCase(),
+                }),
             });
 
-            const data: ApiResponse = await response.json();
+            console.log('=== FORGOT PASSWORD RESPONSE ===');
+            console.log('Status:', response.status, response.statusText);
 
-            setStatus({
-                type: "success",
-                message:
-                    data.message ||
-                    "If an account with that email exists, a password reset link has been sent.",
-            });
+            // Check if response has content before parsing JSON
+            const contentType = response.headers.get('content-type');
+            let data: { message?: string; detail?: string; [key: string]: unknown } = {};
 
-            setEmail("");
-        } catch (error) {
-            console.error("Forgot Password API error:", error);
-            setStatus({
-                type: "error",
-                message: "Network error: Could not connect to the server.",
-            });
+            if (contentType && contentType.includes('application/json')) {
+                const text = await response.text();
+                if (text) {
+                    try {
+                        data = JSON.parse(text);
+                    } catch (parseError) {
+                        console.error('JSON parse error:', parseError);
+                        throw new Error('Invalid response from server. Please try again.');
+                    }
+                }
+            }
+
+            if (!response.ok) {
+                const errorMsg = (typeof data.message === 'string' ? data.message : '') || 
+                               (typeof data.detail === 'string' ? data.detail : '') || 
+                               `Failed to send reset email (${response.status}).`;
+                throw new Error(errorMsg);
+            }
+
+            // Show success message (generic to prevent email enumeration)
+            setSuccess(true);
+        } catch (err: unknown) {
+            console.error('Forgot password error:', err);
+            const error = err as Error;
+            if (error.message?.includes('JSON') || error.message?.includes('fetch') || error.name === 'TypeError') {
+                setError('Cannot connect to server. Please ensure the backend is running on http://localhost:5231.');
+            } else {
+                setError(error.message || 'An error occurred. Please try again.');
+            }
         } finally {
-            setIsLoading(false);
+            setLoading(false);
         }
     };
+
+    if (success) {
+        return (
+            <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-[#F0EADC] via-[#fff] to-[#FFD95D]/20">
+                <motion.div
+                    initial={{ opacity: 0, scale: 0.9 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    transition={{ duration: 0.5 }}
+                    className="w-full max-w-md"
+                >
+                    <Card className="shadow-xl border-2">
+                        <CardContent className="pt-6">
+                            <div className="text-center space-y-4">
+                                <div className="flex justify-center">
+                                    <Mail className="h-16 w-16 text-[#576238]" />
+                                </div>
+                                <div>
+                                    <h2 className="text-2xl font-bold text-[#576238] mb-2">
+                                        Check Your Email
+                                    </h2>
+                                    <p className="text-muted-foreground mb-4">
+                                        If the email exists, a password reset link has been sent to <strong>{email}</strong>.
+                                    </p>
+                                    <p className="text-sm text-muted-foreground">
+                                        Please check your inbox and click the reset link to create a new password.
+                                    </p>
+                                </div>
+                                <div className="flex gap-2">
+                                    <Link href="/signin" className="flex-1">
+                                        <Button variant="outline" className="w-full">
+                                            <ArrowLeft className="mr-2 h-4 w-4" />
+                                            Back to Sign In
+                                        </Button>
+                                    </Link>
+                                </div>
+                            </div>
+                        </CardContent>
+                    </Card>
+                </motion.div>
+            </div>
+        );
+    }
 
     return (
         <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-[#F0EADC] via-[#fff] to-[#FFD95D]/20">
@@ -84,28 +142,23 @@ export default function ForgotPasswordPage() {
                                         <ArrowLeft className="h-5 w-5" />
                                     </Button>
                                 </Link>
-                                <CardTitle className="text-2xl font-bold">Forgot Password</CardTitle>
+                                <CardTitle className="text-2xl font-bold">
+                                    Forgot Password
+                                </CardTitle>
                             </div>
                             <CardDescription>
                                 Enter your email address and we'll send you a link to reset your password.
                             </CardDescription>
                         </CardHeader>
-
                         <CardContent>
-                            {status.type && (
-                                <Alert
-                                    variant={status.type === "error" ? "destructive" : "default"}
-                                    className="mb-4"
-                                >
-                                    {status.type === "success" && <CheckCircle className="h-4 w-4 mr-2" />}
-                                    {status.type === "error" && <AlertCircle className="h-4 w-4 mr-2" />}
-                                    <AlertDescription>{status.message}</AlertDescription>
+                            {error && (
+                                <Alert variant="destructive" className="mb-4">
+                                    <AlertDescription>{error}</AlertDescription>
                                 </Alert>
                             )}
-
                             <form onSubmit={handleSubmit} className="space-y-4">
                                 <div className="space-y-2">
-                                    <Label htmlFor="email">Email Address</Label>
+                                    <Label htmlFor="email">Email</Label>
                                     <Input
                                         id="email"
                                         type="email"
@@ -113,47 +166,25 @@ export default function ForgotPasswordPage() {
                                         value={email}
                                         onChange={(e) => setEmail(e.target.value)}
                                         required
-                                        disabled={isLoading}
                                     />
-                                    <p className="text-xs text-muted-foreground">
-                                        Enter the email address associated with your account
-                                    </p>
                                 </div>
 
                                 <Button
                                     type="submit"
                                     className="w-full bg-[#576238] hover:bg-[#6b7c3f] text-white font-semibold"
                                     size="lg"
-                                    disabled={isLoading}
+                                    disabled={loading}
                                 >
-                                    {isLoading ? (
+                                    {loading ? (
                                         <>
                                             <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                            Sending Reset Link...
+                                            Sending...
                                         </>
                                     ) : (
-                                        "Send Reset Link"
+                                        'Send Reset Link'
                                     )}
                                 </Button>
-
-                                <div className="mt-4 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-md">
-                                    <p className="text-sm text-blue-700 dark:text-blue-300">
-                                        <strong>Note:</strong> For security reasons, we'll only send a reset link if the
-                                        email exists in our system. Check your spam folder if you don't see the email.
-                                    </p>
-                                </div>
                             </form>
-
-                            {status.type === "success" && (
-                                <div className="mt-4 text-center">
-                                    <Link
-                                        href="/signin"
-                                        className="text-sm text-[#576238] hover:text-[#6b7c3f] font-semibold underline-offset-4 hover:underline"
-                                    >
-                                        ← Back to Sign In
-                                    </Link>
-                                </div>
-                            )}
                         </CardContent>
                     </Card>
                 </motion.div>
@@ -161,3 +192,4 @@ export default function ForgotPasswordPage() {
         </div>
     );
 }
+

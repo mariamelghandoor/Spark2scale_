@@ -1,12 +1,6 @@
-﻿"use client";
+"use client";
 
 import { motion } from "framer-motion";
-
-// Generate sparkle positions OUTSIDE the component → no ESLint error
-const sparklePositions = [...Array(6)].map(() => ({
-    cx: 100 + Math.random() * 200,
-    cy: 50 + Math.random() * 100,
-}));
 
 export default function LegoIllustration() {
     return (
@@ -53,7 +47,7 @@ export default function LegoIllustration() {
                                 rx="4"
                                 fill={colors[index]}
                             />
-
+                            {/* LEGO studs */}
                             <motion.circle
                                 initial={{ opacity: 0, scale: 0 }}
                                 animate={{ opacity: 1, scale: 1 }}
@@ -64,7 +58,6 @@ export default function LegoIllustration() {
                                 fill={colors[index]}
                                 opacity="0.8"
                             />
-
                             <motion.circle
                                 initial={{ opacity: 0, scale: 0 }}
                                 animate={{ opacity: 1, scale: 1 }}
@@ -80,7 +73,7 @@ export default function LegoIllustration() {
                 })}
 
                 {/* Sparkles */}
-                {sparklePositions.map((s, i) => (
+                {[...Array(6)].map((_, i) => (
                     <motion.circle
                         key={i}
                         initial={{ opacity: 0, scale: 0 }}
@@ -91,8 +84,8 @@ export default function LegoIllustration() {
                             repeat: Infinity,
                             repeatDelay: 1,
                         }}
-                        cx={s.cx}
-                        cy={s.cy}
+                        cx={100 + Math.random() * 200}
+                        cy={50 + Math.random() * 100}
                         r="3"
                         fill="#FFD95D"
                     />

@@ -2,241 +2,164 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Loader2 } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Loader2, CheckCircle, AlertCircle } from "lucide-react";
-import { Button } from "@/components/ui/button";
-
-interface VerifyResponse {
-    message: string;
-    token?: string;
-    user?: {
-        id: string;
-        email: string;
-        emailVerified: boolean;
-        userType?: string;
-        needsProfile?: boolean;
-    };
-}
+import { handleAuthSuccess } from "@/lib/auth";
 
 export default function AuthCallbackPage() {
     const router = useRouter();
-    const [status, setStatus] = useState<{
-        type: "loading" | "success" | "error";
-        message: string;
-    }>({ type: "loading", message: "Verifying your email..." });
+    const [error, setError] = useState<string | null>(null);
+    const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        const verifyEmail = async () => {
+        const handleVerification = async () => {
             try {
-                // Extract tokens from URL hash (Supabase sends them here)
-                const hash = window.location.hash.replace("#", "");
-                const hashParams = new URLSearchParams(hash);
-                const accessToken = hashParams.get("access_token");
-                const refreshToken = hashParams.get("refresh_token");
+                // Extract tokens from URL hash (Supabase sends tokens in hash, not query params)
+                if (typeof window === 'undefined') return;
 
-                // Also check query params as fallback
-                const queryParams = new URLSearchParams(window.location.search);
-                const accessTokenFromQuery = queryParams.get("access_token");
-                const refreshTokenFromQuery = queryParams.get("refresh_token");
+                const hash = window.location.hash.substring(1); // Remove #
+                const params = new URLSearchParams(hash);
 
-                const finalAccessToken = accessToken || accessTokenFromQuery;
-                const finalRefreshToken = refreshToken || refreshTokenFromQuery;
+                const accessToken = params.get('access_token');
+                const refreshToken = params.get('refresh_token');
+                const type = params.get('type'); // 'signup' or 'recovery'
 
-                if (!finalAccessToken) {
-                    setStatus({
-                        type: "error",
-                        message: "Invalid verification link. Please check your email for a valid link.",
-                    });
-                    return;
+                if (!accessToken) {
+                    throw new Error('Missing verification token. Please check your email link.');
                 }
 
-                // Call backend to verify email and get user info
-                const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/Auth/verify-email`, {
-                    method: "POST",
+                // Only process signup verification (not password reset)
+                if (type !== 'signup' && type !== 'email') {
+                    // If it's a recovery type, redirect to reset password page
+                    if (type === 'recovery') {
+                        router.push(`/reset-password${window.location.hash}`);
+                        return;
+                    }
+                    throw new Error('Invalid verification type. Please use the signup verification link.');
+                }
+
+                const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5231';
+                // Clean API URL: remove trailing slash and /api if present
+                let cleanApiUrl = apiUrl.replace(/\/$/, '');
+                cleanApiUrl = cleanApiUrl.replace(/\/api$/, '');
+
+                console.log('=== EMAIL VERIFICATION REQUEST ===');
+                console.log('Full URL:', `${cleanApiUrl}/api/Auth/verify-email`);
+
+                // Call backend to verify email and create user profile
+                const response = await fetch(`${cleanApiUrl}/api/Auth/verify-email`, {
+                    method: 'POST',
                     headers: {
-                        "Content-Type": "application/json",
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json'
                     },
                     body: JSON.stringify({
-                        accessToken: finalAccessToken,
-                        refreshToken: finalRefreshToken || "",
+                        AccessToken: accessToken,
+                        RefreshToken: refreshToken || '',
                     }),
                 });
 
-                const data: VerifyResponse = await response.json();
+                console.log('=== EMAIL VERIFICATION RESPONSE ===');
+                console.log('Status:', response.status, response.statusText);
 
-                if (response.ok && data.user) {
-                    // Store token and user info
-                    if (data.token) {
-                        localStorage.setItem("auth_token", data.token);
-                    }
-                    localStorage.setItem("user", JSON.stringify(data.user));
+                // Check if response has content before parsing JSON
+                const contentType = response.headers.get('content-type');
+                let data: {
+                    message?: string;
+                    detail?: string;
+                    token?: string;
+                    user?: {
+                        userType?: string;
+                        user_type?: string;
+                        [key: string]: unknown;
+                    };
+                    [key: string]: unknown;
+                } = {};
 
-                    // Get full user data from /me endpoint to ensure we have user_type
-                    try {
-                        const meResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/Auth/me`, {
-                            method: "GET",
-                            headers: {
-                                "Authorization": `Bearer ${data.token || finalAccessToken}`,
-                                "Content-Type": "application/json",
-                            },
-                        });
-
-                        if (meResponse.ok) {
-                            const meData = await meResponse.json();
-                            // Update localStorage with full user data
-                            localStorage.setItem("user", JSON.stringify(meData.user));
-                            localStorage.setItem("roleData", JSON.stringify(meData.roleData || null));
-
-                            // Get user type from full profile data
-                            const userType = meData.user?.user_type || data.user.userType || "";
-
-                            setStatus({
-                                type: "success",
-                                message: "Email verified successfully! Redirecting...",
-                            });
-
-                            // Redirect based on user type
-                            setTimeout(() => {
-                                if (meData.user?.needsProfile) {
-                                    // Profile not created yet, redirect to complete profile
-                                    router.push("/signup?complete=true");
-                                } else if (userType) {
-                                    const userTypeLower = userType.toLowerCase();
-                                    if (userTypeLower === "founder") {
-                                        router.push("/founder/dashboard");
-                                    } else if (userTypeLower === "contributor") {
-                                        router.push("/contributor/dashboard");
-                                    } else if (userTypeLower === "investor") {
-                                        router.push("/investor/feed");
-                                    } else {
-                                        router.push("/signin");
-                                    }
-                                } else {
-                                    router.push("/signin");
-                                }
-                            }, 2000);
-                        } else {
-                            // Fallback to using data from verify-email response
-                            const userType = data.user.userType || "";
-                            setStatus({
-                                type: "success",
-                                message: "Email verified successfully! Redirecting...",
-                            });
-
-                            setTimeout(() => {
-                                if (userType) {
-                                    const userTypeLower = userType.toLowerCase();
-                                    if (userTypeLower === "founder") {
-                                        router.push("/founder/dashboard");
-                                    } else if (userTypeLower === "contributor") {
-                                        router.push("/contributor/dashboard");
-                                    } else if (userTypeLower === "investor") {
-                                        router.push("/investor/feed");
-                                    } else {
-                                        router.push("/signin");
-                                    }
-                                } else {
-                                    router.push("/signin");
-                                }
-                            }, 2000);
+                if (contentType && contentType.includes('application/json')) {
+                    const text = await response.text();
+                    if (text) {
+                        try {
+                            data = JSON.parse(text);
+                        } catch (parseError) {
+                            console.error('JSON parse error:', parseError);
+                            throw new Error('Invalid response from server. Please try again.');
                         }
-                    } catch (meError) {
-                        console.error("Error fetching user data:", meError);
-                        // Fallback to using data from verify-email response
-                        const userType = data.user.userType || "";
-                        setStatus({
-                            type: "success",
-                            message: "Email verified successfully! Redirecting...",
-                        });
-
-                        setTimeout(() => {
-                            if (userType) {
-                                const userTypeLower = userType.toLowerCase();
-                                if (userTypeLower === "founder") {
-                                    router.push("/founder/dashboard");
-                                } else if (userTypeLower === "contributor") {
-                                    router.push("/contributor/dashboard");
-                                } else if (userTypeLower === "investor") {
-                                    router.push("/investor/feed");
-                                } else {
-                                    router.push("/signin");
-                                }
-                            } else {
-                                router.push("/signin");
-                            }
-                        }, 2000);
                     }
-                } else {
-                    setStatus({
-                        type: "error",
-                        message: data.message || "Email verification failed. Please try again.",
-                    });
                 }
-            } catch (error) {
-                console.error("Email verification error:", error);
-                setStatus({
-                    type: "error",
-                    message: "An error occurred during email verification. Please try again.",
-                });
+
+                if (!response.ok) {
+                    const errorMsg = (typeof data.message === 'string' ? data.message : '') ||
+                        (typeof data.detail === 'string' ? data.detail : '') ||
+                        `Email verification failed (${response.status}).`;
+                    throw new Error(errorMsg);
+                }
+
+                // Store token and handle auth success
+                if (data.token && typeof data.token === 'string') {
+                    // Pass the user object directly to avoid calling /me endpoint which might fail with 401
+                    await handleAuthSuccess(data.token, router, cleanApiUrl, data.user);
+                } else {
+                    throw new Error('Missing authentication token. Please try again.');
+                }
+            } catch (err: unknown) {
+                console.error('Email verification error:', err);
+                const error = err as Error;
+
+                if (error.message?.includes('JSON') || error.message?.includes('fetch') || error.name === 'TypeError') {
+                    setError('Cannot connect to server. Please ensure the backend is running and try again.');
+                } else {
+                    setError(error.message || 'An error occurred during email verification. Please try again.');
+                }
+                setLoading(false);
             }
         };
 
-        verifyEmail();
+        handleVerification();
     }, [router]);
 
-    return (
-        <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-[#F0EADC] via-[#fff] to-[#FFD95D]/20">
-            <Card className="w-full max-w-md shadow-xl">
-                <CardHeader>
-                    <CardTitle className="text-center text-2xl">Email Verification</CardTitle>
-                    <CardDescription className="text-center">
-                        Please wait while we verify your email address
-                    </CardDescription>
-                </CardHeader>
-                <CardContent>
-                    {status.type === "loading" && (
-                        <div className="flex flex-col items-center justify-center space-y-4 py-8">
-                            <Loader2 className="h-8 w-8 animate-spin text-[#576238]" />
-                            <p className="text-sm text-muted-foreground">{status.message}</p>
-                        </div>
-                    )}
+    if (loading && !error) {
+        return (
+            <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-[#F0EADC] via-[#fff] to-[#FFD95D]/20">
+                <div className="text-center space-y-4">
+                    <Loader2 className="h-12 w-12 animate-spin text-[#576238] mx-auto" />
+                    <p className="text-lg font-semibold text-[#576238]">Verifying your email...</p>
+                    <p className="text-sm text-muted-foreground">Please wait while we confirm your account.</p>
+                </div>
+            </div>
+        );
+    }
 
-                    {status.type === "success" && (
-                        <Alert className="border-green-500 bg-green-50">
-                            <CheckCircle className="h-4 w-4 text-green-600" />
-                            <AlertDescription className="text-green-800">
-                                {status.message}
-                            </AlertDescription>
-                        </Alert>
-                    )}
-
-                    {status.type === "error" && (
-                        <div className="space-y-4">
-                            <Alert variant="destructive">
-                                <AlertCircle className="h-4 w-4" />
-                                <AlertDescription>{status.message}</AlertDescription>
-                            </Alert>
-                            <div className="flex gap-2">
-                                <Button
-                                    variant="outline"
-                                    onClick={() => router.push("/signin")}
-                                    className="flex-1"
+    if (error) {
+        return (
+            <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-[#F0EADC] via-[#fff] to-[#FFD95D]/20">
+                <div className="w-full max-w-md">
+                    <Alert variant="destructive">
+                        <AlertDescription className="space-y-4">
+                            <p className="font-semibold">Email Verification Failed</p>
+                            <p>{error}</p>
+                            <div className="flex gap-2 mt-4">
+                                <button
+                                    onClick={() => router.push('/signin')}
+                                    className="text-sm underline hover:no-underline"
                                 >
                                     Go to Sign In
-                                </Button>
-                                <Button
-                                    onClick={() => router.push("/signup")}
-                                    className="flex-1 bg-[#576238] hover:bg-[#6b7c3f]"
+                                </button>
+                                <span className="text-muted-foreground">|</span>
+                                <button
+                                    onClick={() => router.push('/signup')}
+                                    className="text-sm underline hover:no-underline"
                                 >
                                     Sign Up Again
-                                </Button>
+                                </button>
                             </div>
-                        </div>
-                    )}
-                </CardContent>
-            </Card>
-        </div>
-    );
+                        </AlertDescription>
+                    </Alert>
+                </div>
+            </div>
+        );
+    }
+
+    return null;
 }
 

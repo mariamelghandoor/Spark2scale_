@@ -1,6 +1,7 @@
 ﻿using Microsoft.AspNetCore.Mvc;
 using Spark2Scale_.Server.Models;
 using System;
+using System.Collections.Generic; // Required for Dictionary
 using System.Linq;
 using System.Threading.Tasks;
 
@@ -56,22 +57,145 @@ namespace Spark2Scale_.Server.Controllers
 
         // GET: api/startups
         [HttpGet]
-        public async Task<IActionResult> GetStartups()
+        public async Task<IActionResult> GetStartups([FromQuery] string? founderId, [FromQuery] string? contributorId)
         {
-            var result = await _supabase.From<Startup>().Get();
-
-            // Map Database Model -> Response DTO
-            var dtos = result.Models.Select(s => new StartupResponseDto
+            try
             {
-                sid = s.Sid,
-                startupname = s.StartupName,
-                field = s.Field,
-                idea_description = s.IdeaDescription,
-                founder_id = s.FounderId,
-                created_at = s.CreatedAt
-            }).ToList();
+                // If founderId is provided, filter by it
+                if (!string.IsNullOrEmpty(founderId) && Guid.TryParse(founderId, out Guid fId))
+                {
+                    var result = await _supabase.From<Startup>()
+                        .Where(s => s.FounderId == fId)
+                        .Get();
 
-            return Ok(dtos);
+                    var dtos = result.Models.Select(s => new StartupResponseDto
+                    {
+                        sid = s.Sid,
+                        startupname = s.StartupName,
+                        field = s.Field,
+                        idea_description = s.IdeaDescription,
+                        founder_id = s.FounderId,
+                        created_at = s.CreatedAt
+                    }).ToList();
+
+                    return Ok(dtos);
+                }
+                // If contributorId is provided, filter by it
+                else if (!string.IsNullOrEmpty(contributorId) && Guid.TryParse(contributorId, out Guid cId))
+                {
+                    var links = await _supabase.From<StartupContributor>()
+                       .Where(x => x.ContributorId == cId)
+                       .Get();
+
+                    var startupIds = links.Models.Select(x => x.StartupId.ToString()).ToList();
+
+                    if (!startupIds.Any()) return Ok(new List<StartupResponseDto>());
+
+                    var result = await _supabase.From<Startup>()
+                       .Filter("sid", Supabase.Postgrest.Constants.Operator.In, startupIds)
+                       .Get();
+
+                    var dtos = result.Models.Select(s => new StartupResponseDto
+                    {
+                        sid = s.Sid,
+                        startupname = s.StartupName,
+                        field = s.Field,
+                        idea_description = s.IdeaDescription,
+                        founder_id = s.FounderId,
+                        created_at = s.CreatedAt
+                    }).ToList();
+
+                    return Ok(dtos);
+                }
+                else
+                {
+                    // Otherwise return all (e.g. for investors feed)
+                    var result = await _supabase.From<Startup>().Get();
+
+                    var dtos = result.Models.Select(s => new StartupResponseDto
+                    {
+                        sid = s.Sid,
+                        startupname = s.StartupName,
+                        field = s.Field,
+                        idea_description = s.IdeaDescription,
+                        founder_id = s.FounderId,
+                        created_at = s.CreatedAt
+                    }).ToList();
+
+                    return Ok(dtos);
+                }
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, $"Error fetching startups: {ex.Message}");
+            }
+        }
+
+        [HttpGet("{id}")]
+        public async Task<IActionResult> GetStartupById(string id)
+        {
+            if (!Guid.TryParse(id, out Guid sId))
+                return BadRequest("Invalid ID format");
+
+            try
+            {
+                var result = await _supabase.From<Startup>()
+                    .Where(s => s.Sid == sId)
+                    .Get();
+
+                var startup = result.Models.FirstOrDefault();
+
+                if (startup == null)
+                    return NotFound("Startup not found");
+
+                var response = new StartupResponseDto
+                {
+                    sid = startup.Sid,
+                    startupname = startup.StartupName,
+                    field = startup.Field,
+                    idea_description = startup.IdeaDescription,
+                    founder_id = startup.FounderId,
+                    created_at = startup.CreatedAt
+                };
+
+                return Ok(response);
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, $"Error: {ex.Message}");
+            }
+        }
+        [HttpPut("update-idea/{id}")]
+        public async Task<IActionResult> UpdateIdea(string id, [FromBody] IdeaUpdateDto input)
+        {
+            if (!Guid.TryParse(id, out Guid sId))
+                return BadRequest("Invalid ID format");
+
+            if (string.IsNullOrWhiteSpace(input.IdeaDescription))
+                return BadRequest("Idea description cannot be empty");
+
+            try
+            {
+
+                var parameters = new Dictionary<string, object>
+                {
+                    { "p_startup_id", sId },
+                    { "p_new_idea", input.IdeaDescription }
+                };
+
+                await _supabase.Rpc("update_idea_and_reset", parameters);
+
+                return Ok(new
+                {
+                    message = "Idea updated, history archived, and workflow reset successfully.",
+                    idea = input.IdeaDescription
+                });
+            }
+            catch (Exception ex)
+            {
+                // Log the error here if you have a logger
+                return StatusCode(500, $"Error updating idea: {ex.Message}");
+            }
         }
     }
 }

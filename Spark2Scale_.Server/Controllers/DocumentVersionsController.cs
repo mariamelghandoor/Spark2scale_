@@ -44,5 +44,19 @@ namespace Spark2Scale_.Server.Controllers
 
             return Ok(dtos);
         }
+
+        [HttpGet("count/{startupId}")]
+        public async Task<IActionResult> GetTotalFileCount(string startupId)
+        {
+            if (!Guid.TryParse(startupId, out Guid sId)) return BadRequest("Invalid ID");
+
+            // Fetch all versions associated with this startup
+            var result = await _supabase.From<DocumentVersion>()
+                .Where(x => x.StartupId == sId)
+                .Get();
+
+            // Return the count
+            return Ok(new { count = result.Models.Count });
+        }
     }
 }

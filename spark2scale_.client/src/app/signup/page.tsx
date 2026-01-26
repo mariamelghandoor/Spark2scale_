@@ -1,66 +1,30 @@
 ﻿"use client";
 
-import React, { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-<<<<<<< Updated upstream
-import {
-    Card,
-    CardContent,
-    CardDescription,
-    CardFooter,
-    CardHeader,
-    CardTitle,
-} from "@/components/ui/card";
-import { Alert, AlertDescription } from "@/components/ui/alert";
-=======
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
->>>>>>> Stashed changes
 import Link from "next/link";
+import LegoIllustration from "@/components/lego/LegoIllustration";
 import { motion } from "framer-motion";
-<<<<<<< Updated upstream
-import { Loader2, CheckCircle, AlertCircle } from "lucide-react";
-
-interface SignUpFormData {
-    name: string;
-    email: string;
-    phone: string;
-    password: string;
-    confirmPassword: string;
-    user_type: "founder" | "investor" | "contributor";
-    tags?: string[];
-}
-
-interface ApiResponse {
-    message: string;
-    requiresConfirmation?: boolean;
-    detail?: string;
-}
-
-=======
 import { Loader2, CheckCircle2 } from "lucide-react";
->>>>>>> Stashed changes
+import { useRouter } from "next/navigation";
+
 
 export default function SignupPage() {
     const router = useRouter();
-    const [formData, setFormData] = useState<SignUpFormData>({
+    const [formData, setFormData] = useState({
         name: "",
         email: "",
         phone: "",
         password: "",
         confirmPassword: "",
-<<<<<<< Updated upstream
-        user_type: "founder",
-        tags: [],
-=======
         userType: "founder",
         addressRegion: "",
         tags: [] as string[],
->>>>>>> Stashed changes
     });
     const [currentTag, setCurrentTag] = useState("");
     const [loading, setLoading] = useState(false);
@@ -68,137 +32,26 @@ export default function SignupPage() {
     const [success, setSuccess] = useState(false);
     const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
 
-<<<<<<< Updated upstream
-    const [status, setStatus] = useState<{
-        type: "success" | "error" | "info" | null;
-        message: string;
-        details?: string;
-    }>({ type: null, message: "" });
+    // Check if already logged in - REMOVED to allow creating new accounts
+    // useEffect(() => {
+    //     const token = localStorage.getItem('auth_token');
+    //     if (token) {
+    //         const userStr = localStorage.getItem('user');
+    //         if (userStr) {
+    //             try {
+    //                 const user = JSON.parse(userStr);
+    //                 const userType = resolveUserType(user);
+    //                 if (userType) {
+    //                     const route = getDashboardRoute(userType);
+    //                     router.push(route);
+    //                 }
+    //             } catch {
+    //                 // Invalid user data, continue with signup
+    //             }
+    //         }
+    //     }
+    // }, [router]);
 
-    const [isLoading, setIsLoading] = useState(false);
-    const [showInvestorTags, setShowInvestorTags] = useState(false);
-
-    const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const { id, value } = e.target;
-        setFormData((prev) => ({ ...prev, [id]: value }));
-    };
-
-    const handleUserTypeChange = (
-        type: "founder" | "investor" | "contributor"
-    ) => {
-        setFormData((prev) => ({ ...prev, user_type: type }));
-        setShowInvestorTags(type === "investor");
-    };
-
-    const handleTagsChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const tags = e.target.value
-            .split(",")
-            .map((tag) => tag.trim())
-            .filter((tag) => tag);
-        setFormData((prev) => ({ ...prev, tags }));
-    };
-
-    const validateForm = (): string | null => {
-        if (!formData.name.trim()) return "Full name is required";
-        if (!formData.email.trim()) return "Email is required";
-        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email))
-            return "Invalid email format";
-        if (!formData.phone.trim()) return "Phone number is required";
-        if (!formData.phone.replace(/\D/g, "").match(/^[0-9]{10,}$/))
-            return "Enter a valid phone number (at least 10 digits)";
-        if (!formData.password) return "Password is required";
-        if (formData.password.length < 8)
-            return "Password must be at least 8 characters";
-        if (formData.password !== formData.confirmPassword)
-            return "Passwords do not match";
-        if (
-            formData.user_type === "investor" &&
-            (!formData.tags || formData.tags.length === 0)
-        ) {
-            return "Please enter at least one investment interest tag (comma-separated)";
-        }
-        return null;
-    };
-
-    const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
-        e.preventDefault();
-
-        const validationError = validateForm();
-        if (validationError) {
-            setStatus({
-                type: "error",
-                message: validationError,
-            });
-            return;
-        }
-
-        setIsLoading(true);
-        setStatus({ type: null, message: "" });
-
-        try {
-            const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/Auth/signup`, {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                },
-                body: JSON.stringify({
-                    name: formData.name.trim(),
-                    email: formData.email.toLowerCase().trim(),
-                    phone: formData.phone.trim(),
-                    password: formData.password,
-                    confirmPassword: formData.confirmPassword,
-
-                    // Backend expects "userType" in JSON
-                    userType: formData.user_type,
-
-                    // Always send an array
-                    tags: formData.tags ?? [],
-                }),
-            });
-
-            const data: ApiResponse = await response.json().catch(() => ({
-                message: "Invalid server response",
-            }));
-
-            if (response.ok) {
-                // Always show email verification message (email confirmation is always required)
-                setStatus({
-                    type: "info",
-                    message: "Registration successful! ✅",
-                    details:
-                        `Please check your email (${formData.email}) to verify your account. The confirmation link may take a few minutes to arrive.`,
-                });
-
-                setFormData({
-                    name: "",
-                    email: "",
-                    phone: "",
-                    password: "",
-                    confirmPassword: "",
-                    user_type: "founder",
-                    tags: [],
-                });
-
-                // NO auto-redirect - user stays on page to see the message
-            } else {
-                setStatus({
-                    type: "error",
-                    message: data.message || `Registration failed (${response.status})`,
-                    details: data.detail,
-                });
-            }
-        } catch (error) {
-            console.error("Signup error:", error);
-            setStatus({
-                type: "error",
-                message: "Network Error",
-                details:
-                    "Could not connect to the server. Please check your internet connection and make sure the backend is running.",
-            });
-        } finally {
-            setIsLoading(false);
-        }
-=======
     const validateForm = () => {
         const errors: Record<string, string> = {};
 
@@ -259,35 +112,129 @@ export default function SignupPage() {
 
         setLoading(true);
 
+        let response: Response | null = null;
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5231';
+
         try {
-            const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5231';
-            const response = await fetch(`${apiUrl}/api/Auth/signup`, {
+            // First, check if backend is reachable
+            try {
+                const healthCheck = await fetch(`${apiUrl}/swagger`, { method: 'GET', signal: AbortSignal.timeout(3000) });
+                if (!healthCheck.ok && healthCheck.status !== 404) {
+                    throw new Error(`Backend health check failed with status ${healthCheck.status}`);
+                }
+            } catch (healthError: unknown) {
+                const error = healthError as Error;
+                if (error.name === 'AbortError' || error.message?.includes('fetch')) {
+                    throw new Error(`Cannot reach backend at ${apiUrl}. Please ensure:\n1. Backend is running\n2. Backend is accessible at ${apiUrl}\n3. No firewall is blocking the connection`);
+                }
+            }
+
+            // Clean API URL: remove trailing slash and /api if present
+            let cleanApiUrl = apiUrl.replace(/\/$/, ''); // Remove trailing slash
+            cleanApiUrl = cleanApiUrl.replace(/\/api$/, ''); // Remove /api if at the end
+            const url = `${cleanApiUrl}/api/Auth/signup`;
+
+            // Backend expects PascalCase properties (Name, Email, UserType, AddressRegion, etc.)
+            const requestBody = {
+                Name: formData.name.trim(),
+                Email: formData.email.trim().toLowerCase(),
+                Phone: formData.phone.trim(),
+                Password: formData.password,
+                ConfirmPassword: formData.confirmPassword,
+                UserType: formData.userType,
+                AddressRegion: formData.addressRegion || "",
+                Tags: formData.userType === "investor" ? formData.tags : [],
+            };
+
+            console.log('=== SIGNUP REQUEST ===');
+            console.log('API URL:', cleanApiUrl);
+            console.log('Full URL:', url);
+            console.log('Request body (passwords hidden):', { ...requestBody, Password: '***', ConfirmPassword: '***' });
+
+            response = await fetch(url, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
+                    'Accept': 'application/json'
                 },
-                body: JSON.stringify({
-                    name: formData.name.trim(),
-                    email: formData.email.trim().toLowerCase(),
-                    phone: formData.phone.trim(),
-                    password: formData.password,
-                    confirmPassword: formData.confirmPassword,
-                    userType: formData.userType,
-                    addressRegion: formData.addressRegion || "",
-                    tags: formData.userType === "investor" ? formData.tags : [],
-                }),
+                body: JSON.stringify(requestBody),
             });
 
-            const data = await response.json();
+            console.log('=== SIGNUP RESPONSE ===');
+            console.log('Status:', response.status, response.statusText);
+            console.log('URL:', response.url);
+            console.log('Headers:', Object.fromEntries(response.headers.entries()));
+
+            // Check if response has content before parsing JSON
+            const contentType = response.headers.get('content-type');
+            let data: { message?: string; detail?: string;[key: string]: unknown } = {};
+
+            if (contentType && contentType.includes('application/json')) {
+                const text = await response.text();
+                if (text) {
+                    try {
+                        data = JSON.parse(text);
+                    } catch (parseError) {
+                        console.error('JSON parse error:', parseError);
+                        throw new Error('Invalid response from server. Please try again.');
+                    }
+                }
+            }
 
             if (!response.ok) {
-                throw new Error(data.message || 'Sign up failed. Please try again.');
+                // Try to get more detailed error information
+                let responseText = '';
+                try {
+                    const clonedResponse = response.clone();
+                    responseText = await clonedResponse.text().catch(() => '');
+                    if (responseText && !data.message && !data.detail) {
+                        try {
+                            const parsedText = JSON.parse(responseText) as { message?: string; detail?: string; title?: string;[key: string]: unknown };
+                            if (parsedText.message) data.message = parsedText.message;
+                            if (parsedText.detail) data.detail = parsedText.detail;
+                            if (parsedText.title) data.title = parsedText.title as string;
+                        } catch {
+                            // If not JSON, use as is
+                        }
+                    }
+                } catch {
+                    // Ignore if we can't read response
+                }
+
+                const errorMsg = (typeof data.message === 'string' ? data.message : '') ||
+                    (typeof data.detail === 'string' ? data.detail : '') ||
+                    (typeof data.title === 'string' ? data.title : '') ||
+                    `Sign up failed (${response.status}).`;
+
+                if (response.status === 404) {
+                    throw new Error(`404 Not Found\n\nRequested URL: ${url}\n\nThis usually means:\n1. Backend is not running on ${cleanApiUrl}\n2. Endpoint route doesn't match (expected: /api/Auth/signup)\n3. Backend route is different from what frontend expects\n\nTroubleshooting:\n1. Verify backend: Open ${cleanApiUrl}/swagger in browser\n2. Check if POST /api/Auth/signup appears in Swagger\n3. Verify backend is running: Check console for "Now listening on: http://localhost:5231"\n4. Check Network tab in DevTools to see the actual request URL\n5. Rebuild backend: cd Spark2Scale/Spark2scale_/Spark2Scale_.Server && dotnet build\n\nResponse: ${responseText || errorMsg || 'No details available'}`);
+                }
+
+                if (response.status === 405) {
+                    throw new Error(`405 Method Not Allowed\n\nRequested URL: ${url}\n\nThis usually means:\n1. Backend is not running on ${cleanApiUrl}\n2. CORS preflight (OPTIONS) request is failing\n3. Endpoint route doesn't match (expected: /api/Auth/signup)\n4. Backend middleware is blocking the request\n\nTroubleshooting:\n1. Verify backend: Open ${cleanApiUrl}/swagger in browser\n2. Check DevTools → Network tab for failed OPTIONS request\n3. Verify Program.cs has app.UseCors() before other middleware\n4. Check backend console for errors\n5. Rebuild backend: dotnet build\n\nResponse: ${responseText || errorMsg || 'No details available'}`);
+                }
+
+                // Show the actual backend error message
+                throw new Error(errorMsg);
             }
 
             // Show success message
             setSuccess(true);
-        } catch (err: any) {
-            setError(err.message || 'An error occurred during sign up. Please try again.');
+        } catch (err: unknown) {
+            console.error('Signup error:', err);
+            const error = err as Error;
+
+            // Handle different types of errors
+            if (error.message?.includes('JSON') || error.message?.includes('fetch') || error.name === 'TypeError') {
+                setError('Cannot connect to server. Please ensure the backend is running on http://localhost:5231. Check the browser console for details.');
+            } else if (error.message?.includes('405') || (response !== null && response.status === 405)) {
+                // Error message already contains detailed troubleshooting
+                setError(error.message);
+            } else if (error.message?.includes('CORS') || error.message?.includes('cors')) {
+                setError('CORS error: The backend is not allowing requests from this origin. Please check CORS configuration in the backend.');
+            } else {
+                setError(error.message || 'An error occurred during sign up. Please try again.');
+            }
         } finally {
             setLoading(false);
         }
@@ -296,7 +243,6 @@ export default function SignupPage() {
     const handleGoogleSignUp = () => {
         console.log("Google Sign-up triggered");
         // Handle Google OAuth logic (to be implemented)
->>>>>>> Stashed changes
     };
 
     if (success) {
@@ -318,18 +264,32 @@ export default function SignupPage() {
                                     <h2 className="text-2xl font-bold text-[#576238] mb-2">
                                         Registration Successful! ✅
                                     </h2>
-                                    <p className="text-muted-foreground mb-4">
-                                        Please check your email ({formData.email}) to verify your account.
-                                    </p>
-                                    <p className="text-sm text-muted-foreground">
-                                        Click the verification link in the email to complete your registration.
+                                    <div className="bg-[#FFD95D]/20 border-2 border-[#FFD95D] rounded-lg p-4 mb-4">
+                                        <p className="font-semibold text-[#576238] mb-2">
+                                            📧 Check Your Email!
+                                        </p>
+                                        <p className="text-sm text-muted-foreground mb-2">
+                                            We've sent a verification link to:
+                                        </p>
+                                        <p className="text-sm font-semibold text-[#576238] mb-3">
+                                            {formData.email}
+                                        </p>
+                                        <p className="text-sm text-muted-foreground">
+                                            Click the verification link in the email to activate your account and access your dashboard automatically.
+                                        </p>
+                                    </div>
+                                    <div className="text-center p-4 bg-gray-50 rounded-lg">
+                                        <p className="text-sm font-medium text-[#576238]">
+                                            Once verified, you will be redirected to your dashboard.
+                                        </p>
+                                        <p className="text-xs text-muted-foreground mt-2">
+                                            You can close this tab.
+                                        </p>
+                                    </div>
+                                    <p className="text-xs text-muted-foreground">
+                                        Didn't receive the email? Check your spam folder or try signing up again.
                                     </p>
                                 </div>
-                                <Link href="/signin">
-                                    <Button className="w-full bg-[#576238] hover:bg-[#6b7c3f] text-white">
-                                        Go to Sign In
-                                    </Button>
-                                </Link>
                             </div>
                         </CardContent>
                     </Card>
@@ -341,6 +301,7 @@ export default function SignupPage() {
     return (
         <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-[#F0EADC] via-[#fff] to-[#FFD95D]/20">
             <div className="w-full max-w-6xl grid md:grid-cols-2 gap-8 items-center">
+                {/* Left side - Illustration */}
                 <motion.div
                     initial={{ opacity: 0, x: -50 }}
                     animate={{ opacity: 1, x: 0 }}
@@ -355,31 +316,10 @@ export default function SignupPage() {
                             One block at a time 🧱
                         </p>
                     </div>
-                    <div className="mt-8 p-6 bg-white/50 rounded-lg shadow-sm">
-                        <h3 className="text-2xl font-semibold text-[#576238] mb-4">
-                            Why Join Spark2Scale?
-                        </h3>
-                        <ul className="space-y-3 text-left">
-                            <li className="flex items-start">
-                                <span className="mr-2 text-green-600">✓</span>
-                                <span>Connect with founders, investors, and contributors</span>
-                            </li>
-                            <li className="flex items-start">
-                                <span className="mr-2 text-green-600">✓</span>
-                                <span>Gamified startup journey with rewards</span>
-                            </li>
-                            <li className="flex items-start">
-                                <span className="mr-2 text-green-600">✓</span>
-                                <span>Access to exclusive opportunities</span>
-                            </li>
-                            <li className="flex items-start">
-                                <span className="mr-2 text-green-600">✓</span>
-                                <span>Build your professional network</span>
-                            </li>
-                        </ul>
-                    </div>
+                    <LegoIllustration />
                 </motion.div>
 
+                {/* Right side - Form */}
                 <motion.div
                     initial={{ opacity: 0, x: 50 }}
                     animate={{ opacity: 1, x: 0 }}
@@ -394,97 +334,7 @@ export default function SignupPage() {
                                 Join the gamified startup journey
                             </CardDescription>
                         </CardHeader>
-
                         <CardContent>
-<<<<<<< Updated upstream
-                            {status.type && (
-                                <Alert
-                                    variant={
-                                        status.type === "error"
-                                            ? "destructive"
-                                            : status.type === "success"
-                                                ? "default"
-                                                : "default"
-                                    }
-                                    className={`mb-4 ${
-                                        status.type === "info"
-                                            ? "border-green-500 bg-green-50 dark:bg-green-950"
-                                            : ""
-                                    }`}
-                                >
-                                    {status.type === "success" && (
-                                        <CheckCircle className="h-4 w-4 mr-2 text-green-600" />
-                                    )}
-                                    {status.type === "info" && (
-                                        <CheckCircle className="h-4 w-4 mr-2 text-green-600" />
-                                    )}
-                                    {status.type === "error" && (
-                                        <AlertCircle className="h-4 w-4 mr-2" />
-                                    )}
-                                    <AlertDescription
-                                        className={
-                                            status.type === "info"
-                                                ? "text-green-800 dark:text-green-200"
-                                                : ""
-                                        }
-                                    >
-                                        <div>
-                                            <strong className="text-base">{status.message}</strong>
-                                            {status.details && (
-                                                <p className="mt-2 text-sm opacity-90">
-                                                    {status.details}
-                                                </p>
-                                            )}
-                                        </div>
-                                    </AlertDescription>
-                                </Alert>
-                            )}
-
-                            {/* Hide form when success or info message is shown */}
-                            {status.type !== "success" && status.type !== "info" && (
-                                <form onSubmit={handleSubmit} className="space-y-4">
-                                <div>
-                                    <Label className="mb-2 block">I am a:</Label>
-                                    <div className="grid grid-cols-3 gap-2">
-                                        <Button
-                                            type="button"
-                                            variant={
-                                                formData.user_type === "founder" ? "default" : "outline"
-                                            }
-                                            className="w-full bg-[#576238] hover:bg-[#6b7c3f] text-white"
-                                            onClick={() => handleUserTypeChange("founder")}
-                                            disabled={isLoading}
-                                        >
-                                            🚀 Founder
-                                        </Button>
-                                        <Button
-                                            type="button"
-                                            variant={
-                                                formData.user_type === "investor"
-                                                    ? "default"
-                                                    : "outline"
-                                            }
-                                            className="w-full bg-[#576238] hover:bg-[#6b7c3f] text-white"
-                                            onClick={() => handleUserTypeChange("investor")}
-                                            disabled={isLoading}
-                                        >
-                                            💼 Investor
-                                        </Button>
-                                        <Button
-                                            type="button"
-                                            variant={
-                                                formData.user_type === "contributor"
-                                                    ? "default"
-                                                    : "outline"
-                                            }
-                                            className="w-full bg-[#576238] hover:bg-[#6b7c3f] text-white"
-                                            onClick={() => handleUserTypeChange("contributor")}
-                                            disabled={isLoading}
-                                        >
-                                            👥 Contributor
-                                        </Button>
-                                    </div>
-=======
                             {error && (
                                 <Alert variant="destructive" className="mb-4">
                                     <AlertDescription>{error}</AlertDescription>
@@ -517,41 +367,17 @@ export default function SignupPage() {
                                     >
                                         👥 Contributor
                                     </Button>
->>>>>>> Stashed changes
                                 </div>
 
-                                {showInvestorTags && (
-                                    <div className="space-y-2">
-                                        <Label htmlFor="tags">
-                                            Investment Interests (comma-separated)
-                                        </Label>
-                                        <Input
-                                            id="tags"
-                                            placeholder="Tech, AI, Healthcare, SaaS"
-                                            onChange={handleTagsChange}
-                                            disabled={isLoading}
-                                        />
-                                        <p className="text-xs text-muted-foreground">
-                                            Enter your areas of interest separated by commas
-                                        </p>
-                                    </div>
-                                )}
-
                                 <div className="space-y-2">
-                                    <Label htmlFor="name">Full Name *</Label>
+                                    <Label htmlFor="name">Full Name</Label>
                                     <Input
                                         id="name"
                                         placeholder="John Doe"
                                         value={formData.name}
-<<<<<<< Updated upstream
-                                        onChange={handleInputChange}
-                                        required
-                                        disabled={isLoading}
-=======
                                         onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                                         required
                                         className={validationErrors.name ? "border-red-500" : ""}
->>>>>>> Stashed changes
                                     />
                                     {validationErrors.name && (
                                         <p className="text-sm text-red-500">{validationErrors.name}</p>
@@ -559,21 +385,15 @@ export default function SignupPage() {
                                 </div>
 
                                 <div className="space-y-2">
-                                    <Label htmlFor="email">Email *</Label>
+                                    <Label htmlFor="email">Email</Label>
                                     <Input
                                         id="email"
                                         type="email"
                                         placeholder="john@example.com"
                                         value={formData.email}
-<<<<<<< Updated upstream
-                                        onChange={handleInputChange}
-                                        required
-                                        disabled={isLoading}
-=======
                                         onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                                         required
                                         className={validationErrors.email ? "border-red-500" : ""}
->>>>>>> Stashed changes
                                     />
                                     {validationErrors.email && (
                                         <p className="text-sm text-red-500">{validationErrors.email}</p>
@@ -581,21 +401,15 @@ export default function SignupPage() {
                                 </div>
 
                                 <div className="space-y-2">
-                                    <Label htmlFor="phone">Phone Number *</Label>
+                                    <Label htmlFor="phone">Phone Number</Label>
                                     <Input
                                         id="phone"
                                         type="tel"
                                         placeholder="+1 (555) 123-4567"
                                         value={formData.phone}
-<<<<<<< Updated upstream
-                                        onChange={handleInputChange}
-                                        required
-                                        disabled={isLoading}
-=======
                                         onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
                                         required
                                         className={validationErrors.phone ? "border-red-500" : ""}
->>>>>>> Stashed changes
                                     />
                                     {validationErrors.phone && (
                                         <p className="text-sm text-red-500">{validationErrors.phone}</p>
@@ -603,9 +417,6 @@ export default function SignupPage() {
                                 </div>
 
                                 <div className="space-y-2">
-<<<<<<< Updated upstream
-                                    <Label htmlFor="password">Password *</Label>
-=======
                                     <Label htmlFor="addressRegion">Address/Region</Label>
                                     <Select
                                         value={formData.addressRegion}
@@ -676,18 +487,11 @@ export default function SignupPage() {
 
                                 <div className="space-y-2">
                                     <Label htmlFor="password">Password</Label>
->>>>>>> Stashed changes
                                     <Input
                                         id="password"
                                         type="password"
                                         placeholder="••••••••"
                                         value={formData.password}
-<<<<<<< Updated upstream
-                                        onChange={handleInputChange}
-                                        required
-                                        disabled={isLoading}
-                                    />
-=======
                                         onChange={(e) => setFormData({ ...formData, password: e.target.value })}
                                         required
                                         className={validationErrors.password ? "border-red-500" : ""}
@@ -695,30 +499,21 @@ export default function SignupPage() {
                                     {validationErrors.password && (
                                         <p className="text-sm text-red-500">{validationErrors.password}</p>
                                     )}
->>>>>>> Stashed changes
                                     <p className="text-xs text-muted-foreground">
                                         Must be at least 8 characters long
                                     </p>
                                 </div>
 
                                 <div className="space-y-2">
-                                    <Label htmlFor="confirmPassword">
-                                        Confirm Password *
-                                    </Label>
+                                    <Label htmlFor="confirmPassword">Confirm Password</Label>
                                     <Input
                                         id="confirmPassword"
                                         type="password"
                                         placeholder="••••••••"
                                         value={formData.confirmPassword}
-<<<<<<< Updated upstream
-                                        onChange={handleInputChange}
-                                        required
-                                        disabled={isLoading}
-=======
                                         onChange={(e) => setFormData({ ...formData, confirmPassword: e.target.value })}
                                         required
                                         className={validationErrors.confirmPassword ? "border-red-500" : ""}
->>>>>>> Stashed changes
                                     />
                                     {validationErrors.confirmPassword && (
                                         <p className="text-sm text-red-500">{validationErrors.confirmPassword}</p>
@@ -729,74 +524,71 @@ export default function SignupPage() {
                                     type="submit"
                                     className="w-full bg-[#576238] hover:bg-[#6b7c3f] text-white font-semibold"
                                     size="lg"
-<<<<<<< Updated upstream
-                                    disabled={isLoading}
-                                >
-                                    {isLoading ? (
-=======
                                     disabled={loading}
                                 >
                                     {loading ? (
->>>>>>> Stashed changes
                                         <>
                                             <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                                             Creating Account...
                                         </>
                                     ) : (
-<<<<<<< Updated upstream
-                                        "Create Account"
-=======
                                         'Create Account'
->>>>>>> Stashed changes
                                     )}
                                 </Button>
 
-                                <p className="text-xs text-center text-muted-foreground mt-4">
-                                    By creating an account, you agree to our{" "}
-                                    <Link href="/terms" className="text-[#576238] hover:underline">
-                                        Terms of Service
-                                    </Link>{" "}
-                                    and{" "}
-                                    <Link
-                                        href="/privacy"
-                                        className="text-[#576238] hover:underline"
-                                    >
-                                        Privacy Policy
-                                    </Link>
-                                </p>
-                            </form>
-                            )}
-
-                            {/* Show sign in link when form is hidden */}
-                            {(status.type === "success" || status.type === "info") && (
-                                <div className="text-center mt-4">
-                                    <p className="text-sm text-muted-foreground">
-                                        Already have an account?{" "}
-                                        <Link
-                                            href="/signin"
-                                            className="text-[#576238] hover:text-[#6b7c3f] font-semibold underline-offset-4 hover:underline"
-                                        >
-                                            Sign in
-                                        </Link>
-                                    </p>
+                                {/* Divider */}
+                                <div className="relative my-6">
+                                    <div className="absolute inset-0 flex items-center">
+                                        <span className="w-full border-t" />
+                                    </div>
+                                    <div className="relative flex justify-center text-xs uppercase">
+                                        <span className="bg-white px-2 text-muted-foreground">
+                                            Or continue with
+                                        </span>
+                                    </div>
                                 </div>
-                            )}
-                        </CardContent>
 
-                        {/* Only show footer link when form is visible (not when success/info message is shown) */}
-                        {status.type !== "success" && status.type !== "info" && (
-                            <CardFooter className="flex justify-center border-t pt-6">
-                                <p className="text-sm text-muted-foreground">
-                                    Already have an account?{" "}
-                                    <Link
-                                        href="/signin"
-                                        className="text-[#576238] hover:text-[#6b7c3f] font-semibold underline-offset-4 hover:underline"
-                                    >
-                                        Sign in
-                                    </Link>
-                                </p>
-                            </CardFooter>
-                        )}
+                                {/* Google Sign-up Button */}
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    className="w-full"
+                                    size="lg"
+                                    onClick={handleGoogleSignUp}
+                                >
+                                    <svg className="mr-2 h-5 w-5" viewBox="0 0 24 24">
+                                        <path
+                                            fill="#4285F4"
+                                            d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+                                        />
+                                        <path
+                                            fill="#34A853"
+                                            d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+                                        />
+                                        <path
+                                            fill="#FBBC05"
+                                            d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"
+                                        />
+                                        <path
+                                            fill="#EA4335"
+                                            d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
+                                        />
+                                    </svg>
+                                    Sign up with Google
+                                </Button>
+                            </form>
+                        </CardContent>
+                        <CardFooter className="flex justify-center">
+                            <p className="text-sm text-muted-foreground">
+                                Already have an account?{" "}
+                                <Link
+                                    href="/signin"
+                                    className="text-[#576238] hover:text-[#6b7c3f] font-semibold underline-offset-4 hover:underline"
+                                >
+                                    Sign in
+                                </Link>
+                            </p>
+                        </CardFooter>
                     </Card>
                 </motion.div>
             </div>

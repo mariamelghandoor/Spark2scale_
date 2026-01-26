@@ -137,5 +137,90 @@ namespace Spark2Scale_.Server.Controllers
                 return StatusCode(500, $"Database Error: {ex.Message}");
             }
         }
+
+        // POST: api/StartupWorkflow/reset/{startupId}
+        [HttpPost("reset/{startupId}")]
+        public async Task<IActionResult> ResetProgress(string startupId)
+        {
+            if (!Guid.TryParse(startupId, out Guid sId)) return BadRequest("Invalid ID");
+
+            try
+            {
+                // 1. Archive Documents
+                await _supabase.From<Document>()
+                    .Where(x => x.StartupId == sId && x.IsCurrent == true)
+                    .Set(x => x.IsCurrent, false)
+                    .Update();
+
+                // 2. Archive Recommendations
+                await _supabase.From<Recommendation>()
+                    .Where(x => x.StartupId == sId && x.IsCurrent == true)
+                    .Set(x => x.IsCurrent, false)
+                    .Update();
+
+                // 3. NEW: Archive Pitch Decks (This is the modular fix)
+                // We reset ALL pitches for this startup to is_current = false
+                await _supabase.From<PitchDeck>()
+                    .Where(x => x.startup_id == sId) // Note: ensure casing matches your model (startup_id vs StartupId)
+                    .Set(x => x.is_current, false)
+                    .Update();
+
+                // 4. Reset Workflow Flags
+                var workflowReset = new StartupWorkflow
+                {
+                    StartupId = sId,
+                    IdeaCheck = false,
+                    MarketResearch = false,
+                    Evaluation = false,
+                    Recommendation = false,
+                    Documents = false,
+                    PitchDeck = false,
+                    UpdatedAt = DateTime.UtcNow
+                };
+
+                await _supabase.From<StartupWorkflow>().Upsert(workflowReset);
+
+                return Ok(new { message = "Reset successful. Workflow, Docs, and Pitches archived." });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, $"Reset failed: {ex.Message}");
+            }
+        }
+
+        [HttpPost("complete-pitch/{startupId}")]
+        public async Task<IActionResult> CompletePitchDeckStage(Guid startupId)
+        {
+            try
+            {
+                var update = await _supabase.From<StartupWorkflow>()
+                                          .Where(x => x.StartupId == startupId)
+                                          .Set(x => x.PitchDeck, true)
+                                          .Set(x => x.UpdatedAt, DateTime.UtcNow)
+                                          .Update();
+
+                var result = update.Models.FirstOrDefault();
+
+                if (result == null) return NotFound("Workflow not found for this startup.");
+
+                var workflowDto = new WorkflowResponseDto
+                {
+                    StartupId = result.StartupId,
+                    IdeaCheck = result.IdeaCheck,
+                    MarketResearch = result.MarketResearch,
+                    Evaluation = result.Evaluation,
+                    Recommendation = result.Recommendation,
+                    Documents = result.Documents,
+                    PitchDeck = result.PitchDeck,
+                    UpdatedAt = result.UpdatedAt
+                };
+
+                return Ok(new { message = "Pitch Deck stage marked as complete.", workflow = workflowDto });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, $"Error updating workflow: {ex.Message}");
+            }
+        }
     }
 }

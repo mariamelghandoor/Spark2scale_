@@ -84,14 +84,14 @@ export default function SchedulePage() {
             <div className="border-b bg-white/80 backdrop-blur-lg">
                 <div className="container mx-auto px-4 py-4 flex justify-between items-center">
                     <div className="flex items-center gap-4">
-                        <Link href="/founder/dashboard">
+                        <Link href="/investor/feed">
                             <Button variant="ghost" size="icon">
                                 <ArrowLeft className="h-5 w-5" />
                             </Button>
                         </Link>
                         <div>
                             <h1 className="text-xl font-bold text-[#576238]">
-                                Hello {userName} 👋
+                                Hello {userData.name} 👋
                             </h1>
                             <p className="text-sm text-muted-foreground">Meeting Schedule</p>
                         </div>
@@ -139,10 +139,10 @@ export default function SchedulePage() {
                                                     </div>
                                                     <div>
                                                         <h4 className="text-xl font-bold text-[#576238]">
-                                                            {meeting.investorName}
+                                                            {meeting.with_whom_name || "Meeting"}
                                                         </h4>
                                                         <p className="text-sm text-muted-foreground">
-                                                            {meeting.investorCompany}
+                                                            Investment Meeting
                                                         </p>
                                                     </div>
                                                 </div>
@@ -150,42 +150,35 @@ export default function SchedulePage() {
                                                 <div className="grid md:grid-cols-2 gap-3 ml-14">
                                                     <div className="flex items-center gap-2 text-sm">
                                                         <Calendar className="h-4 w-4 text-[#576238]" />
-                                                        <span className="font-medium">{formatDate(meeting.date)}</span>
+                                                        <span className="font-medium">{formatDate(meeting.meeting_date)}</span>
                                                     </div>
                                                     <div className="flex items-center gap-2 text-sm">
                                                         <Clock className="h-4 w-4 text-[#576238]" />
-                                                        <span className="font-medium">{meeting.time}</span>
+                                                        <span className="font-medium">{formatTime(meeting.meeting_time)}</span>
                                                     </div>
                                                 </div>
 
-                                                {meeting.notes && (
-                                                    <div className="ml-14 mt-2">
-                                                        <p className="text-sm text-muted-foreground italic">
-                                                            "{meeting.notes}"
-                                                        </p>
-                                                    </div>
-                                                )}
+                                                {/* Join Meeting Button */}
+                                                <div className="flex flex-col gap-2 md:items-end">
+                                                    {meeting.meeting_link && (
+                                                        <a
+                                                            href={meeting.meeting_link}
+                                                            target="_blank"
+                                                            rel="noopener noreferrer"
+                                                            className="inline-block"
+                                                        >
+                                                            <Button className="bg-[#576238] hover:bg-[#6b7c3f] text-white w-full md:w-auto">
+                                                                <Video className="mr-2 h-4 w-4" />
+                                                                Join Meeting
+                                                                <ExternalLink className="ml-2 h-3 w-3" />
+                                                            </Button>
+                                                        </a>
+                                                    )}
+                                                    <span className="text-xs text-muted-foreground">
+                                                        {meeting.status === 'pending' ? 'Awaiting confirmation' : 'Confirmed'}
+                                                    </span>
+                                                </div>
                                             </div>
-
-                                            {/* Join Meeting Button */}
-                                            <div className="flex flex-col gap-2 md:items-end">
-                                                <a
-                                                    href={meeting.meetingLink}
-                                                    target="_blank"
-                                                    rel="noopener noreferrer"
-                                                    className="inline-block"
-                                                >
-                                                    <Button className="bg-[#576238] hover:bg-[#6b7c3f] text-white w-full md:w-auto">
-                                                        <Video className="mr-2 h-4 w-4" />
-                                                        Join Meeting
-                                                        <ExternalLink className="ml-2 h-3 w-3" />
-                                                    </Button>
-                                                </a>
-                                                <span className="text-xs text-muted-foreground">
-                                                    Click to open meeting link
-                                                </span>
-                                            </div>
-                                        </div>
                                     </Card>
                                 </motion.div>
                             ))}
@@ -217,10 +210,10 @@ export default function SchedulePage() {
                                                         </div>
                                                         <div>
                                                             <h4 className="text-xl font-bold text-gray-700">
-                                                                {meeting.investorName}
+                                                                {meeting.with_whom_name || "Meeting"}
                                                             </h4>
                                                             <p className="text-sm text-muted-foreground">
-                                                                {meeting.investorCompany}
+                                                                {meeting.status}
                                                             </p>
                                                         </div>
                                                     </div>
@@ -229,33 +222,24 @@ export default function SchedulePage() {
                                                         <div className="flex items-center gap-2 text-sm">
                                                             <Calendar className="h-4 w-4 text-gray-600" />
                                                             <span className="font-medium text-gray-600">
-                                                                {formatDate(meeting.date)}
+                                                                {formatDate(meeting.meeting_date)}
                                                             </span>
                                                         </div>
                                                         <div className="flex items-center gap-2 text-sm">
                                                             <Clock className="h-4 w-4 text-gray-600" />
                                                             <span className="font-medium text-gray-600">
-                                                                {meeting.time}
+                                                                {formatTime(meeting.meeting_time)}
                                                             </span>
                                                         </div>
                                                     </div>
 
-                                                    {meeting.notes && (
-                                                        <div className="ml-14 mt-2">
-                                                            <p className="text-sm text-gray-500 italic">
-                                                                "{meeting.notes}"
-                                                            </p>
-                                                        </div>
-                                                    )}
+                                                    {/* Completed Badge */}
+                                                    <div className="flex flex-col gap-2 md:items-end">
+                                                        <span className="px-4 py-2 bg-green-100 text-green-700 rounded-full text-sm font-semibold">
+                                                            ✓ Completed
+                                                        </span>
+                                                    </div>
                                                 </div>
-
-                                                {/* Completed Badge */}
-                                                <div className="flex flex-col gap-2 md:items-end">
-                                                    <span className="px-4 py-2 bg-green-100 text-green-700 rounded-full text-sm font-semibold">
-                                                        ✓ Completed
-                                                    </span>
-                                                </div>
-                                            </div>
                                         </Card>
                                     </motion.div>
                                 ))}
