@@ -7,7 +7,7 @@ export interface MarketResearchDoc {
     current_path: string;
     current_version: number;
     updated_at: string;
-    is_current?: boolean; // Make this optional
+    is_current?: boolean; // Optional property
 }
 
 const API_BASE_URL = "https://localhost:7155/api";
@@ -21,13 +21,12 @@ export const marketResearchService = {
 
             const docs: MarketResearchDoc[] = await response.json();
 
-            // --- THE FIX ---
+            // Find the correct document (flexible logic for 'is_current')
             const doc = docs.find(d => {
                 const type = d.type.toLowerCase();
                 const isTypeMatch = type.includes("market");
 
-                // FIX: If 'is_current' is undefined, it means the API implicitly returned current docs.
-                // So we accept it if it's true OR undefined.
+                // If 'is_current' is missing, assume it's current (API behavior), otherwise check true
                 const isCurrent = d.is_current === undefined || d.is_current === true;
 
                 return isTypeMatch && isCurrent;
@@ -47,7 +46,8 @@ export const marketResearchService = {
             if (!response.ok) return false;
 
             const workflow = await response.json();
-            return workflow.marketResearch === true;
+            // Handle casing variations
+            return workflow.marketResearch === true || workflow.MarketResearch === true;
         } catch (error) {
             console.error("Error fetching workflow:", error);
             return false;
@@ -77,15 +77,23 @@ export const marketResearchService = {
     // 4. Mark Stage as Complete
     async completeStage(startupId: string): Promise<boolean> {
         try {
+            // A. Get current state to preserve flags
             const getRes = await fetch(`${API_BASE_URL}/StartupWorkflow/${startupId}`);
-            const currentWorkflow = await getRes.json();
+            if (!getRes.ok) throw new Error("Failed to fetch workflow");
+            const currentData = await getRes.json();
 
+            // B. Construct update payload
             const updatedWorkflow = {
-                ...currentWorkflow,
-                marketResearch: true,
-                startupId: startupId
+                StartupId: startupId,
+                IdeaCheck: currentData.ideaCheck || currentData.IdeaCheck,
+                MarketResearch: true, // <--- Set to TRUE
+                Evaluation: currentData.evaluation || currentData.Evaluation,
+                Recommendation: currentData.recommendation || currentData.Recommendation,
+                Documents: currentData.documents || currentData.Documents,
+                PitchDeck: currentData.pitchDeck || currentData.PitchDeck
             };
 
+            // C. Send Update
             const postRes = await fetch(`${API_BASE_URL}/StartupWorkflow/update`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },

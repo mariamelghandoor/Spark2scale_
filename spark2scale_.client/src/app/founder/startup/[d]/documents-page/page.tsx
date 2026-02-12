@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { ArrowLeft, Eye, Users, Loader2 } from "lucide-react";
+import { ArrowLeft, Eye, Users, Loader2, Globe, Lock } from "lucide-react";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { useParams } from "next/navigation";
@@ -11,33 +11,27 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 
-// --- Interfaces ---
-interface DocumentVersion {
-    vid: string;
-    version_number: number;
-    path: string;
-    created_at: string;
-    generated_by: string;
-}
+// --- Import Merged Service ---
+import {
+    documentsService,
+    DocumentData
+} from "@/services/documentsService"; // Ensure this path is correct
 
-interface DocumentData {
-    did: string;
-    document_name: string;
-    type: string;
-    current_path: string;
-    updated_at: string;
-    is_current: boolean;
-    versions: DocumentVersion[];
-}
-
-export default function DocumentsPage() {
+export default function DocumentsHistoryPage() {
     const params = useParams();
     const [documents, setDocuments] = useState<DocumentData[]>([]);
     const [loading, setLoading] = useState(true);
 
     // ID Logic
-    const startupId = params?.id || params?.d;
+    // Handle potential array or undefined params safely
+    const getCleanId = () => {
+        const raw = params?.id || params?.d;
+        if (!raw) return "";
+        return Array.isArray(raw) ? raw[0] : raw;
+    };
+    const startupId = getCleanId();
 
     // Upload State
     const [isUploadOpen, setIsUploadOpen] = useState(false);
@@ -46,144 +40,113 @@ export default function DocumentsPage() {
     const [uploadName, setUploadName] = useState("");
     const [uploadType, setUploadType] = useState("");
 
-    // Version Selection State: { type_name: "vid_of_version" }
-    // Note: We key by 'type' now since we are grouping by type
+    // Version Selection State (Tracks selected VID per document Type)
     const [selectedVersions, setSelectedVersions] = useState<{ [type: string]: string }>({});
 
-    const API_BASE_URL = "https://localhost:7155";
-
-    useEffect(() => {
-        if (startupId) fetchDocuments();
-        else setLoading(false);
-    }, [startupId]);
-
-    const fetchDocuments = async () => {
+    // ---------------------------------------------------------
+    // 1. Fetch Data
+    // ---------------------------------------------------------
+    const loadDocuments = async () => {
+        if (!startupId) {
+            setLoading(false);
+            return;
+        }
+        setLoading(true);
         try {
-            setLoading(true);
-
-            // 1. Fetch All Docs
-            const res = await fetch(`${API_BASE_URL}/api/documents/all?startupId=${startupId}`);
-            if (!res.ok) throw new Error("Failed to fetch documents");
-            const docs: DocumentData[] = await res.json();
-
-            // 2. Fetch History for each
-            const docsWithHistory = await Promise.all(
-                docs.map(async (doc) => {
-                    try {
-                        const hRes = await fetch(`${API_BASE_URL}/api/documents/history/${doc.did}`);
-                        const history: DocumentVersion[] = hRes.ok ? await hRes.json() : [];
-                        return { ...doc, versions: history };
-                    } catch (err) {
-                        console.warn(`Could not load history for ${doc.did}`, err);
-                        return { ...doc, versions: [] };
-                    }
-                })
-            );
-
-            // 3. GROUP BY TYPE (The Logic You Requested)
-            const groupedDocs = processAndGroupDocuments(docsWithHistory);
-
-            setDocuments(groupedDocs);
-        } catch (error) {
-            console.error("Error fetching docs:", error);
+            // Using the new 'getGroupedDocuments' method from the merged service
+            const data = await documentsService.getGroupedDocuments(startupId);
+            setDocuments(data);
         } finally {
             setLoading(false);
         }
     };
 
-    // --- GROUPING HELPER ---
-    const processAndGroupDocuments = (rawDocs: DocumentData[]): DocumentData[] => {
-        const groups: Record<string, DocumentData> = {};
+    useEffect(() => {
+        loadDocuments();
+    }, [startupId]);
 
-        rawDocs.forEach(doc => {
-            const type = doc.type; // Grouping Key (e.g., "Financials")
+    // ---------------------------------------------------------
+    // 2. Handlers
+    // ---------------------------------------------------------
 
-            if (!groups[type]) {
-                // First time seeing this type, initialize it
-                groups[type] = { ...doc, versions: [...doc.versions] };
-            } else {
-                // We already have a "Financials" card. 
-                // 1. Merge the versions
-                groups[type].versions = [...groups[type].versions, ...doc.versions];
+    // Toggle Public/Private Visibility
+    const handleToggleVisibility = async (docType: string, versionId: string, currentStatus: boolean) => {
+        const newStatus = !currentStatus;
 
-                // 2. Check if this new doc is NEWER than what we stored. 
-                // If so, update the "Main Card" info to match this newer file.
-                if (new Date(doc.updated_at) > new Date(groups[type].updated_at)) {
-                    groups[type].did = doc.did;
-                    groups[type].document_name = doc.document_name;
-                    groups[type].current_path = doc.current_path;
-                    groups[type].updated_at = doc.updated_at;
-                    groups[type].is_current = doc.is_current;
-                }
+        // A. Optimistic Update (Update UI immediately for responsiveness)
+        const updatedDocs = documents.map(doc => {
+            if (doc.type === docType) {
+                return {
+                    ...doc,
+                    versions: doc.versions.map(v =>
+                        v.vid === versionId ? { ...v, is_public: newStatus } : v
+                    )
+                };
             }
+            return doc;
         });
+        setDocuments(updatedDocs);
 
-        // Convert back to array and Clean up versions
-        return Object.values(groups).map(group => {
-            // Sort versions by date descending (Newest first)
-            group.versions.sort((a, b) =>
-                new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-            );
+        // B. API Call via Service
+        const success = await documentsService.toggleVersionVisibility(versionId, newStatus);
 
-            // Optional: Remove duplicate version IDs if any exist due to data overlap
-            const uniqueVersions = Array.from(new Map(group.versions.map(v => [v.vid, v])).values());
-            group.versions = uniqueVersions;
-
-            return group;
-        });
+        // C. Revert if failed
+        if (!success) {
+            alert("Failed to change visibility settings.");
+            loadDocuments(); // Re-fetch to restore correct state
+        }
     };
 
+    // Upload Submit
     const handleUploadSubmit = async () => {
         if (!uploadFile || !uploadName || !uploadType || !startupId) return;
 
         setIsUploading(true);
-        const formData = new FormData();
-        formData.append("File", uploadFile);
-        formData.append("StartupId", startupId as string);
-        formData.append("DocName", uploadName);
-        formData.append("Type", uploadType);
-
         try {
-            const res = await fetch(`${API_BASE_URL}/api/documents/upload`, {
-                method: "POST",
-                body: formData,
-            });
-            if (!res.ok) throw new Error("Upload failed");
+            // Using the shared upload method
+            const success = await documentsService.uploadDocument(startupId, uploadType, uploadFile);
 
-            setIsUploadOpen(false);
-            setUploadFile(null);
-            setUploadName("");
-            setUploadType("");
-
-            fetchDocuments();
-        } catch (error) {
-            console.error(error);
-            alert("Failed to upload");
+            if (success) {
+                setIsUploadOpen(false);
+                setUploadFile(null);
+                setUploadName("");
+                setUploadType("");
+                loadDocuments(); // Refresh the list to show new upload
+            } else {
+                alert("Upload failed. Please try again.");
+            }
         } finally {
             setIsUploading(false);
         }
     };
 
-    // --- VIEW LOGIC ---
-    const handleView = (doc: DocumentData) => {
-        // Use 'doc.type' as key because that's unique now per card
+    // Helper: Get the specific version object being viewed
+    const getCurrentVersionObj = (doc: DocumentData) => {
         const selectedVid = selectedVersions[doc.type];
-
-        // Find specific version in the merged list
-        const specificVersion = doc.versions.find(v => v.vid === selectedVid);
-
-        const urlToOpen = specificVersion ? specificVersion.path : doc.current_path;
-
-        if (urlToOpen) window.open(urlToOpen, "_blank");
+        // If nothing selected, pick the first one (latest, as sorted by service)
+        if (!selectedVid) {
+            return doc.versions[0];
+        }
+        return doc.versions.find(v => v.vid === selectedVid) || doc.versions[0];
     };
 
+    const handleView = (doc: DocumentData) => {
+        const version = getCurrentVersionObj(doc);
+        if (version?.path) window.open(version.path, "_blank");
+    };
+
+    // Helper: Icon Selection based on file type
     const getIcon = (type: string) => {
         const t = type.toLowerCase();
         if (t.includes("pdf")) return "📄";
-        if (t.includes("excel") || t.includes("financial")) return "📊";
-        return "📈";
+        if (t.includes("excel") || t.includes("financial") || t.includes("cap")) return "📊";
+        if (t.includes("ppt") || t.includes("deck")) return "📽️";
+        return "📁";
     };
 
+    // ---------------------------------------------------------
+    // 3. Render
+    // ---------------------------------------------------------
     return (
         <div className="min-h-screen bg-gradient-to-br from-[#F0EADC] via-[#fff] to-[#FFD95D]/20">
             {/* Nav */}
@@ -203,81 +166,102 @@ export default function DocumentsPage() {
                             <div className="flex justify-center py-10">
                                 <Loader2 className="h-8 w-8 animate-spin text-[#576238]" />
                             </div>
-                        ) : documents.map((doc, index) => (
-                            <motion.div
-                                key={doc.type} // Changed Key to Type since distinct by type
-                                initial={{ opacity: 0, y: 20 }}
-                                animate={{ opacity: 1, y: 0 }}
-                                transition={{ delay: index * 0.1 }}
-                            >
-                                {/* REMOVED "Archived" styling logic. It's now always "active" style. */}
-                                <Card className="p-6 border-2 transition-all bg-white hover:border-[#FFD95D]">
-                                    <div className="flex flex-col md:flex-row gap-6">
+                        ) : documents.map((doc, index) => {
+                            const activeVersion = getCurrentVersionObj(doc);
 
-                                        {/* LEFT SIDE: Document Info */}
-                                        <div className="flex items-start gap-4 md:w-1/3">
-                                            <div className="text-5xl">{getIcon(doc.type)}</div>
-                                            <div className="flex-grow">
-                                                <h3 className="font-bold text-[#576238] text-lg mb-1">
-                                                    {doc.type}
-                                                </h3>
+                            return (
+                                <motion.div
+                                    key={doc.type}
+                                    initial={{ opacity: 0, y: 20 }}
+                                    animate={{ opacity: 1, y: 0 }}
+                                    transition={{ delay: index * 0.1 }}
+                                >
+                                    <Card className="p-6 border-2 transition-all bg-white hover:border-[#FFD95D]">
+                                        <div className="flex flex-col md:flex-row gap-6">
 
-                                                <div className="flex flex-col gap-1 text-xs text-muted-foreground">
-                                                    <div className="flex items-center gap-2" title={doc.document_name}>
-                                                        <span className="font-semibold text-gray-500">Latest File:</span>
-                                                        <span className="truncate max-w-[150px]">{doc.document_name}</span>
+                                            {/* LEFT SIDE: Document Info */}
+                                            <div className="flex items-start gap-4 md:w-1/3">
+                                                <div className="text-5xl">{getIcon(doc.type)}</div>
+                                                <div className="flex-grow">
+                                                    <h3 className="font-bold text-[#576238] text-lg mb-1">
+                                                        {doc.type}
+                                                    </h3>
+
+                                                    <div className="flex flex-col gap-1 text-xs text-muted-foreground">
+                                                        <div className="flex items-center gap-2">
+                                                            <span className="font-semibold text-gray-500">Selected Version:</span>
+                                                            <span className="truncate max-w-[150px]">
+                                                                v{activeVersion?.version_number}
+                                                            </span>
+                                                        </div>
+                                                        <span>Created: {activeVersion ? new Date(activeVersion.created_at).toLocaleDateString() : "N/A"}</span>
                                                     </div>
-                                                    <span>Updated: {new Date(doc.updated_at).toLocaleDateString()}</span>
+                                                </div>
+                                            </div>
+
+                                            {/* RIGHT SIDE: Controls */}
+                                            <div className="md:w-2/3 space-y-4">
+
+                                                {/* Version Select & Visibility Toggle */}
+                                                <div className="flex items-center gap-3">
+                                                    <div className="flex-grow">
+                                                        <Label className="text-xs text-muted-foreground mb-1 block">Version</Label>
+                                                        <Select
+                                                            value={selectedVersions[doc.type] || (doc.versions[0]?.vid)}
+                                                            onValueChange={(val) => setSelectedVersions({ ...selectedVersions, [doc.type]: val })}
+                                                        >
+                                                            <SelectTrigger className="w-full h-9">
+                                                                <SelectValue placeholder="Select Version" />
+                                                            </SelectTrigger>
+                                                            <SelectContent>
+                                                                {doc.versions.map((v) => (
+                                                                    <SelectItem key={v.vid} value={v.vid}>
+                                                                        v{v.version_number} - {new Date(v.created_at).toLocaleDateString()}
+                                                                    </SelectItem>
+                                                                ))}
+                                                            </SelectContent>
+                                                        </Select>
+                                                    </div>
+
+                                                    {/* PUBLIC/PRIVATE TOGGLE */}
+                                                    {activeVersion && (
+                                                        <div className="flex flex-col items-center">
+                                                            <Label className="text-xs text-muted-foreground mb-1 block">Visibility</Label>
+                                                            <div className="flex items-center gap-2 border p-1 px-2 rounded-md h-9 bg-gray-50">
+                                                                {activeVersion.is_public ? (
+                                                                    <Globe className="h-4 w-4 text-[#576238]" />
+                                                                ) : (
+                                                                    <Lock className="h-4 w-4 text-gray-400" />
+                                                                )}
+                                                                <Switch
+                                                                    checked={activeVersion.is_public}
+                                                                    onCheckedChange={() => handleToggleVisibility(doc.type, activeVersion.vid, activeVersion.is_public)}
+                                                                    className="scale-75 data-[state=checked]:bg-[#576238]"
+                                                                />
+                                                                <span className="text-xs font-medium w-12">
+                                                                    {activeVersion.is_public ? "Public" : "Private"}
+                                                                </span>
+                                                            </div>
+                                                        </div>
+                                                    )}
+                                                </div>
+
+                                                <div className="grid grid-cols-2 gap-2">
+                                                    <Button variant="outline" size="sm" onClick={() => handleView(doc)}>
+                                                        <Eye className="h-4 w-4 mr-2" />
+                                                        View File
+                                                    </Button>
+                                                    <Button variant="outline" size="sm">
+                                                        <Users className="h-4 w-4 mr-2" />
+                                                        Permissions
+                                                    </Button>
                                                 </div>
                                             </div>
                                         </div>
-
-                                        {/* RIGHT SIDE: Controls */}
-                                        <div className="md:w-2/3 space-y-4">
-                                            <div>
-                                                <Label className="text-xs text-muted-foreground mb-2 block">
-                                                    Version History
-                                                </Label>
-                                                <Select
-                                                    // Key select state by Type
-                                                    value={selectedVersions[doc.type] || "latest"}
-                                                    onValueChange={(val) => setSelectedVersions({ ...selectedVersions, [doc.type]: val })}
-                                                >
-                                                    <SelectTrigger className="w-full">
-                                                        <SelectValue placeholder="Latest Version" />
-                                                    </SelectTrigger>
-                                                    <SelectContent>
-                                                        {/* Default Option: Latest */}
-                                                        <SelectItem value="latest">
-                                                            Current (Latest)
-                                                        </SelectItem>
-
-                                                        {/* History Options (Merged) */}
-                                                        {doc.versions.map((v) => (
-                                                            <SelectItem key={v.vid} value={v.vid}>
-                                                                {/* Show Date + Version Number if available */}
-                                                                {new Date(v.created_at).toLocaleDateString()} - Version {v.version_number}
-                                                            </SelectItem>
-                                                        ))}
-                                                    </SelectContent>
-                                                </Select>
-                                            </div>
-
-                                            <div className="grid grid-cols-2 gap-2">
-                                                <Button variant="outline" size="sm" onClick={() => handleView(doc)}>
-                                                    <Eye className="h-4 w-4 mr-2" />
-                                                    View / Download
-                                                </Button>
-                                                <Button variant="outline" size="sm">
-                                                    <Users className="h-4 w-4 mr-2" />
-                                                    Manage Access
-                                                </Button>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </Card>
-                            </motion.div>
-                        ))}
+                                    </Card>
+                                </motion.div>
+                            );
+                        })}
 
                         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
                             <Card onClick={() => setIsUploadOpen(true)} className="p-6 h-full flex flex-col items-center justify-center border-2 border-dashed border-[#576238]/30 bg-white/50 hover:bg-[#F0EADC]/30 cursor-pointer min-h-[150px]">

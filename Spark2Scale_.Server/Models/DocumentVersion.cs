@@ -28,6 +28,9 @@ namespace Spark2Scale_.Server.Models
         public string GeneratedBy { get; set; } // "manual" or "AI"
         // ---------------------------
 
+        [Column("is_public")]
+        public bool IsPublic { get; set; }
+
         [Column("created_at")]
         public DateTime CreatedAt { get; set; }
     }

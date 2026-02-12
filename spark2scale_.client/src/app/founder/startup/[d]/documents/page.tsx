@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { ArrowLeft, Upload, FileText, Plus, Eye, Send, Star, Users, Edit, Loader2, Trash2, Sparkles, Presentation, Table, Scale, RefreshCw, Bot, History, X } from "lucide-react";
+import { ArrowLeft, Upload, FileText, Plus, Eye, Send, Star, Users, Edit, Loader2, Trash2, Sparkles, RefreshCw, Bot, History, X } from "lucide-react";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import { useParams, useRouter } from "next/navigation";
@@ -13,81 +13,14 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
-// --- Configuration: Required Documents ---
-const REQUIRED_DOCS = [
-    {
-        id: "pitch_deck",
-        name: "Pitch Deck",
-        icon: Presentation,
-        desc: "PDF (Preferred) or PPTX. Ensures design consistency.",
-        accept: ".pdf,.ppt,.pptx",
-        aiPrompt: "Help me generate a structure for my Pitch Deck based on my other documents."
-    },
-    {
-        id: "financials",
-        name: "Financials",
-        icon: Table,
-        desc: "Excel (.xlsx) or CSV. Investors need to audit formulas.",
-        accept: ".xlsx,.xls,.csv",
-        aiPrompt: "Help me create 3-year Financial Projections."
-    },
-    {
-        id: "cap_table",
-        name: "Cap Table",
-        icon: Users,
-        desc: "Excel or PDF. Ownership structure.",
-        accept: ".xlsx,.xls,.pdf",
-        aiPrompt: "Explain how to structure my Cap Table."
-    },
-    {
-        id: "legal_docs",
-        name: "Legal Docs",
-        icon: Scale,
-        desc: "PDF. Standard for signed legal docs.",
-        accept: ".pdf",
-        aiPrompt: "What legal documents do I need for incorporation?"
-    },
-    {
-        id: "business_plan",
-        name: "Business Plan",
-        icon: FileText,
-        desc: "PDF. Detailed execution strategy.",
-        accept: ".pdf,.doc,.docx",
-        aiPrompt: "Draft an Executive Summary for my Business Plan."
-    }
-];
-
-// --- Types ---
-interface DBDocument {
-    did: string;
-    master_id: string;
-    document_name: string;
-    type: string;
-    current_path: string;
-    current_version: number;
-    created_at: string;
-}
-
-interface DocState {
-    configId: string;
-    dbId?: string;
-    isUploaded: boolean;
-    name: string;
-    path?: string;
-    version?: number;
-    date?: string;
-}
-
-interface ChatMessage {
-    role: string;
-    content: string;
-}
-
-interface SessionSummary {
-    sessionId: string;
-    sessionName: string;
-    createdAt: string;
-}
+// Import Service
+import {
+    documentsService,
+    REQUIRED_DOCS,
+    DocState,
+    SessionSummary,
+    ChatMessage
+} from "@/services/documentsService"; // Adjust import path
 
 export default function DocumentsPage() {
     const params = useParams();
@@ -123,14 +56,14 @@ export default function DocumentsPage() {
     };
     const cleanId = getCleanId();
 
+    // ---------------------------------------------------------
     // 1. Fetch Data
+    // ---------------------------------------------------------
     const fetchData = async () => {
         if (!cleanId) return;
         setIsLoadingData(true);
         try {
-            const res = await fetch(`https://localhost:7155/api/documents?startupId=${cleanId}`);
-            let dbDocs: DBDocument[] = [];
-            if (res.ok) dbDocs = await res.json();
+            const dbDocs = await documentsService.getDocuments(cleanId);
 
             const mergedState: DocState[] = REQUIRED_DOCS.map(req => {
                 const match = dbDocs.find(d => d.type.toLowerCase() === req.name.toLowerCase());
@@ -149,8 +82,6 @@ export default function DocumentsPage() {
                 }
             });
             setDocStates(mergedState);
-        } catch (error) {
-            console.error("Error loading docs:", error);
         } finally {
             setIsLoadingData(false);
         }
@@ -158,19 +89,19 @@ export default function DocumentsPage() {
 
     useEffect(() => { fetchData(); }, [cleanId]);
 
+    // ---------------------------------------------------------
     // 2. Chat Logic
+    // ---------------------------------------------------------
     useEffect(() => {
         const initChat = async () => {
             if (!cleanId) return;
-            const res = await fetch(`https://localhost:7155/api/Chat/sessions/${cleanId}/document_gen`);
-            if (res.ok) {
-                const list = await res.json();
-                setSessions(list);
-                if (list.length > 0 && !chatSessionId) {
-                    loadChatMessages(list[0].sessionId);
-                } else if (list.length === 0) {
-                    startNewChatSession();
-                }
+            const list = await documentsService.getChatSessions(cleanId);
+            setSessions(list);
+
+            if (list.length > 0 && !chatSessionId) {
+                loadChatMessages(list[0].sessionId);
+            } else if (list.length === 0) {
+                startNewChatSession();
             }
         };
         initChat();
@@ -178,16 +109,11 @@ export default function DocumentsPage() {
 
     const startNewChatSession = async () => {
         if (!cleanId) return;
-        const res = await fetch(`https://localhost:7155/api/Chat/start-new`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ StartupId: cleanId, FeatureType: 'document_gen' })
-        });
-        if (res.ok) {
-            const data = await res.json();
-            const newSummary: SessionSummary = { sessionId: data.sessionId, sessionName: data.sessionName, createdAt: new Date().toISOString() };
-            setSessions(prev => [newSummary, ...prev]);
-            setChatSessionId(data.sessionId);
+        const newSession = await documentsService.startNewSession(cleanId);
+
+        if (newSession) {
+            setSessions(prev => [newSession, ...prev]);
+            setChatSessionId(newSession.sessionId);
             setMessages([{ role: "assistant", content: "Hello! Select a document above and I can help you generate it." }]);
             setShowChatHistory(false);
         }
@@ -198,11 +124,8 @@ export default function DocumentsPage() {
         setChatSessionId(sessionId);
         setShowChatHistory(false);
         try {
-            const res = await fetch(`https://localhost:7155/api/Chat/messages/${sessionId}`);
-            if (res.ok) {
-                const history = await res.json();
-                setMessages(history.length ? history : [{ role: "assistant", content: "Hello! Select a document above and I can help you generate it." }]);
-            }
+            const history = await documentsService.getMessages(sessionId);
+            setMessages(history.length ? history : [{ role: "assistant", content: "Hello! Select a document above and I can help you generate it." }]);
         } finally {
             setIsChatLoading(false);
         }
@@ -213,16 +136,16 @@ export default function DocumentsPage() {
         if (!contentToSend.trim() || !chatSessionId) return;
 
         if (!textOverride) setNewMessage("");
+
+        // Optimistic update
         setMessages(prev => [...prev, { role: "user", content: contentToSend }]);
 
-        await fetch(`https://localhost:7155/api/Chat/send`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ SessionId: chatSessionId, Role: "user", Content: contentToSend })
-        });
+        await documentsService.sendMessage(chatSessionId, contentToSend);
     };
 
+    // ---------------------------------------------------------
     // 3. GENERATE MOCK
+    // ---------------------------------------------------------
     const handleSimulateGeneration = async (docId: string) => {
         if (!cleanId) return;
         const docConfig = REQUIRED_DOCS.find(d => d.id === docId);
@@ -232,27 +155,25 @@ export default function DocumentsPage() {
         setMessages(prev => [...prev, { role: "user", content: `Generate the ${docConfig.name} for me.` }]);
 
         try {
-            const res = await fetch(`https://localhost:7155/api/documents/generate-mock`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ StartupId: cleanId, Type: docConfig.name })
-            });
+            const success = await documentsService.generateMockDocument(cleanId, docConfig.name);
 
-            if (res.ok) {
+            if (success) {
                 await fetchData();
                 setMessages(prev => [...prev, { role: "assistant", content: `✅ I have successfully generated the ${docConfig.name}. It is now available in your documents list.` }]);
             } else {
                 setMessages(prev => [...prev, { role: "assistant", content: "❌ Error: Could not generate document." }]);
             }
         } catch (error) {
-            console.error("Generation error:", error);
+            console.error("Generation error:", error); // <--- FIX: Use the variable here
             setMessages(prev => [...prev, { role: "assistant", content: "❌ Connection error." }]);
         } finally {
             setIsGeneratingDoc(false);
         }
     };
 
-    // 4. Actions
+    // ---------------------------------------------------------
+    // 4. Actions (Upload, Delete, View)
+    // ---------------------------------------------------------
     const triggerUpload = (configId: string) => {
         if (fileInputRefs.current[configId]) {
             fileInputRefs.current[configId]!.click();
@@ -264,32 +185,27 @@ export default function DocumentsPage() {
         const file = e.target.files[0];
         setUploadingId(config.id);
 
-        const formData = new FormData();
-        formData.append("file", file);
-        formData.append("startupId", cleanId);
-        formData.append("type", config.name);
-        formData.append("docName", file.name);
-
         const currentState = docStates.find(d => d.configId === config.id);
-        if (currentState?.isUploaded && currentState.dbId) {
-            formData.append("documentId", currentState.dbId);
-        }
+        const existingDbId = (currentState?.isUploaded && currentState.dbId) ? currentState.dbId : undefined;
 
         try {
-            const res = await fetch("https://localhost:7155/api/documents/upload", { method: "POST", body: formData });
-            if (res.ok) await fetchData();
+            const success = await documentsService.uploadDocument(cleanId, config.name, file, existingDbId);
+            if (success) await fetchData();
             else alert("Upload failed");
-        } catch (error) { console.error(error); }
-        finally { setUploadingId(null); }
+        } finally {
+            setUploadingId(null);
+        }
     };
 
     const handleDelete = async (dbId?: string) => {
         if (!dbId || !confirm("Delete this document?")) return;
         setDeletingId(dbId);
         try {
-            const res = await fetch(`https://localhost:7155/api/documents/${dbId}`, { method: 'DELETE' });
-            if (res.ok) await fetchData();
-        } finally { setDeletingId(null); }
+            const success = await documentsService.deleteDocument(dbId);
+            if (success) await fetchData();
+        } finally {
+            setDeletingId(null);
+        }
     };
 
     const handleView = (path?: string) => { if (path) window.open(path, '_blank'); };
@@ -297,65 +213,50 @@ export default function DocumentsPage() {
     const handleRecommend = (dbId?: string) => { if (dbId) router.push(`/founder/startup/${cleanId}/documents/${dbId}/recommend`); };
     const handleGenerateClick = (docId: string, prompt: string) => { setChatContext(docId); handleSendMessage(prompt); };
 
-    // --- COMPLETE STAGE (UPDATED) ---
+    // ---------------------------------------------------------
+    // 5. COMPLETE STAGE
+    // ---------------------------------------------------------
     const handleCompleteStage = async () => {
         setIsCompleting(true);
         if (!cleanId) return;
 
         try {
             // 1. CHECK COMPLETION FIRST
-            const checkRes = await fetch(`https://localhost:7155/api/documents/check-completion/${cleanId}`);
-            if (checkRes.ok) {
-                const checkData = await checkRes.json();
+            const checkData = await documentsService.checkCompletion(cleanId);
 
-                if (!checkData.isComplete) {
-                    // ALERT USER and STOP
-                    const missingList = checkData.missingDocs?.join(", ") || "documents";
-                    alert(`⚠️ Cannot Complete Stage.\n\nYou are missing the following required documents:\n${missingList}`);
-                    setIsCompleting(false);
-                    return; // STOP EXECUTION
-                }
-            } else {
-                console.error("Failed to check completion status");
+            if (!checkData || !checkData.isComplete) {
+                const missingList = checkData?.missingDocs?.join(", ") || "documents";
+                alert(`⚠️ Cannot Complete Stage.\n\nYou are missing the following required documents:\n${missingList}`);
                 setIsCompleting(false);
                 return;
             }
 
-            // 2. PROCEED IF COMPLETE
-            const getRes = await fetch(`https://localhost:7155/api/StartupWorkflow/${cleanId}`);
-            let currentData = { ideaCheck: false, marketResearch: false, evaluation: false, recommendation: false, documents: false, pitchDeck: false };
-            if (getRes.ok) {
-                const json = await getRes.json();
-                currentData = { ...json };
-            }
+            // 2. PROCEED IF COMPLETE: Get current workflow to preserve other flags
+            const currentWorkflow = await documentsService.getWorkflow(cleanId);
 
             const updatePayload = {
                 StartupId: cleanId,
-                IdeaCheck: currentData.ideaCheck,
-                MarketResearch: currentData.marketResearch,
-                Evaluation: currentData.evaluation,
-                Recommendation: currentData.recommendation,
-                Documents: true,
-                PitchDeck: currentData.pitchDeck
+                IdeaCheck: currentWorkflow.ideaCheck || currentWorkflow.IdeaCheck,
+                MarketResearch: currentWorkflow.marketResearch || currentWorkflow.MarketResearch,
+                Evaluation: currentWorkflow.evaluation || currentWorkflow.Evaluation,
+                Recommendation: currentWorkflow.recommendation || currentWorkflow.Recommendation,
+                Documents: true, // Mark this complete
+                PitchDeck: currentWorkflow.pitchDeck || currentWorkflow.PitchDeck
             };
 
-            const updateRes = await fetch(`https://localhost:7155/api/StartupWorkflow/update`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(updatePayload),
-            });
+            const success = await documentsService.updateWorkflow(updatePayload);
+            if (success) router.push(`/founder/startup/${cleanId}`);
 
-            if (updateRes.ok) router.push(`/founder/startup/${cleanId}`);
-        } catch (error) {
-            console.error("Error completing stage:", error);
         } finally {
             setIsCompleting(false);
         }
     };
 
     const getCurrentContextName = () => REQUIRED_DOCS.find(d => d.id === chatContext)?.name || "Document";
-    const getCurrentContextPrompt = () => REQUIRED_DOCS.find(d => d.id === chatContext)?.aiPrompt || "Generate this.";
 
+    // ---------------------------------------------------------
+    // 6. Render
+    // ---------------------------------------------------------
     return (
         <div className="min-h-screen bg-[#F5F7F2]">
             {/* Top Bar */}
