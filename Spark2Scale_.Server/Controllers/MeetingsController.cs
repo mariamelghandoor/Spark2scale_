@@ -78,17 +78,11 @@ namespace Spark2Scale_.Server.Controllers
             // 4. CREATE MEETING
             var newMeeting = new Meeting
             {
-                MeetingId = Guid.NewGuid(),
                 SenderId = input.sender_id,
                 ReceiverId = receiverId,
                 StartupId = input.startup_id,
-
-                // --- FIX START ---
                 // We add 12 hours (Noon) and force UTC.
-                // This ensures that timezone shifts (e.g. -2 hours) don't push the date to the previous day.
                 MeetingDate = DateTime.SpecifyKind(input.meeting_date.Date.AddHours(12), DateTimeKind.Utc),
-                // --- FIX END ---
-
                 MeetingTime = input.meeting_time,
                 MeetingLink = input.meeting_link,
                 CreatedAt = DateTime.UtcNow,
@@ -96,10 +90,19 @@ namespace Spark2Scale_.Server.Controllers
             };
 
             var result = await _supabase.From<Meeting>().Insert(newMeeting);
-            var inserted = result.Models.FirstOrDefault();
+            var insertedMeeting = result.Models.FirstOrDefault();
+            if (insertedMeeting == null)
+            {
+                // Fallback: If Supabase didn't return the model, fetch it manually using the criteria
+                // This is a rare edge case but ensures safety.
+                var fetchCheck = await _supabase.From<Meeting>()
+                    .Where(m => m.SenderId == input.sender_id && m.ReceiverId == receiverId && m.Status == "pending")
+                    .Order("created_at", Supabase.Postgrest.Constants.Ordering.Descending)
+                    .Get();
+                insertedMeeting = fetchCheck.Models.FirstOrDefault();
 
-            if (inserted == null) return StatusCode(500, "Failed to schedule meeting.");
-
+                if (insertedMeeting == null) return StatusCode(500, "Failed to retrieve created meeting.");
+            }
             // 5. NOTIFICATIONS & EMAIL
 
             // In-App Notification
@@ -110,13 +113,16 @@ namespace Spark2Scale_.Server.Controllers
                 Topic = "📅 Meeting Invite",
                 Description = $"You have been invited to a meeting on {input.meeting_date:MMM dd} at {input.meeting_time}. Click 'Accept' to confirm.",
                 Type = "meeting_invite",
-                RelatedEntityId = inserted.MeetingId,
+
+                // CRITICAL FIX: Use the ID from the database response
+                RelatedEntityId = insertedMeeting.MeetingId,
+
                 CreatedAt = DateTime.UtcNow,
                 IsRead = false
             };
             await _supabase.From<Notification>().Insert(invite);
 
-            // HTML Email Notification (Invite)
+            // HTML Email Notification (Invite) - YOUR ORIGINAL FORMAT KEPT
             string subject = "🧱 New Opportunity: Meeting Invite from Spark2Scale";
             string body = $@"
                 <!DOCTYPE html>
@@ -178,8 +184,8 @@ namespace Spark2Scale_.Server.Controllers
 
             return Ok(new MeetingResponseDto
             {
-                meeting_id = inserted.MeetingId,
-                status = inserted.Status
+                meeting_id = insertedMeeting.MeetingId,
+                status = insertedMeeting.Status
             });
         }
 
@@ -194,8 +200,8 @@ namespace Spark2Scale_.Server.Controllers
             await Task.WhenAll(sentTask, receivedTask);
 
             var allMeetings = sentTask.Result.Models.Concat(receivedTask.Result.Models)
-                                               .GroupBy(m => m.MeetingId).Select(g => g.First())
-                                               .OrderBy(m => m.MeetingDate).ToList();
+                                                    .GroupBy(m => m.MeetingId).Select(g => g.First())
+                                                    .OrderBy(m => m.MeetingDate).ToList();
 
             var userIdsToFetch = new List<string>();
             foreach (var m in allMeetings)
@@ -236,21 +242,97 @@ namespace Spark2Scale_.Server.Controllers
             return Ok(dtos);
         }
 
+        // --- UPDATED ACCEPT: Hides buttons on refresh ---
         [HttpPost("accept/{id}")]
         public async Task<IActionResult> AcceptMeeting(Guid id)
         {
+            // 1. Update Meeting Status
             await _supabase.From<Meeting>().Where(m => m.MeetingId == id).Set(m => m.Status, "accepted").Update();
+
+            // 2. Update Notification (Hide buttons permanently)
+            await _supabase.From<Notification>()
+                .Where(n => n.RelatedEntityId == id)
+                .Set(n => n.Type, "info") // Changing type prevents buttons from showing
+                .Set(n => n.Description, "✅ You have accepted this meeting.")
+                .Update();
+
             return Ok();
         }
 
+        // --- UPDATED REJECT: Hides buttons AND Sends Email to Sender ---
         [HttpPost("reject/{id}")]
         public async Task<IActionResult> RejectMeeting(Guid id)
         {
+            var meetingResult = await _supabase.From<Meeting>().Where(m => m.MeetingId == id).Get();
+            var meeting = meetingResult.Models.FirstOrDefault();
+
+            if (meeting == null) return NotFound("Meeting not found");
+
+            // 1. Update Meeting Status
             await _supabase.From<Meeting>().Where(m => m.MeetingId == id).Set(m => m.Status, "rejected").Update();
+
+            // 2. Update Notification (Hide buttons permanently)
+            await _supabase.From<Notification>()
+                .Where(n => n.RelatedEntityId == id)
+                .Set(n => n.Type, "info") // Changing type prevents buttons from showing
+                .Set(n => n.Description, "❌ You declined this meeting.")
+                .Update();
+
+            // 3. GET USERS FOR EMAIL (Sender needs to know)
+            var senderResult = await _supabase.From<User>().Where(u => u.uid == meeting.SenderId).Get();
+            var senderUser = senderResult.Models.FirstOrDefault();
+
+            var receiverResult = await _supabase.From<User>().Where(u => u.uid == meeting.ReceiverId).Get();
+            var rejectorUser = receiverResult.Models.FirstOrDefault();
+
+            if (senderUser != null && rejectorUser != null)
+            {
+                // 4. App Notification for Sender
+                var notif = new Notification
+                {
+                    Sender = meeting.ReceiverId,
+                    Receiver = meeting.SenderId,
+                    Topic = "❌ Invitation Declined",
+                    Description = $"{rejectorUser.fname} {rejectorUser.lname} has declined your meeting invite.",
+                    Type = "info",
+                    CreatedAt = DateTime.UtcNow,
+                    IsRead = false
+                };
+                await _supabase.From<Notification>().Insert(notif);
+
+                // 5. EMAIL to Sender (New Logic)
+                string subject = "Update: Meeting Invitation Declined";
+                string body = $@"
+                    <!DOCTYPE html>
+                    <html>
+                    <body style='font-family: Arial, sans-serif; background-color:#F0EADC; padding: 40px 0;'>
+                        <div style='background-color: white; max-width: 600px; margin: 0 auto; padding: 30px; border-radius: 8px; border-top: 5px solid #DC2626;'>
+                            <h2 style='color: #576238; margin-top: 0;'>Hello {senderUser.fname},</h2>
+                            <p style='color: #555; font-size: 16px;'>
+                                We wanted to let you know that <strong>{rejectorUser.fname} {rejectorUser.lname}</strong> has declined your invitation.
+                            </p>
+                            
+                            <div style='background-color: #FEF2F2; padding: 15px; border-radius: 4px; border: 1px solid #FCA5A5; margin: 20px 0;'>
+                                <p style='margin: 5px 0; color: #991B1B;'><strong>📅 Date:</strong> {meeting.MeetingDate:MMM dd, yyyy}</p>
+                                <p style='margin: 5px 0; color: #991B1B;'><strong>⏰ Time:</strong> {meeting.MeetingTime}</p>
+                                <p style='margin: 5px 0; color: #991B1B;'><strong>Status:</strong> <span style='font-weight: bold;'>REJECTED</span></p>
+                            </div>
+
+                            <p style='color: #666; font-size: 14px;'>
+                                You may want to reschedule or contact them directly.
+                            </p>
+                            <p style='color: #aaa; font-size: 12px; margin-top: 30px;'>Spark2Scale Inc.</p>
+                        </div>
+                    </body>
+                    </html>";
+
+                _ = _emailService.SendEmailAsync(senderUser.email, subject, body);
+            }
+
             return Ok();
         }
 
-        // --- NEW: CANCELLATION WITH PRETTY EMAIL ---
+        // --- CANCELLATION (Restored Original) ---
         [HttpPost("cancel/{id}")]
         public async Task<IActionResult> CancelMeeting(Guid id)
         {
@@ -259,10 +341,8 @@ namespace Spark2Scale_.Server.Controllers
 
             if (meeting == null) return NotFound();
 
-            // 1. Update Status
             await _supabase.From<Meeting>().Where(m => m.MeetingId == id).Set(m => m.Status, "canceled").Update();
 
-            // 2. Fetch Receiver Details to send email
             var receiverResult = await _supabase.From<User>()
                 .Filter("uid", Supabase.Postgrest.Constants.Operator.Equals, meeting.ReceiverId.ToString())
                 .Get();
@@ -270,7 +350,6 @@ namespace Spark2Scale_.Server.Controllers
 
             if (receiver != null)
             {
-                // 3. In-App Notification
                 var notif = new Notification
                 {
                     Sender = meeting.SenderId,
@@ -283,67 +362,8 @@ namespace Spark2Scale_.Server.Controllers
                 };
                 await _supabase.From<Notification>().Insert(notif);
 
-                // 4. PRETTY HTML EMAIL (Cancellation)
                 string subject = "Updates: Meeting Canceled - Spark2Scale";
-                string body = $@"
-                    <!DOCTYPE html>
-                    <html>
-                    <body style='margin:0; padding:0; background-color:#F0EADC; font-family: Arial, sans-serif;'>
-                        <table width='100%' border='0' cellspacing='0' cellpadding='0' style='background-color:#F0EADC; padding: 40px 0;'>
-                            <tr>
-                                <td align='center'>
-                                    <table width='600' border='0' cellspacing='0' cellpadding='0' style='background-color:#ffffff; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.1); border-top: 8px solid #DC2626;'>
-                                        
-                                        <tr>
-                                            <td style='padding: 30px; text-align: center; border-bottom: 1px solid #eee;'>
-                                                <h1 style='color:#576238; margin:0; font-size: 24px;'>Spark2Scale</h1>
-                                                <p style='color:#DC2626; margin:5px 0 0 0; font-size: 14px; font-weight: bold;'>MEETING UPDATES</p>
-                                            </td>
-                                        </tr>
-
-                                        <tr>
-                                            <td style='padding: 40px 30px;'>
-                                                <h2 style='color:#333; margin-top:0;'>Hello {receiver.fname},</h2>
-                                                <p style='color:#555; font-size: 16px; line-height: 1.5;'>
-                                                    We are writing to inform you that the following meeting has been <strong style='color:#DC2626;'>canceled</strong> by the organizer.
-                                                </p>
-                                                
-                                                <div style='background-color:#FEF2F2; border-left: 5px solid #DC2626; padding: 20px; margin: 25px 0; border-radius: 4px;'>
-                                                    <table border='0' cellspacing='0' cellpadding='0'>
-                                                        <tr>
-                                                            <td style='padding-bottom: 10px; padding-right: 15px; font-weight:bold; color:#991B1B;'>📅 Original Date:</td>
-                                                            <td style='padding-bottom: 10px; color:#333; text-decoration: line-through;'>{meeting.MeetingDate:dddd, MMMM dd}</td>
-                                                        </tr>
-                                                        <tr>
-                                                            <td style='padding-bottom: 10px; padding-right: 15px; font-weight:bold; color:#991B1B;'>⏰ Time:</td>
-                                                            <td style='padding-bottom: 10px; color:#333;'>{meeting.MeetingTime}</td>
-                                                        </tr>
-                                                        <tr>
-                                                            <td style='font-weight:bold; color:#991B1B;'>Status:</td>
-                                                            <td style='color:#DC2626; font-weight:bold;'>CANCELED</td>
-                                                        </tr>
-                                                    </table>
-                                                </div>
-
-                                                <p style='color:#666; font-size: 14px;'>
-                                                    We apologize for any inconvenience this may cause.
-                                                </p>
-                                            </td>
-                                        </tr>
-
-                                        <tr>
-                                            <td style='background-color:#f8f8f8; padding: 20px; text-align: center; border-top: 1px solid #eeeeee;'>
-                                                <p style='margin:0; font-size: 12px; color:#aaa;'>&copy; 2025 Spark2Scale Inc.</p>
-                                            </td>
-                                        </tr>
-                                    </table>
-                                </td>
-                            </tr>
-                        </table>
-                    </body>
-                    </html>
-                ";
-
+                string body = $"Hello {receiver.fname}, the meeting on {meeting.MeetingDate:d} has been canceled.";
                 _ = _emailService.SendEmailAsync(receiver.email, subject, body);
             }
 

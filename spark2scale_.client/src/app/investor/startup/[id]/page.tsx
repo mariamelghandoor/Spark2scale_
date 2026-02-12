@@ -1,76 +1,222 @@
 ﻿"use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { ArrowLeft, Calendar, Download, FileText, Heart, Video } from "lucide-react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { ArrowLeft, Calendar, Download, FileText, Lock, Clock, Loader2, Ban, AlertTriangle, RefreshCw } from "lucide-react"; // Added Icons
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { useParams } from "next/navigation";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import apiClient from "@/lib/apiClient";
+import { toast } from "sonner";
+
+// --- NEW IMPORTS FOR SCHEDULING ---
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { meetingService } from "@/services/meetingService";
+import { userService } from "@/services/userService";
+
+interface Startup {
+    sid: string;
+    startupname: string;
+    field: string;
+    idea_description: string;
+    region?: string;
+    startup_stage?: string;
+    created_at?: string;
+    founder_id?: string; // Added founder_id to interface
+}
+
+interface PitchDeck {
+    pitchdeckid: string;
+    pitchname: string;
+    video_url: string;
+    is_current: boolean;
+    created_at: string;
+}
+
+interface StartupDocument {
+    did: string;
+    document_name: string;
+    type: string;
+    current_path: string | null;
+    updated_at: string;
+    canaccess: number;
+    access_status: "public" | "locked" | "pending" | "granted";
+}
+
+interface RouteParams {
+    id: string;
+}
 
 export default function InvestorStartupProfile() {
-    const params = useParams();
-    const [startup] = useState({
-        name: "EcoTech Solutions",
-        tagline: "AI-powered sustainability for businesses",
-        region: "North America",
-        field: "Green Technology",
-        stage: "Series A",
-        funding: "$2M",
-        team: "15 people",
-        description:
-            "EcoTech Solutions helps businesses reduce their carbon footprint through AI-powered analytics and actionable recommendations. Our platform has helped over 500 companies achieve their sustainability goals.",
-        image: "https://images.unsplash.com/photo-1497435334941-8c899ee9e8e9?w=800&h=600&fit=crop",
+    const rawParams = useParams();
+    const params = rawParams as unknown as RouteParams;
+    const id = params?.id;
+
+    // TODO: Replace with real logged-in investor ID
+    const investorId = "7da8b0c8-9adc-446b-b7f0-218f84a81f1b";
+
+    const [startup, setStartup] = useState<Startup | null>(null);
+    const [pitchDecks, setPitchDecks] = useState<PitchDeck[]>([]);
+    const [documents, setDocuments] = useState<StartupDocument[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
+    const [requestLoading, setRequestLoading] = useState(false);
+
+    // --- SCHEDULING STATE ---
+    const [founderEmail, setFounderEmail] = useState<string>("");
+    const [isScheduleOpen, setIsScheduleOpen] = useState(false);
+    const [isScheduling, setIsScheduling] = useState(false);
+    const [scheduleError, setScheduleError] = useState("");
+    const [newMeeting, setNewMeeting] = useState({
+        date: "",
+        time: "",
+        link: ""
     });
+    const todayStr = new Date().toISOString().split('T')[0];
 
-    const [liked, setLiked] = useState(false);
+    useEffect(() => {
+        if (!id) {
+            setError("Invalid Startup ID.");
+            setLoading(false);
+            return;
+        }
 
-    const documents = [
-        { id: 1, name: "Business Model Canvas", type: "PDF" },
-        { id: 2, name: "Financial Projections", type: "Excel" },
-        { id: 3, name: "Market Analysis Report", type: "PDF" },
-        { id: 4, name: "Team Bios", type: "PDF" },
-    ];
+        const fetchData = async () => {
+            try {
+                setLoading(true);
+                setError(null);
 
-    const pitchVideos = [
-        {
-            id: 1,
-            title: "Series A Pitch - Main",
-            duration: "5:42",
-            date: "2024-02-12",
-        },
-        {
-            id: 2,
-            title: "Product Demo",
-            duration: "3:15",
-            date: "2024-02-10",
-        },
-    ];
+                const startupRes = await apiClient.get<Startup>(`/api/startups/${id}`);
+                setStartup(startupRes.data);
 
-    const meetings = [
-        {
-            id: 1,
-            date: "2024-02-20",
-            time: "2:00 PM",
-            type: "Initial Discussion",
-        },
-        {
-            id: 2,
-            date: "2024-02-25",
-            time: "10:00 AM",
-            type: "Deep Dive",
-        },
-    ];
+                // --- FETCH FOUNDER EMAIL FOR SCHEDULING ---
+                if (startupRes.data.founder_id) {
+                    try {
+                        const profile = await userService.getProfile(startupRes.data.founder_id);
+                        if (profile?.user?.email) {
+                            setFounderEmail(profile.user.email);
+                        }
+                    } catch (err) {
+                        console.warn("Failed to fetch founder email", err);
+                    }
+                }
+
+                try {
+                    const pitchesRes = await apiClient.get<PitchDeck[]>(`/api/pitchdecks/${id}?onlyPublic=true`);
+                    setPitchDecks(pitchesRes.data);
+                } catch (err: unknown) {
+                    console.warn("Failed to load pitches", err);
+                }
+
+                try {
+                    const docsRes = await apiClient.get<StartupDocument[]>(`/api/documents?startupId=${id}&investorId=${investorId}`);
+                    setDocuments(docsRes.data);
+                } catch (err: unknown) {
+                    console.warn("Failed to load documents", err);
+                }
+
+            } catch (err: unknown) {
+                console.error("Critical error fetching startup data:", err);
+                setError("Failed to load startup profile. Please check your connection.");
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        fetchData();
+    }, [id, investorId]);
+
+    const handleRequestAccess = async () => {
+        if (!startup) return;
+        setRequestLoading(true);
+        try {
+            await apiClient.post("/api/investordocumentaccess/request", {
+                investorId: investorId,
+                startupId: startup.sid
+            });
+
+            toast.success("Access requested! The founder has been notified.");
+
+            // Refresh documents
+            const docsRes = await apiClient.get<StartupDocument[]>(`/api/documents?startupId=${id}&investorId=${investorId}`);
+            setDocuments(docsRes.data);
+        } catch (err) {
+            console.error("Request failed", err);
+            toast.error("Failed to request access.");
+        } finally {
+            setRequestLoading(false);
+        }
+    };
+
+    // --- SCHEDULING LOGIC ---
+    const generateMeetLink = () => {
+        const roomName = `Spark2Scale-${Math.random().toString(36).substring(7)}`;
+        setNewMeeting({ ...newMeeting, link: `https://meet.jit.si/${roomName}` });
+    };
+
+    const handleScheduleMeeting = async () => {
+        setScheduleError("");
+        if (!newMeeting.date || !newMeeting.time || !newMeeting.link) {
+            setScheduleError("Please fill in all fields.");
+            return;
+        }
+
+        // Validate date
+        const inputDate = new Date(newMeeting.date + "T00:00:00");
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        if (inputDate < today) {
+            setScheduleError("Cannot schedule in the past.");
+            return;
+        }
+
+        if (!founderEmail) {
+            setScheduleError("Founder contact information is missing.");
+            return;
+        }
+
+        setIsScheduling(true);
+        try {
+            await meetingService.createMeeting({
+                sender_id: investorId,
+                invitee_email: founderEmail,
+                meeting_date: newMeeting.date,
+                meeting_time: newMeeting.time + ":00",
+                meeting_link: newMeeting.link
+            });
+            
+            toast.success("Meeting invitation sent successfully!");
+            setIsScheduleOpen(false);
+            setNewMeeting({ date: "", time: "", link: "" });
+        } catch (error: any) {
+            console.error("Error scheduling:", error);
+            const msg = error.response?.data?.title || "Failed to schedule meeting.";
+            setScheduleError(msg);
+            toast.error(msg);
+        } finally {
+            setIsScheduling(false);
+        }
+    };
+
+    // --- BUTTON STATE LOGIC ---
+    const hasDocuments = documents.length > 0;
+    const hasLockedDocs = documents.some(d => d.access_status === "locked");
+    const hasPendingDocs = documents.some(d => d.access_status === "pending");
+
+    if (loading) return <div className="min-h-screen flex items-center justify-center"><Loader2 className="animate-spin" /></div>;
+    if (error || !startup) return <div className="p-20 text-center text-red-500">{error}</div>;
 
     return (
         <div className="min-h-screen bg-gradient-to-br from-[#F0EADC] via-[#fff] to-[#FFD95D]/20">
-            {/* Top Navigation Bar */}
-            <div className="border-b bg-white/80 backdrop-blur-lg">
+            <div className="border-b bg-white/80 backdrop-blur-lg sticky top-0 z-20">
                 <div className="container mx-auto px-4 py-4 flex items-center gap-4">
                     <Link href="/investor/feed">
                         <Button variant="ghost" size="icon">
-                            <ArrowLeft className="h-5 w-5" />
+                            <ArrowLeft className="h-5 w-5 text-[#576238]" />
                         </Button>
                     </Link>
                     <h1 className="text-xl font-bold text-[#576238]">Startup Profile</h1>
@@ -79,273 +225,182 @@ export default function InvestorStartupProfile() {
 
             <main className="container mx-auto px-4 py-8">
                 <div className="max-w-5xl mx-auto">
-                    {/* Hero Section */}
-                    <motion.div
-                        initial={{ opacity: 0, y: 20 }}
-                        animate={{ opacity: 1, y: 0 }}
-                    >
-                        <Card className="overflow-hidden border-2 mb-6">
-                            <div className="relative h-64">
-                                <img
-                                    src={startup.image}
-                                    alt={startup.name}
-                                    className="w-full h-full object-cover"
-                                />
-                                <div className="absolute inset-0 bg-gradient-to-t from-black/70 to-transparent" />
-                                <div className="absolute bottom-6 left-6 text-white">
-                                    <h1 className="text-4xl font-bold mb-2">{startup.name}</h1>
-                                    <p className="text-lg text-white/90">{startup.tagline}</p>
+                    <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
+                        <Card className="overflow-hidden border-2 mb-6 shadow-md bg-white">
+                            <CardContent className="p-8">
+                                <div className="mb-6">
+                                    <h1 className="text-4xl font-bold mb-2 text-[#576238]">{startup.startupname}</h1>
+                                    <p className="text-lg text-gray-600 line-clamp-2">{startup.idea_description}</p>
                                 </div>
-                            </div>
-                            <CardContent className="p-6">
-                                <div className="grid md:grid-cols-4 gap-4 mb-6">
-                                    <div className="text-center p-4 bg-gray-50 rounded-lg">
-                                        <p className="text-xs text-muted-foreground mb-1">Region</p>
-                                        <p className="font-semibold text-[#576238]">
-                                            {startup.region}
-                                        </p>
+
+                                <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-6">
+                                    <div className="text-center p-4 bg-gray-50 rounded-lg border">
+                                        <p className="text-xs text-muted-foreground mb-1">REGION</p>
+                                        <p className="font-semibold text-[#576238]">{startup.region || "Not specified"}</p>
                                     </div>
-                                    <div className="text-center p-4 bg-gray-50 rounded-lg">
-                                        <p className="text-xs text-muted-foreground mb-1">Field</p>
-                                        <p className="font-semibold text-[#576238]">
-                                            {startup.field}
-                                        </p>
+                                    <div className="text-center p-4 bg-gray-50 rounded-lg border">
+                                        <p className="text-xs text-muted-foreground mb-1">FIELD</p>
+                                        <p className="font-semibold text-[#576238]">{startup.field || "Not specified"}</p>
                                     </div>
-                                    <div className="text-center p-4 bg-gray-50 rounded-lg">
-                                        <p className="text-xs text-muted-foreground mb-1">Stage</p>
-                                        <p className="font-semibold text-[#576238]">
-                                            {startup.stage}
-                                        </p>
-                                    </div>
-                                    <div className="text-center p-4 bg-gray-50 rounded-lg">
-                                        <p className="text-xs text-muted-foreground mb-1">
-                                            Seeking
-                                        </p>
-                                        <p className="font-semibold text-[#576238]">
-                                            {startup.funding}
-                                        </p>
+                                    <div className="text-center p-4 bg-gray-50 rounded-lg border">
+                                        <p className="text-xs text-muted-foreground mb-1">STAGE</p>
+                                        <p className="font-semibold text-[#576238]">{startup.startup_stage || "Not specified"}</p>
                                     </div>
                                 </div>
 
                                 <div className="flex gap-3">
-                                    <Button
-                                        onClick={() => setLiked(!liked)}
-                                        className={`flex-1 ${liked
-                                                ? "bg-red-500 hover:bg-red-600"
-                                                : "bg-[#576238] hover:bg-[#6b7c3f]"
-                                            }`}
-                                    >
-                                        <Heart
-                                            className={`mr-2 h-4 w-4 ${liked ? "fill-white" : ""}`}
-                                        />
-                                        {liked ? "Liked" : "Like Startup"}
-                                    </Button>
-                                    <Button variant="outline" className="flex-1">
-                                        <Calendar className="mr-2 h-4 w-4" />
-                                        Schedule Meeting
-                                    </Button>
+                                    {/* --- DYNAMIC ACCESS BUTTONS --- */}
+                                    {!hasDocuments ? (
+                                        <Button disabled className="flex-1 bg-gray-100 text-gray-400 border-gray-200">
+                                            <Ban className="mr-2 h-4 w-4" />
+                                            No Documents Available
+                                        </Button>
+                                    ) : hasLockedDocs ? (
+                                        <Button
+                                            onClick={handleRequestAccess}
+                                            disabled={requestLoading}
+                                            className="flex-1 bg-[#576238] hover:bg-[#6b7c3f] transition-all"
+                                        >
+                                            {requestLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Lock className="mr-2 h-4 w-4" />}
+                                            Request Full Access
+                                        </Button>
+                                    ) : hasPendingDocs ? (
+                                        <Button disabled className="flex-1 bg-gray-200 text-gray-600 cursor-not-allowed">
+                                            <Clock className="mr-2 h-4 w-4" />
+                                            Full Access request is pending
+                                        </Button>
+                                    ) : (
+                                        <Button variant="outline" className="flex-1 border-green-600 text-green-600 cursor-default bg-green-50">
+                                            <Download className="mr-2 h-4 w-4" />
+                                            Full Access Granted
+                                        </Button>
+                                    )}
+
+                                    {/* --- SCHEDULE MEETING BUTTON WITH DIALOG --- */}
+                                    <Dialog open={isScheduleOpen} onOpenChange={setIsScheduleOpen}>
+                                        <DialogTrigger asChild>
+                                            <Button 
+                                                variant="outline" 
+                                                className="flex-1 border-[#576238] text-[#576238] hover:bg-[#576238]/10"
+                                                onClick={() => {
+                                                    setScheduleError("");
+                                                    if (!founderEmail) toast.warning("Founder contact info unavailable.");
+                                                }}
+                                            >
+                                                <Calendar className="mr-2 h-4 w-4" />
+                                                Schedule Meeting
+                                            </Button>
+                                        </DialogTrigger>
+                                        <DialogContent className="sm:max-w-[425px]">
+                                            <DialogHeader>
+                                                <DialogTitle>Schedule Meeting</DialogTitle>
+                                                <DialogDescription>
+                                                    Send a meeting invite to <strong>{startup.startupname}</strong>'s founder.
+                                                </DialogDescription>
+                                            </DialogHeader>
+                                            <div className="grid gap-4 py-4">
+                                                {scheduleError && (
+                                                    <div className="bg-red-50 text-red-600 p-3 rounded-md text-sm border border-red-200 flex items-center gap-2">
+                                                        <AlertTriangle className="h-4 w-4" /> {scheduleError}
+                                                    </div>
+                                                )}
+                                                
+                                                <div className="space-y-2">
+                                                    <Label>Founder Email</Label>
+                                                    <Input value={founderEmail || "Loading..."} disabled className="bg-gray-100" />
+                                                </div>
+
+                                                <div className="grid grid-cols-2 gap-4">
+                                                    <div className="space-y-2">
+                                                        <Label htmlFor="date">Date</Label>
+                                                        <Input 
+                                                            id="date" 
+                                                            type="date" 
+                                                            min={todayStr} 
+                                                            value={newMeeting.date} 
+                                                            onChange={(e) => setNewMeeting({ ...newMeeting, date: e.target.value })} 
+                                                        />
+                                                    </div>
+                                                    <div className="space-y-2">
+                                                        <Label htmlFor="time">Time</Label>
+                                                        <Input 
+                                                            id="time" 
+                                                            type="time" 
+                                                            value={newMeeting.time} 
+                                                            onChange={(e) => setNewMeeting({ ...newMeeting, time: e.target.value })} 
+                                                        />
+                                                    </div>
+                                                </div>
+
+                                                <div className="space-y-2">
+                                                    <Label htmlFor="link">Meeting Link</Label>
+                                                    <div className="flex gap-2">
+                                                        <Input 
+                                                            id="link" 
+                                                            placeholder="https://meet.jit.si/..." 
+                                                            value={newMeeting.link} 
+                                                            readOnly 
+                                                            className="bg-gray-50 flex-grow" 
+                                                        />
+                                                        <Button type="button" variant="outline" size="icon" onClick={generateMeetLink}>
+                                                            <RefreshCw className="h-4 w-4 text-[#576238]" />
+                                                        </Button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <Button 
+                                                onClick={handleScheduleMeeting} 
+                                                disabled={isScheduling || !founderEmail} 
+                                                className="w-full bg-[#576238] hover:bg-[#6b7c3f]"
+                                            >
+                                                {isScheduling ? "Sending Invite..." : "Send Invite"}
+                                            </Button>
+                                        </DialogContent>
+                                    </Dialog>
+
                                 </div>
                             </CardContent>
                         </Card>
                     </motion.div>
 
-                    {/* Tabs Content */}
-                    <motion.div
-                        initial={{ opacity: 0, y: 20 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ delay: 0.2 }}
-                    >
-                        <Tabs defaultValue="about" className="w-full">
-                            <TabsList className="grid w-full grid-cols-4">
-                                <TabsTrigger value="about">About</TabsTrigger>
-                                <TabsTrigger value="videos">Videos</TabsTrigger>
-                                <TabsTrigger value="documents">Documents</TabsTrigger>
-                                <TabsTrigger value="calendar">Calendar</TabsTrigger>
+                    {/* TABS SECTION */}
+                    <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
+                        <Tabs defaultValue="documents" className="w-full">
+                            <TabsList className="grid w-full grid-cols-3 bg-white border h-auto p-1">
+                                <TabsTrigger value="videos" className="py-2 data-[state=active]:bg-[#576238] data-[state=active]:text-white">Pitches</TabsTrigger>
+                                <TabsTrigger value="about" className="py-2 data-[state=active]:bg-[#576238] data-[state=active]:text-white">About</TabsTrigger>
+                                <TabsTrigger value="documents" className="py-2 data-[state=active]:bg-[#576238] data-[state=active]:text-white">Documents</TabsTrigger>
                             </TabsList>
-
-                            <TabsContent value="about" className="mt-6">
-                                <Card className="border-2">
-                                    <CardHeader>
-                                        <CardTitle className="text-[#576238]">
-                                            About {startup.name}
-                                        </CardTitle>
-                                    </CardHeader>
-                                    <CardContent>
-                                        <p className="text-muted-foreground leading-relaxed mb-6">
-                                            {startup.description}
-                                        </p>
-                                        <div className="grid md:grid-cols-2 gap-6">
-                                            <div>
-                                                <h4 className="font-semibold text-[#576238] mb-3">
-                                                    Key Highlights
-                                                </h4>
-                                                <ul className="space-y-2 text-sm">
-                                                    <li className="flex items-start gap-2">
-                                                        <span className="text-green-600 mt-0.5">✓</span>
-                                                        <span>500+ enterprise customers</span>
-                                                    </li>
-                                                    <li className="flex items-start gap-2">
-                                                        <span className="text-green-600 mt-0.5">✓</span>
-                                                        <span>30% MoM revenue growth</span>
-                                                    </li>
-                                                    <li className="flex items-start gap-2">
-                                                        <span className="text-green-600 mt-0.5">✓</span>
-                                                        <span>Experienced leadership team</span>
-                                                    </li>
-                                                    <li className="flex items-start gap-2">
-                                                        <span className="text-green-600 mt-0.5">✓</span>
-                                                        <span>Patents pending for AI technology</span>
-                                                    </li>
-                                                </ul>
-                                            </div>
-                                            <div>
-                                                <h4 className="font-semibold text-[#576238] mb-3">
-                                                    Team Size
-                                                </h4>
-                                                <p className="text-sm text-muted-foreground mb-4">
-                                                    {startup.team} across engineering, sales, and
-                                                    operations
-                                                </p>
-                                                <h4 className="font-semibold text-[#576238] mb-3">
-                                                    Traction
-                                                </h4>
-                                                <p className="text-sm text-muted-foreground">
-                                                    $1.2M ARR with strong unit economics
-                                                </p>
-                                            </div>
-                                        </div>
-                                    </CardContent>
-                                </Card>
-                            </TabsContent>
-
                             <TabsContent value="videos" className="mt-6">
-                                <Card className="border-2">
-                                    <CardHeader>
-                                        <CardTitle className="text-[#576238]">
-                                            Pitch Videos
-                                        </CardTitle>
-                                        <CardDescription>
-                                            Watch the founder's presentations
-                                        </CardDescription>
-                                    </CardHeader>
-                                    <CardContent>
-                                        <div className="grid md:grid-cols-2 gap-4">
-                                            {pitchVideos.map((video) => (
-                                                <div
-                                                    key={video.id}
-                                                    className="border-2 rounded-lg overflow-hidden hover:border-[#FFD95D] transition-all"
-                                                >
-                                                    <div className="relative bg-gradient-to-br from-[#576238] to-[#6b7c3f] aspect-video flex items-center justify-center">
-                                                        <Button
-                                                            size="lg"
-                                                            className="rounded-full w-16 h-16 bg-white/90 hover:bg-white text-[#576238]"
-                                                        >
-                                                            <Video className="h-6 w-6" />
-                                                        </Button>
-                                                        <div className="absolute bottom-4 right-4 bg-black/70 text-white px-3 py-1 rounded-full text-sm">
-                                                            {video.duration}
-                                                        </div>
-                                                    </div>
-                                                    <div className="p-4">
-                                                        <h4 className="font-semibold text-[#576238] mb-1">
-                                                            {video.title}
-                                                        </h4>
-                                                        <p className="text-sm text-muted-foreground">
-                                                            {new Date(video.date).toLocaleDateString()}
-                                                        </p>
-                                                    </div>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    </CardContent>
-                                </Card>
+                                {pitchDecks.length === 0 ? <p className="text-center text-gray-500 py-10">No pitches found.</p> : (
+                                    <div className="grid md:grid-cols-2 gap-6">{pitchDecks.map(p => (
+                                        <Card key={p.pitchdeckid} className="p-4"><h3 className="font-bold">{p.pitchname}</h3></Card>
+                                    ))}</div>
+                                )}
                             </TabsContent>
-
+                            <TabsContent value="about" className="mt-6">
+                                <Card className="p-6"><p>{startup.idea_description}</p></Card>
+                            </TabsContent>
                             <TabsContent value="documents" className="mt-6">
-                                <Card className="border-2">
-                                    <CardHeader>
-                                        <CardTitle className="text-[#576238]">Documents</CardTitle>
-                                        <CardDescription>
-                                            Access startup documentation
-                                        </CardDescription>
-                                    </CardHeader>
+                                <Card className="border-2 shadow-sm bg-white">
+                                    <CardHeader><CardTitle>Documents</CardTitle></CardHeader>
                                     <CardContent>
-                                        <div className="space-y-3">
-                                            {documents.map((doc) => (
-                                                <div
-                                                    key={doc.id}
-                                                    className="flex items-center justify-between p-4 border-2 rounded-lg hover:border-[#FFD95D] transition-all"
-                                                >
-                                                    <div className="flex items-center gap-3">
-                                                        <FileText className="h-5 w-5 text-[#576238]" />
-                                                        <div>
-                                                            <p className="font-semibold text-[#576238]">
-                                                                {doc.name}
-                                                            </p>
-                                                            <p className="text-xs text-muted-foreground">
-                                                                {doc.type}
-                                                            </p>
-                                                        </div>
+                                        {documents.length === 0 ? <p className="text-center text-gray-400 py-4">No documents available.</p> : documents.map(doc => (
+                                            <div key={doc.did} className="flex justify-between p-4 border rounded mb-2 items-center">
+                                                <div className="flex items-center gap-3">
+                                                    {doc.access_status === 'locked' ? <Lock className="text-gray-400" /> : <FileText className="text-[#576238]" />}
+                                                    <div>
+                                                        <p className="font-bold">{doc.document_name}</p>
+                                                        <p className="text-xs text-gray-500 uppercase">{doc.access_status}</p>
                                                     </div>
-                                                    <Button variant="outline" size="sm">
-                                                        <Download className="h-4 w-4 mr-2" />
-                                                        Download
-                                                    </Button>
                                                 </div>
-                                            ))}
-                                        </div>
-                                    </CardContent>
-                                </Card>
-                            </TabsContent>
-
-                            <TabsContent value="calendar" className="mt-6">
-                                <Card className="border-2">
-                                    <CardHeader>
-                                        <CardTitle className="text-[#576238]">
-                                            Meeting Schedule
-                                        </CardTitle>
-                                        <CardDescription>
-                                            Scheduled and upcoming meetings
-                                        </CardDescription>
-                                    </CardHeader>
-                                    <CardContent>
-                                        {meetings.length > 0 ? (
-                                            <div className="space-y-3">
-                                                {meetings.map((meeting) => (
-                                                    <div
-                                                        key={meeting.id}
-                                                        className="flex items-center justify-between p-4 border-2 rounded-lg"
-                                                    >
-                                                        <div>
-                                                            <p className="font-semibold text-[#576238]">
-                                                                {meeting.type}
-                                                            </p>
-                                                            <p className="text-sm text-muted-foreground">
-                                                                {new Date(meeting.date).toLocaleDateString()} at{" "}
-                                                                {meeting.time}
-                                                            </p>
-                                                        </div>
-                                                        <Button
-                                                            variant="outline"
-                                                            size="sm"
-                                                            className="border-[#576238] text-[#576238]"
-                                                        >
-                                                            Join
-                                                        </Button>
-                                                    </div>
-                                                ))}
+                                                {doc.current_path ? (
+                                                    <a href={doc.current_path} target="_blank"><Button size="sm" variant="outline">View</Button></a>
+                                                ) : (
+                                                    <Button size="sm" variant="ghost" disabled><Lock className="h-4 w-4 mr-1" /> Locked</Button>
+                                                )}
                                             </div>
-                                        ) : (
-                                            <div className="text-center py-12">
-                                                <Calendar className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-                                                <p className="text-muted-foreground">
-                                                    No meetings scheduled yet
-                                                </p>
-                                                <Button className="mt-4 bg-[#576238] hover:bg-[#6b7c3f]">
-                                                    Schedule a Meeting
-                                                </Button>
-                                            </div>
-                                        )}
+                                        ))}
                                     </CardContent>
                                 </Card>
                             </TabsContent>

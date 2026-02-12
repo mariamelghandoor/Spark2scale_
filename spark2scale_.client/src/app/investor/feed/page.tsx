@@ -1,111 +1,303 @@
 ﻿"use client";
-
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Calendar, X, Heart, Eye } from "lucide-react";
+import { Calendar, X, Heart, Eye, Video, Sparkles, Trophy, Loader2 } from "lucide-react";
 import Link from "next/link";
 import { motion, useMotionValue, useTransform } from "framer-motion";
+import NotificationsDropdown from "@/components/shared/NotificationsDropdown";
+import apiClient from "@/lib/apiClient"; // Using your shared client
+import LegoLoader from "@/components/lego/LegoLoader";
+
+// --- Interfaces ---
+interface FeedbackItem {
+    Aspect: string;
+    Score: number;
+    Comment: string;
+}
+
+interface ShortAnalysis {
+    Score: number;
+    Summary: string;
+    KeyFeedback: FeedbackItem[];
+}
+
+interface DetailedAnalysis {
+    Tone: string;
+    Pacing: string;
+    Sections: FeedbackItem[];
+    TranscriptHighlights: string[];
+}
+
+interface AnalysisContent {
+    Short?: ShortAnalysis;
+    Detailed?: DetailedAnalysis;
+}
+
+interface PitchDeck {
+    pitchdeckid: string;
+    startup_id: string;
+    video_url: string | null;
+    pitchname: string;
+    is_current: boolean;
+    analysis: AnalysisContent | null;
+    tags: string[];
+    countlikes: number;
+    created_at: string;
+    startup?: {
+        sid: string;
+        startupname: string;
+        field: string;
+        idea_description: string;
+    };
+}
+
+interface InvestorDto {
+    userId: string;
+    tags: string[];
+}
 
 export default function InvestorFeed() {
-    // Initialize user data from localStorage
-    const [userData] = useState<{ name: string; id: string }>(() => {
-        if (typeof window === 'undefined') return { name: 'Investor', id: '' };
-
-        const userStr = localStorage.getItem('user');
-        if (userStr) {
-            try {
-                const user = JSON.parse(userStr);
-                const name = user.fname && user.lname
-                    ? `${user.fname} ${user.lname}`
-                    : user.email?.split('@')[0] || 'Investor';
-                return { name, id: user.id || '' };
-            } catch {
-                return { name: 'Investor', id: '' };
-            }
-        }
-        return { name: 'Investor', id: '' };
-    });
-
-    const [startups, setStartups] = useState<any[]>([]);
+    const [userName, setUserName] = useState("Sarah");
     const [currentIndex, setCurrentIndex] = useState(0);
+    const [pitchDecks, setPitchDecks] = useState<PitchDeck[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
+    const [likedPitches, setLikedPitches] = useState<Set<string>>(new Set());
+    const [actionLoading, setActionLoading] = useState(false);
+    const [investorTags, setInvestorTags] = useState<string[]>([]);
 
-    // Fetch startups
+    // Hardcoded ID as requested
+    const investorId = "3e59c30f-e3d2-43d2-ba48-818e69b7a9fd";
+
+    // Calculate tag match count for sorting
+    const getTagMatchCount = (pitchTags: string[]) => {
+        if (!investorTags.length || !pitchTags.length) return 0;
+        return pitchTags.filter(tag =>
+            investorTags.some(invTag => invTag.toLowerCase() === tag.toLowerCase())
+        ).length;
+    };
+
     useEffect(() => {
-        const fetchStartups = async () => {
+        const fetchPitchDecks = async () => {
             try {
-                const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5231';
-                let cleanApiUrl = apiUrl.replace(/\/$/, '');
-                cleanApiUrl = cleanApiUrl.replace(/\/api$/, '');
+                setLoading(true);
+                console.log("🔍 Fetching pitch decks...");
 
-                // Fetch ALL startups for the feed
-                const response = await fetch(`${cleanApiUrl}/api/Startups`);
-                if (response.ok) {
-                    const data = await response.json();
-
-                    // Map to UI model
-                    const mapped = data.map((s: any, index: number) => ({
-                        id: s.sid,
-                        name: s.startupname,
-                        tagline: s.idea_description ? s.idea_description.substring(0, 100) + (s.idea_description.length > 100 ? '...' : '') : "Innovative startup",
-                        region: "Global",
-                        field: s.field,
-                        stage: "Seed", // Placeholder
-                        funding: "Undisclosed", // Placeholder
-                        team: "Unknown", // Placeholder
-                        // Cycle through some placeholder images
-                        image: [
-                            "https://images.unsplash.com/photo-1497435334941-8c899ee9e8e9?w=800&h=600&fit=crop",
-                            "https://images.unsplash.com/photo-1576091160399-112ba8d25d1d?w=800&h=600&fit=crop",
-                            "https://images.unsplash.com/photo-1460925895917-afdab827c52f?w=800&h=600&fit=crop",
-                            "https://images.unsplash.com/photo-1556761175-5973dc0f32e7?w=800&h=600&fit=crop"
-                        ][index % 4],
-                    }));
-                    setStartups(mapped);
+                // 1. Fetch investor tags
+                try {
+                    const investorResponse = await apiClient.get<InvestorDto[]>('/api/investors');
+                    const investors = investorResponse.data;
+                    const currentInvestor = investors.find((inv) => inv.userId === investorId);
+                    if (currentInvestor?.tags) {
+                        setInvestorTags(currentInvestor.tags);
+                    }
+                } catch (err) {
+                    console.warn("Could not fetch investor tags:", err);
                 }
-            } catch (error) {
-                console.error("Failed to fetch startups:", error);
+
+                // 2. Fetch pitch decks (Using apiClient handles the Base URL automatically)
+                // Note: Added ?onlyPublic=true as per your request
+                const response = await apiClient.get<any[]>('/api/pitchdecks/with-startups?onlyPublic=true');
+                const rawData = response.data;
+
+                console.log("✅ API Response Sample:", rawData[0]);
+
+                // FIX: Normalize Data Casing
+                const normalizedPitches: PitchDeck[] = rawData.map((item) => ({
+                    ...item,
+                    pitchdeckid: item.pitchdeckid || item.pitchDeckId || item.PitchDeckId,
+                    startup_id: item.startup_id || item.startupId || item.StartupId,
+                    video_url: item.video_url || item.videoUrl || item.VideoUrl,
+                    pitchname: item.pitchname || item.pitchName || item.PitchName,
+                    is_current: item.is_current ?? item.isCurrent ?? item.IsCurrent ?? true,
+                    countlikes: item.countlikes ?? item.countLikes ?? item.CountLikes ?? 0,
+                    created_at: item.created_at || item.createdAt || item.CreatedAt,
+                    tags: item.tags || [],
+                    startup: item.startup ? {
+                        sid: item.startup.sid || item.startup.sId || item.startup.Sid,
+                        startupname: item.startup.startupname || item.startup.startupName || item.startup.StartupName,
+                        field: item.startup.field || item.startup.Field,
+                        idea_description: item.startup.idea_description || item.startup.ideaDescription || item.startup.IdeaDescription
+                    } : undefined
+                }));
+
+                // Removed filter to show all fetched decks
+                const activePitches = normalizedPitches;
+
+                // 3. Sort by tag matches
+                const sortedPitches = activePitches.sort((a, b) => {
+                    const aMatches = getTagMatchCount(a.tags);
+                    const bMatches = getTagMatchCount(b.tags);
+
+                    if (aMatches !== bMatches) return bMatches - aMatches;
+                    return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+                });
+
+                setPitchDecks(sortedPitches);
+                setError(null);
+
+                // 4. Check Likes
+                await checkLikedPitches(sortedPitches);
+
+            } catch (err) {
+                console.error("💥 Error fetching pitch decks:", err);
+                const errorMessage = err instanceof Error ? err.message : "Failed to load pitch decks.";
+                setError(errorMessage);
+            } finally {
+                setLoading(false);
             }
         };
 
-        fetchStartups();
+        fetchPitchDecks();
     }, []);
+
+    const checkLikedPitches = async (pitches: PitchDeck[]) => {
+        try {
+            const likeChecks = await Promise.all(
+                pitches.map(async (pitch) => {
+                    try {
+                        const response = await apiClient.get<{ isLiked: boolean }>(
+                            `/api/pitchdecklikes/check/${investorId}/${pitch.pitchdeckid}`
+                        );
+                        return { pitchId: pitch.pitchdeckid, isLiked: response.data.isLiked };
+                    } catch {
+                        return { pitchId: pitch.pitchdeckid, isLiked: false };
+                    }
+                })
+            );
+
+            const liked = new Set(
+                likeChecks.filter(check => check.isLiked).map(check => check.pitchId)
+            );
+            setLikedPitches(liked);
+        } catch (err) {
+            console.error("Error checking liked pitches:", err);
+        }
+    };
 
     const x = useMotionValue(0);
     const rotate = useTransform(x, [-200, 200], [-25, 25]);
     const opacity = useTransform(x, [-200, -100, 0, 100, 200], [0, 1, 1, 1, 0]);
 
-    const handleSwipe = (direction: "left" | "right") => {
-        if (direction === "right") {
-            console.log("Liked:", startups[currentIndex].name);
-        } else {
-            console.log("Passed:", startups[currentIndex].name);
-        }
+    const handleLike = async (pitchId: string) => {
+        if (actionLoading) return;
+        setActionLoading(true);
 
-        if (currentIndex < startups.length - 1) {
-            setCurrentIndex(currentIndex + 1);
+        try {
+            const response = await apiClient.post('/api/pitchdecklikes/add', {
+                investor_id: investorId,
+                pitchdeck_id: pitchId,
+            });
+
+            const data = response.data;
+            setLikedPitches(prev => new Set([...prev, pitchId]));
+
+            setPitchDecks(prev => prev.map(pitch =>
+                pitch.pitchdeckid === pitchId
+                    ? { ...pitch, countlikes: data.newLikeCount }
+                    : pitch
+            ));
+        } catch (err) {
+            console.error("Error liking pitch:", err);
+        } finally {
+            setActionLoading(false);
         }
     };
 
+    const handleDislike = async (pitchId: string) => {
+        if (actionLoading) return;
+        setActionLoading(true);
+        try {
+            if (likedPitches.has(pitchId)) {
+                const response = await apiClient.delete('/api/pitchdecklikes/remove', {
+                    data: {
+                        investor_id: investorId,
+                        pitchdeck_id: pitchId,
+                    }
+                });
+
+                const data = response.data;
+                setLikedPitches(prev => {
+                    const newSet = new Set(prev);
+                    newSet.delete(pitchId);
+                    return newSet;
+                });
+
+                setPitchDecks(prev => prev.map(pitch =>
+                    pitch.pitchdeckid === pitchId
+                        ? { ...pitch, countlikes: data.newLikeCount || Math.max(0, pitch.countlikes - 1) }
+                        : pitch
+                ));
+            }
+        } catch (err) {
+            console.error("Error handling dislike:", err);
+        } finally {
+            setActionLoading(false);
+        }
+    };
+
+    const handleSwipe = async (direction: "left" | "right") => {
+        if (actionLoading || currentIndex >= pitchDecks.length) return;
+
+        const currentPitch = pitchDecks[currentIndex];
+
+        if (direction === "right") {
+            await handleLike(currentPitch.pitchdeckid);
+        } else {
+            await handleDislike(currentPitch.pitchdeckid);
+        }
+
+        if (currentIndex < pitchDecks.length - 1) {
+            setCurrentIndex(currentIndex + 1);
+        } else {
+            setCurrentIndex(pitchDecks.length);
+        }
+    };
+
+    const currentPitch = pitchDecks[currentIndex];
+    const isCurrentLiked = currentPitch && likedPitches.has(currentPitch.pitchdeckid);
+
+    if (loading) {
+        return (
+            <div className="min-h-screen bg-gradient-to-br from-[#F0EADC] via-[#fff] to-[#FFD95D]/20 flex items-center justify-center p-6">
+                <div className="w-full max-w-md">
+                    <LegoLoader />
+                </div>
+            </div>
+        );
+    }
+
+    if (error) {
+        return (
+            <div className="min-h-screen bg-gradient-to-br from-[#F0EADC] via-[#fff] to-[#FFD95D]/20 flex items-center justify-center p-4">
+                <Card className="p-8 text-center max-w-2xl border-2 border-red-200">
+                    <h3 className="text-xl font-bold text-[#576238] mb-2">Error Loading Pitches</h3>
+                    <p className="text-red-600 mb-4 text-sm">{error}</p>
+                    <Button onClick={() => window.location.reload()} className="bg-[#576238]">Retry</Button>
+                </Card>
+            </div>
+        );
+    }
+
     return (
-        // Added text-slate-900 to ensure text is dark by default
-        <div className="min-h-screen bg-gradient-to-br from-[#F0EADC] via-[#fff] to-[#FFD95D]/20 text-slate-900">
-            {/* Top Navigation Bar */}
+        <div className="min-h-screen bg-gradient-to-br from-[#F0EADC] via-[#fff] to-[#FFD95D]/20">
             <div className="border-b bg-white/80 backdrop-blur-lg">
                 <div className="container mx-auto px-4 py-4 flex justify-between items-center">
                     <h1 className="text-2xl font-bold text-[#576238]">
-                        Hello {userData.name} 👋
+                        Hello {userName} 👋
                     </h1>
                     <div className="flex items-center gap-4">
-                        <Link href="/investor/schedule">
-                            <Button variant="ghost" size="icon" className="hover:bg-gray-100">
-                                <Calendar className="h-5 w-5 text-gray-700" />
+                        <Link href="/schedule">
+                            <Button variant="ghost" size="icon">
+                                <Calendar className="h-5 w-5" />
                             </Button>
                         </Link>
+                        <NotificationsDropdown />
                         <Link href="/profile">
                             <Button variant="ghost" size="icon">
                                 <div className="w-8 h-8 rounded-full bg-[#576238] flex items-center justify-center text-white text-sm font-semibold">
-                                    {userData.name[0]}
+                                    {userName[0]}
                                 </div>
                             </Button>
                         </Link>
@@ -121,159 +313,103 @@ export default function InvestorFeed() {
                         className="mb-6 text-center"
                     >
                         <h2 className="text-3xl font-bold text-[#576238] mb-2">
-                            Discover Startups
+                            Discover Pitch Videos
                         </h2>
-                        <p className="text-muted-foreground">
-                            Swipe right to like, left to pass
+                        <p className="text-muted-foreground">Swipe right to like, left to pass</p>
+                        <p className="text-xs text-gray-400 mt-2">
+                            {pitchDecks.length} pitch{pitchDecks.length !== 1 ? 'es' : ''} available
                         </p>
                     </motion.div>
 
-                    {startups.length > 0 && currentIndex < startups.length ? (
-                        <div className="relative h-[600px]">
-                            {/* Card Stack Effect */}
-                            {startups.slice(currentIndex, currentIndex + 2).map((startup, index) => (
-                                <motion.div
-                                    key={startup.id}
-                                    style={{
-                                        x: index === 0 ? x : 0,
-                                        rotate: index === 0 ? rotate : 0,
-                                        opacity: index === 0 ? opacity : 1,
-                                        zIndex: startups.length - index,
-                                        scale: index === 0 ? 1 : 0.95,
-                                    }}
-                                    drag={index === 0 ? "x" : false}
-                                    dragConstraints={{ left: 0, right: 0 }}
-                                    onDragEnd={(e, info) => {
-                                        if (index === 0) {
-                                            if (info.offset.x > 100) {
-                                                handleSwipe("right");
-                                            } else if (info.offset.x < -100) {
-                                                handleSwipe("left");
+                    {pitchDecks.length === 0 ? (
+                        <Card className="p-12 text-center border-2">
+                            <Video className="h-16 w-16 text-[#576238] mx-auto mb-4 opacity-50" />
+                            <h3 className="text-2xl font-bold text-[#576238] mb-2">No Pitch Videos Yet</h3>
+                            <p className="text-sm text-gray-500 mb-4">Check back soon for new startup pitches!</p>
+                            <Button onClick={() => window.location.reload()} className="bg-[#576238]">Refresh</Button>
+                        </Card>
+                    ) : currentIndex < pitchDecks.length && currentPitch ? (
+                        <div className="relative h-[650px]">
+                            {pitchDecks.slice(currentIndex, currentIndex + 2).map((pitch, index) => {
+                                const tagMatches = getTagMatchCount(pitch.tags || []);
+                                const isRelevant = tagMatches > 0;
+
+                                return (
+                                    <motion.div
+                                        key={pitch.pitchdeckid}
+                                        style={{
+                                            x: index === 0 ? x : 0,
+                                            rotate: index === 0 ? rotate : 0,
+                                            opacity: index === 0 ? opacity : 1,
+                                            zIndex: pitchDecks.length - index,
+                                            scale: index === 0 ? 1 : 0.95,
+                                        }}
+                                        drag={index === 0 ? "x" : false}
+                                        dragConstraints={{ left: 0, right: 0 }}
+                                        onDragEnd={(e, info) => {
+                                            if (index === 0 && !actionLoading) {
+                                                if (info.offset.x > 100) handleSwipe("right");
+                                                else if (info.offset.x < -100) handleSwipe("left");
                                             }
-                                        }
-                                    }}
-                                    className="absolute inset-0"
-                                >
-                                    {/* Added bg-white explicitly here */}
-                                    <Card className="h-full border-2 overflow-hidden shadow-xl bg-white">
-                                        {/* Image */}
-                                        <div className="relative h-64 overflow-hidden">
-                                            <img
-                                                src={startup.image}
-                                                alt={startup.name}
-                                                className="w-full h-full object-cover"
-                                            />
-                                            <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
-                                            <div className="absolute bottom-4 left-4 text-white">
-                                                <h3 className="text-2xl font-bold mb-1">
-                                                    {startup.name}
-                                                </h3>
-                                                <p className="text-sm text-white/90">
-                                                    {startup.tagline}
-                                                </p>
+                                        }}
+                                        className="absolute inset-0"
+                                    >
+                                        <Card className={`h-full border-2 overflow-hidden shadow-xl flex flex-col bg-white ${isRelevant && index === 0 ? 'ring-2 ring-[#FFD95D]' : ''}`}>
+                                            <div className="relative h-64 bg-black overflow-hidden flex-shrink-0">
+                                                {pitch.video_url ? (
+                                                    <video src={pitch.video_url} controls className="w-full h-full object-contain" preload="metadata">Your browser does not support video playback.</video>
+                                                ) : (
+                                                    <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-[#576238] to-[#6b7c3f]">
+                                                        <div className="text-center text-white"><Video className="h-16 w-16 mx-auto mb-4 opacity-50" /><p>No video available</p></div>
+                                                    </div>
+                                                )}
+                                                <div className="absolute top-4 left-4 bg-black/70 px-3 py-1 rounded-full"><span className="text-white text-sm font-semibold flex items-center gap-2"><Video className="h-4 w-4" />{pitch.pitchname || "Untitled Pitch"}</span></div>
+                                                {index === 0 && isRelevant && (
+                                                    <div className="absolute top-4 left-4 right-4 flex justify-between">
+                                                        <div className="bg-black/70 px-3 py-1 rounded-full"><span className="text-white text-sm font-semibold flex items-center gap-2"><Video className="h-4 w-4" />{pitch.pitchname || "Untitled Pitch"}</span></div>
+                                                        <div className="bg-[#FFD95D] px-3 py-1 rounded-full"><span className="text-[#576238] text-xs font-bold flex items-center gap-1"><Sparkles className="h-3 w-3" />{tagMatches} Match{tagMatches !== 1 ? 'es' : ''}</span></div>
+                                                    </div>
+                                                )}
+                                                {index === 0 && !isRelevant && <div className="absolute top-4 left-4 bg-black/70 px-3 py-1 rounded-full"><span className="text-white text-sm font-semibold flex items-center gap-2"><Video className="h-4 w-4" />{pitch.pitchname || "Untitled Pitch"}</span></div>}
+                                                {index === 0 && isCurrentLiked && <div className="absolute top-4 right-4 bg-red-500 px-3 py-1 rounded-full"><span className="text-white text-sm font-semibold flex items-center gap-1"><Heart className="h-4 w-4 fill-white" />Liked</span></div>}
                                             </div>
-                                        </div>
-
-                                        {/* Content */}
-                                        <CardContent className="p-6 space-y-4">
-                                            <div className="grid grid-cols-2 gap-4">
+                                            <CardContent className="p-5 space-y-3 flex-grow overflow-y-auto">
                                                 <div>
-                                                    <p className="text-xs text-muted-foreground">Region</p>
-                                                    <p className="font-semibold text-[#576238]">
-                                                        {startup.region}
-                                                    </p>
+                                                    <div className="flex justify-between items-start">
+                                                        <div className="flex-1"><h3 className="text-2xl font-bold text-[#576238] mb-1">{pitch.pitchname || "Untitled Pitch"}</h3><p className="text-xs text-muted-foreground">by {pitch.startup?.startupname || "Unknown Startup"}</p></div>
+                                                        {pitch.analysis?.Short?.Score && <div className="flex items-center gap-1 bg-amber-100 text-amber-800 px-2 py-1 rounded-lg flex-shrink-0"><Trophy className="h-4 w-4" /><span className="font-bold text-sm">{pitch.analysis.Short.Score}/100</span></div>}
+                                                    </div>
+                                                    <p className="text-sm text-muted-foreground line-clamp-2 mt-2">{pitch.startup?.idea_description || "No description available"}</p>
                                                 </div>
-                                                <div>
-                                                    <p className="text-xs text-muted-foreground">Field</p>
-                                                    <p className="font-semibold text-[#576238]">
-                                                        {startup.field}
-                                                    </p>
+                                                {pitch.analysis?.Short?.Summary && <div className="bg-slate-50 p-3 rounded-md border border-slate-100"><div className="flex items-center gap-2 text-xs font-semibold text-[#576238] mb-1"><Sparkles className="h-3 w-3" /><span>AI Insight</span></div><p className="text-xs text-slate-600 line-clamp-3 italic">"{pitch.analysis.Short.Summary}"</p></div>}
+                                                <div className="grid grid-cols-2 gap-4">
+                                                    <div><p className="text-xs text-muted-foreground">Field</p><p className="font-semibold text-[#576238]">{pitch.startup?.field || "Not specified"}</p></div>
+                                                    <div><p className="text-xs text-muted-foreground">Likes</p><p className="font-semibold text-[#576238] flex items-center gap-1"><Heart className="h-4 w-4 fill-red-500 text-red-500" />{pitch.countlikes}</p></div>
                                                 </div>
-                                                <div>
-                                                    <p className="text-xs text-muted-foreground">Stage</p>
-                                                    <p className="font-semibold text-[#576238]">
-                                                        {startup.stage}
-                                                    </p>
-                                                </div>
-                                                <div>
-                                                    <p className="text-xs text-muted-foreground">
-                                                        Funding Goal
-                                                    </p>
-                                                    <p className="font-semibold text-[#576238]">
-                                                        {startup.funding}
-                                                    </p>
-                                                </div>
-                                            </div>
-
-                                            <div className="pt-4 border-t">
-                                                <div className="flex items-center justify-between">
-                                                    <span className="text-sm text-muted-foreground">
-                                                        👥 {startup.team}
-                                                    </span>
-                                                    <Link href={`/investor/startup/${startup.id}`}>
-                                                        <Button
-                                                            variant="outline"
-                                                            size="sm"
-                                                            className="border-[#576238] text-[#576238] hover:bg-[#576238] hover:text-white bg-white"
-                                                        >
-                                                            <Eye className="mr-2 h-4 w-4" />
-                                                            View Profile
-                                                        </Button>
-                                                    </Link>
-                                                </div>
-                                            </div>
-                                        </CardContent>
-                                    </Card>
-                                </motion.div>
-                            ))}
+                                                {pitch.tags && pitch.tags.length > 0 && <div className="flex flex-wrap gap-2">{pitch.tags.map((tag, i) => { const isMatched = investorTags.some(invTag => invTag.toLowerCase() === tag.toLowerCase()); return (<span key={i} className={`px-3 py-1 text-xs rounded-full font-medium ${isMatched ? 'bg-[#FFD95D] text-[#576238] ring-2 ring-[#576238]' : 'bg-[#FFD95D]/20 text-[#576238]'}`}>{tag}{isMatched && ' ✓'}</span>); })}</div>}
+                                                <div className="pt-2 border-t mt-auto"><div className="flex items-center justify-between"><span className="text-sm text-muted-foreground">Posted: {new Date(pitch.created_at).toLocaleDateString()}</span><Link href={`/investor/startup/${pitch.startup_id}`}><Button variant="outline" size="sm" className="border-[#576238] text-[#576238] hover:bg-[#576238] hover:text-white"><Eye className="mr-2 h-4 w-4" />View Profile</Button></Link></div></div>
+                                            </CardContent>
+                                        </Card>
+                                    </motion.div>
+                                )
+                            })}
                         </div>
                     ) : (
-                        // Empty state or finished swiping
-                        <Card className="p-12 text-center border-2 bg-white">
-                            <div className="text-6xl mb-4">
-                                {startups.length === 0 ? "📭" : "🎉"}
+                        <Card className="p-12 text-center border-2">
+                            <div className="text-6xl mb-4">🎉</div>
+                            <h3 className="text-2xl font-bold text-[#576238] mb-2">You've Reviewed Everything!</h3>
+                            <p className="text-muted-foreground mb-6">You've reviewed all {pitchDecks.length} available pitch{pitchDecks.length !== 1 ? 'es' : ''}</p>
+                            <div className="flex gap-3 justify-center">
+                                <Button onClick={() => { setCurrentIndex(0); x.set(0); }} className="bg-[#576238]">Review Again</Button>
+                                <Link href="/schedule"><Button variant="outline"><Calendar className="mr-2 h-4 w-4" />View Schedule</Button></Link>
                             </div>
-                            <h3 className="text-2xl font-bold text-[#576238] mb-2">
-                                {startups.length === 0 ? "No Startups Found" : "That's All for Now!"}
-                            </h3>
-                            <p className="text-muted-foreground mb-6">
-                                {startups.length === 0 ? "Check back later for new opportunities." : "Check back later for more startup opportunities"}
-                            </p>
-                            <Button
-                                onClick={() => {
-                                    if (startups.length > 0) setCurrentIndex(0);
-                                    else window.location.reload();
-                                }}
-                                className="bg-[#576238] hover:bg-[#6b7c3f]"
-                            >
-                                {startups.length === 0 ? "Refresh" : "Review Again"}
-                            </Button>
                         </Card>
                     )}
 
-                    {/* Action Buttons */}
-                    {startups.length > 0 && currentIndex < startups.length && (
-                        <motion.div
-                            initial={{ opacity: 0, y: 20 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            transition={{ delay: 0.3 }}
-                            className="flex justify-center gap-6 mt-8"
-                        >
-                            <Button
-                                onClick={() => handleSwipe("left")}
-                                size="lg"
-                                variant="outline"
-                                className="rounded-full w-16 h-16 border-2 border-red-500 text-red-500 hover:bg-red-50 bg-white"
-                            >
-                                <X className="h-6 w-6" />
-                            </Button>
-                            <Button
-                                onClick={() => handleSwipe("right")}
-                                size="lg"
-                                className="rounded-full w-16 h-16 bg-[#576238] hover:bg-[#6b7c3f]"
-                            >
-                                <Heart className="h-6 w-6" />
-                            </Button>
+                    {currentIndex < pitchDecks.length && pitchDecks.length > 0 && (
+                        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }} className="flex justify-center gap-6 mt-8">
+                            <Button onClick={() => handleSwipe("left")} disabled={actionLoading} size="lg" variant="outline" className="rounded-full w-16 h-16 border-2 border-red-500 text-red-500 hover:bg-red-50 disabled:opacity-50">{actionLoading ? <Loader2 className="h-6 w-6 animate-spin" /> : <X className="h-6 w-6" />}</Button>
+                            <Button onClick={() => handleSwipe("right")} disabled={actionLoading} size="lg" className={`rounded-full w-16 h-16 disabled:opacity-50 ${isCurrentLiked ? 'bg-red-500 hover:bg-red-600' : 'bg-[#576238] hover:bg-[#6b7c3f]'}`}>{actionLoading ? <Loader2 className="h-6 w-6 animate-spin" /> : <Heart className={`h-6 w-6 ${isCurrentLiked ? 'fill-white' : ''}`} />}</Button>
                         </motion.div>
                     )}
                 </div>

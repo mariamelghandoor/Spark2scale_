@@ -21,45 +21,104 @@ namespace Spark2Scale_.Server.Controllers
             _supabase = supabase;
         }
 
-        // GET: api/documents?startupId=...
+        // GET: api/documents?startupId=...&investorId=...
         [HttpGet]
-        public async Task<IActionResult> GetDocuments(string startupId)
+        public async Task<IActionResult> GetDocuments(
+            [FromQuery] string startupId,
+            [FromQuery] string? investorId = null)
         {
             if (!Guid.TryParse(startupId, out Guid sId)) return BadRequest("Invalid ID");
 
-            var result = await _supabase.From<Document>()
-                // This filter requires IsCurrent to be true
-                .Where(x => x.StartupId == sId && x.IsCurrent == true)
-                .Order("updated_at", Supabase.Postgrest.Constants.Ordering.Descending)
-                .Get();
-
-            var dtos = result.Models.Select(d => new
+            try
             {
-                did = d.Did,
-                startup_id = d.StartupId,
-                document_name = d.DocumentName,
-                type = d.Type,
-                current_path = d.CurrentPath,
-                current_version = d.CurrentVersion,
-                canaccess = d.CanAccess,
-                updated_at = d.UpdatedAt,
-                created_at = d.CreatedAt
-            });
+                // 1. Fetch Documents (Start with all docs for this startup)
+                var query = _supabase.From<Document>()
+                    .Where(x => x.StartupId == sId)
+                    .Order("updated_at", Supabase.Postgrest.Constants.Ordering.Descending);
 
-            return Ok(dtos);
+                // If this request is coming from an Investor (investorId is present), 
+                // HIDE 'Founder Only' documents (CanAccess = 0).
+                if (!string.IsNullOrEmpty(investorId))
+                {
+                    // Filter: CanAccess != 0
+                    query = query.Filter("canaccess", Supabase.Postgrest.Constants.Operator.NotEqual, "0");
+                }
+
+                var docsResult = await query.Get();
+                var allDocs = docsResult.Models;
+
+                // 2. Get Access Records if Investor
+                List<InvestorDocumentAccess> accessRecords = new List<InvestorDocumentAccess>();
+                if (!string.IsNullOrEmpty(investorId) && Guid.TryParse(investorId, out Guid invId))
+                {
+                    var accessResult = await _supabase.From<InvestorDocumentAccess>()
+                        .Where(x => x.InvestorId == invId)
+                        .Get();
+                    accessRecords = accessResult.Models;
+                }
+
+                // 3. Map to DTOs and Calculate Access Status
+                var dtos = allDocs.Select(d =>
+                {
+                    // Access Levels:
+                    // 0 = Founder Only (Filtered out above if investor)
+                    // 1 = Public (Always visible)
+                    // 2 = Restricted (Needs access)
+
+                    bool isRestricted = d.CanAccess == 2;
+                    string accessStatus = "public"; // Default for CanAccess = 1
+                    string? path = d.CurrentPath;
+
+                    if (isRestricted)
+                    {
+                        var record = accessRecords.FirstOrDefault(r => r.DocumentId == d.Did);
+
+                        if (record != null && record.Granted == true)
+                        {
+                            accessStatus = "granted"; // Approved
+                        }
+                        else if (record != null && record.Granted == false)
+                        {
+                            accessStatus = "pending"; // Request sent, waiting
+                            path = null; // Hide URL
+                        }
+                        else
+                        {
+                            accessStatus = "locked"; // No request yet
+                            path = null; // Hide URL
+                        }
+                    }
+
+                    return new
+                    {
+                        did = d.Did,
+                        startup_id = d.StartupId,
+                        document_name = d.DocumentName,
+                        type = d.Type,
+                        current_path = path,
+                        current_version = d.CurrentVersion,
+                        canaccess = d.CanAccess,
+                        updated_at = d.UpdatedAt,
+                        access_status = accessStatus
+                    };
+                });
+
+                return Ok(dtos);
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, $"Error fetching documents: {ex.Message}");
+            }
         }
 
         // GET: api/documents/check-completion/{startupId}
-        // --- NEW ENDPOINT: Checks if all 5 required docs exist ---
         [HttpGet("check-completion/{startupId}")]
         public async Task<IActionResult> CheckCompletion(string startupId)
         {
             if (!Guid.TryParse(startupId, out Guid sId)) return BadRequest("Invalid ID");
 
-            // The exact Type strings stored in DB (must match frontend config)
             var requiredTypes = new List<string> { "Pitch Deck", "Financials", "Cap Table", "Legal Docs", "Business Plan" };
 
-            // Fetch all docs for this startup
             var result = await _supabase.From<Document>()
                 .Where(x => x.StartupId == sId && x.IsCurrent == true)
                 .Order("updated_at", Supabase.Postgrest.Constants.Ordering.Descending)
@@ -67,7 +126,6 @@ namespace Spark2Scale_.Server.Controllers
 
             var uploadedTypes = result.Models.Select(d => d.Type).ToList();
 
-            // Find which required types are missing (Case-insensitive check)
             var missing = requiredTypes
                 .Where(req => !uploadedTypes.Any(up => up.Equals(req, StringComparison.OrdinalIgnoreCase)))
                 .ToList();
@@ -80,7 +138,6 @@ namespace Spark2Scale_.Server.Controllers
             return Ok(new { isComplete = true });
         }
 
-        // GET: api/documents/history/{documentId}
         [HttpGet("history/{documentId}")]
         public async Task<IActionResult> GetHistory(string documentId)
         {
@@ -104,15 +161,12 @@ namespace Spark2Scale_.Server.Controllers
             return Ok(dtos);
         }
 
-        // GET: api/documents/all?startupId=...
-        // --- NEW ENDPOINT: Fetches EVERYTHING (Current + Archived) ---
         [HttpGet("all")]
         public async Task<IActionResult> GetAllDocuments(string startupId)
         {
             if (!Guid.TryParse(startupId, out Guid sId)) return BadRequest("Invalid ID");
 
             var result = await _supabase.From<Document>()
-                // REMOVED "x.IsCurrent == true" to show everything
                 .Where(x => x.StartupId == sId)
                 .Order("updated_at", Supabase.Postgrest.Constants.Ordering.Descending)
                 .Get();
@@ -128,7 +182,7 @@ namespace Spark2Scale_.Server.Controllers
                 canaccess = d.CanAccess,
                 updated_at = d.UpdatedAt,
                 created_at = d.CreatedAt,
-                is_current = d.IsCurrent // Added this so frontend knows which are archived
+                is_current = d.IsCurrent
             });
 
             return Ok(dtos);
@@ -142,7 +196,6 @@ namespace Spark2Scale_.Server.Controllers
 
             try
             {
-                // 1. Upload to Storage
                 var fileName = $"{sId}/{DateTime.Now.Ticks}_{form.File.FileName}";
                 byte[] fileBytes;
                 using (var ms = new MemoryStream()) { await form.File.CopyToAsync(ms); fileBytes = ms.ToArray(); }
@@ -151,7 +204,6 @@ namespace Spark2Scale_.Server.Controllers
                 var publicUrl = _supabase.Storage.From("startup-docs").GetPublicUrl(fileName);
                 var now = DateTime.UtcNow;
 
-                // 2. SCENARIO A: Update Existing (Logic unchanged)
                 if (!string.IsNullOrEmpty(form.DocumentId) && Guid.TryParse(form.DocumentId, out Guid dId))
                 {
                     var existingRes = await _supabase.From<Document>().Where(x => x.Did == dId).Get();
@@ -160,15 +212,12 @@ namespace Spark2Scale_.Server.Controllers
                     if (currentDoc != null)
                     {
                         int newVer = currentDoc.CurrentVersion + 1;
-
-                        // Update Parent
                         currentDoc.CurrentPath = publicUrl;
                         currentDoc.CurrentVersion = newVer;
                         currentDoc.UpdatedAt = now;
                         currentDoc.IsCurrent = true;
                         await _supabase.From<Document>().Upsert(currentDoc);
 
-                        // Insert Child (Version)
                         await _supabase.From<DocumentVersion>().Insert(new DocumentVersion
                         {
                             DocumentId = dId,
@@ -183,10 +232,8 @@ namespace Spark2Scale_.Server.Controllers
                     }
                 }
 
-                // 3. SCENARIO B: Create New (FIXED)
                 var newDoc = new Document
                 {
-                    // Do NOT set Did here. Let the DB generate it.
                     StartupId = sId,
                     DocumentName = form.DocName,
                     Type = form.Type,
@@ -198,17 +245,12 @@ namespace Spark2Scale_.Server.Controllers
                     IsCurrent = true
                 };
 
-                // Insert Parent and FORCE return of the new row data
                 var insertOptions = new Supabase.Postgrest.QueryOptions { Returning = Supabase.Postgrest.QueryOptions.ReturnType.Representation };
                 var inserted = await _supabase.From<Document>().Insert(newDoc, insertOptions);
-
-                // Safety check to ensure we got the ID back
                 var createdDoc = inserted.Models.FirstOrDefault();
                 if (createdDoc == null) throw new Exception("Database insert failed to return the new ID.");
+                var realDbId = createdDoc.Did;
 
-                var realDbId = createdDoc.Did; // <--- Capture the REAL ID from DB
-
-                // Insert Child using the Real ID
                 await _supabase.From<DocumentVersion>().Insert(new DocumentVersion
                 {
                     DocumentId = realDbId,
@@ -223,12 +265,10 @@ namespace Spark2Scale_.Server.Controllers
             }
             catch (Exception ex)
             {
-                // Log the inner exception for more detail if needed
                 return StatusCode(500, $"Upload failed: {ex.Message}");
             }
         }
 
-        // POST: api/documents/generate-mock
         [HttpPost("generate-mock")]
         public async Task<IActionResult> GenerateMock([FromBody] GenerateMockDto input)
         {
@@ -247,7 +287,6 @@ namespace Spark2Scale_.Server.Controllers
 
                 if (currentDoc != null)
                 {
-                    // Versioning logic (same as before)
                     int newVer = currentDoc.CurrentVersion + 1;
                     await _supabase.From<DocumentVersion>().Insert(new DocumentVersion
                     {
@@ -262,14 +301,13 @@ namespace Spark2Scale_.Server.Controllers
                     currentDoc.CurrentPath = mockUrl;
                     currentDoc.CurrentVersion = newVer;
                     currentDoc.UpdatedAt = DateTime.UtcNow;
-                    currentDoc.IsCurrent = true; // Ensure visible
+                    currentDoc.IsCurrent = true;
                     await _supabase.From<Document>().Upsert(currentDoc);
 
                     return Ok(new { message = "AI generated new version", version = newVer });
                 }
                 else
                 {
-                    // Create New
                     var newDoc = new Document
                     {
                         Did = Guid.NewGuid(),
@@ -281,8 +319,6 @@ namespace Spark2Scale_.Server.Controllers
                         CanAccess = 1,
                         UpdatedAt = DateTime.UtcNow,
                         CreatedAt = DateTime.UtcNow,
-
-                        // FIX: CRITICAL CHANGE HERE
                         IsCurrent = true
                     };
 
@@ -308,7 +344,6 @@ namespace Spark2Scale_.Server.Controllers
             }
         }
 
-        // DELETE: api/documents/{documentId}
         [HttpDelete("{documentId}")]
         public async Task<IActionResult> DeleteDocument(string documentId)
         {

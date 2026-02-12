@@ -116,7 +116,10 @@ namespace Spark2Scale_.Server.Controllers
                     description = n.Description,
                     created_at = n.CreatedAt,
                     is_read = n.IsRead,
-                    sender_name = name
+                    sender_name = name,
+                    type = n.Type,
+                    related_entity_id = n.RelatedEntityId,
+
                 };
             }).ToList();
 

@@ -4,12 +4,11 @@ using System;
 
 namespace Spark2Scale_.Server.Models
 {
-    [Table("users")] // maps this class to the 'users' table
+    [Table("users")]
     public class User : BaseModel
     {
-        [PrimaryKey("uid", false)]
-        [Column("uid")]
-        public Guid uid { get; set; }  // UUID primary key
+        [PrimaryKey("uid")]
+        public Guid uid { get; set; }
 
         [Column("fname")]
         public string fname { get; set; } = string.Empty;
@@ -24,22 +23,21 @@ namespace Spark2Scale_.Server.Models
         public string password_hash { get; set; } = string.Empty;
 
         [Column("phone_number")]
-        public string phone_number { get; set; } = string.Empty;
+        public string? phone_number { get; set; }
 
         [Column("address_region")]
-        public string address_region { get; set; } = string.Empty;
-
-        [Column("avatar_url")]
-        public string avatar_url { get; set; } = string.Empty;
-
-        [Column("user_type")]
-        public string user_type { get; set; } = string.Empty;
+        public string? address_region { get; set; }
 
         [Column("created_at")]
-        public DateTime created_at { get; set; }  // timestampz
+        public DateTime created_at { get; set; }
+
+        // FIX: Ensure this property exists to resolve the compiler error
+        [Column("avatar_url")]
+        public string? avatar_url { get; set; }
+        [Column("user_type")]
+        public string user_type { get; set; } = string.Empty;
     }
 
-    // DTO for returning data to the client (avoids BaseModel serialization issues)
     public class UserDto
     {
         public Guid uid { get; set; }
@@ -48,8 +46,8 @@ namespace Spark2Scale_.Server.Models
         public string email { get; set; } = string.Empty;
         public string phone_number { get; set; } = string.Empty;
         public string address_region { get; set; } = string.Empty;
+        public DateTime created_at { get; set; }
         public string avatar_url { get; set; } = string.Empty;
         public string user_type { get; set; } = string.Empty;
-        public DateTime created_at { get; set; }
     }
 }

@@ -7,7 +7,7 @@ namespace Spark2Scale_.Server.Models
     [Table("investors")]
     public class Investor : BaseModel
     {
-        [PrimaryKey("user_id", false)] // not auto-generated, like Founder
+        [PrimaryKey("user_id", false)]
         [Column("user_id")]
         public Guid user_id { get; set; }
 

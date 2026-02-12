@@ -3,7 +3,12 @@
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { ArrowLeft, Share2, FolderOpen, Video, Calendar as CalendarIcon, ChevronLeft, ChevronRight, Bell, User, Lightbulb, FileText, BarChart3, Target, RefreshCw, Presentation, Check, AlertCircle, Clock, Link as LinkIcon, AlertOctagon, Timer } from "lucide-react";
+import {
+    ArrowLeft, Share2, FolderOpen, Video, Calendar as CalendarIcon,
+    ChevronLeft, ChevronRight, Bell, User, Lightbulb, FileText,
+    BarChart3, Target, RefreshCw, Presentation, Check, AlertCircle,
+    Clock, Link as LinkIcon, AlertOctagon, Timer, Info
+} from "lucide-react";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import LegoProgress from "@/components/lego/LegoProgress";
@@ -18,7 +23,12 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+    Tooltip,
+    TooltipContent,
+    TooltipProvider,
+    TooltipTrigger
+} from "@/components/ui/tooltip";
 import { pitchDeckService } from "@/services/pitchDeckService";
 
 // --- Interfaces ---
@@ -46,25 +56,7 @@ interface Meeting {
 export default function StartupDashboard() {
     const params = useParams();
     const router = useRouter();
-
-    // Initialize user data from localStorage
-    const [userData] = useState<{ name: string; id: string }>(() => {
-        if (typeof window === 'undefined') return { name: 'User', id: '' };
-
-        const userStr = localStorage.getItem('user');
-        if (userStr) {
-            try {
-                const user = JSON.parse(userStr);
-                const name = user.fname && user.lname
-                    ? `${user.fname} ${user.lname}`
-                    : user.email?.split('@')[0] || 'User';
-                return { name, id: user.id || '' };
-            } catch {
-                return { name: 'User', id: '' };
-            }
-        }
-        return { name: 'User', id: '' };
-    });
+    const [userName] = useState("Alex");
 
     // State
     const [startupName, setStartupName] = useState("Loading...");
@@ -75,31 +67,34 @@ export default function StartupDashboard() {
     // Meeting & Calendar State
     const [currentMonthDate, setCurrentMonthDate] = useState(new Date());
     const [meetings, setMeetings] = useState<Meeting[]>([]);
+    const [currentUserId, setCurrentUserId] = useState<string>("");
 
-    // Dialog State
+    // Invite State
     const [inviteDialogOpen, setInviteDialogOpen] = useState(false);
     const [inviteEmail, setInviteEmail] = useState("");
-    const [inviteRole, setInviteRole] = useState("contributor");
+    const [isInviting, setIsInviting] = useState(false); // Loading state
     const [videoCount, setVideoCount] = useState(0);
 
     // 1. Fetch User & Dashboard Data
     useEffect(() => {
         const fetchDashboardData = async () => {
-            if (!params || !params.d || !userData.id) return;
+            if (!params || !params.d) return;
 
             const rawId = Array.isArray(params.d) ? params.d[0] : params.d;
             const cleanId = decodeURIComponent(rawId).replace(/\s/g, '');
 
+            // --- MOCK AUTH: REPLACE THIS WITH YOUR ACTUAL AUTH CONTEXT ---
+            const mockUserId = "3e59c30f-e3d2-43d2-ba48-818e69b7a9fd"; // Replace with real ID
+            setCurrentUserId(mockUserId);
+
             try {
-                const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5231';
-                let baseUrl = apiUrl.replace(/\/$/, '');
-                baseUrl = baseUrl.replace(/\/api$/, '') + '/api';
+                const baseUrl = "https://localhost:7155/api";
 
                 const [workflowRes, startupRes, docCountRes, meetingsRes] = await Promise.all([
                     fetch(`${baseUrl}/StartupWorkflow/${cleanId}`),
-                    fetch(`${baseUrl}/Startups/${cleanId}`),
+                    fetch(`${baseUrl}/startups/${cleanId}`),
                     fetch(`${baseUrl}/DocumentVersions/count/${cleanId}`),
-                    fetch(`${baseUrl}/Meetings?userId=${userData.id}`) // Fetch Real Meetings
+                    fetch(`${baseUrl}/Meetings?userId=${mockUserId}`) // Fetch Meetings
                 ]);
 
                 // Handle Workflow
@@ -137,16 +132,13 @@ export default function StartupDashboard() {
         };
 
         fetchDashboardData();
-    }, [params, userData.id]);
+    }, [params]);
 
     const startupId = params?.d ? String(params.d) : "";
 
     useEffect(() => {
         const fetchCount = async () => {
             if (!startupId) return;
-            // Assuming pitchDeckService handles baseUrl internally or uses partial logic? 
-            // If pitchDeckService is hardcoded to localhost:7155 it might fail if we are on 5231.
-            // But let's assume it works or just leave it for now.
             const count = await pitchDeckService.getPitchCount(startupId);
             setVideoCount(count);
         };
@@ -271,13 +263,37 @@ export default function StartupDashboard() {
 
     // --- CALENDAR LOGIC END ---
 
-    // Invite logic
-    const handleSendInvite = () => {
-        console.log("Inviting:", inviteEmail, "as", inviteRole);
-        setInviteEmail("");
-        setInviteRole("contributor");
-        setInviteDialogOpen(false);
+    // --- INVITE LOGIC START ---
+    const handleSendInvite = async () => {
+        if (!inviteEmail) return;
+        setIsInviting(true);
+
+        try {
+            const response = await fetch("https://localhost:7155/api/Contributor/invite", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    email: inviteEmail,
+                    startupId: startupId
+                })
+            });
+
+            if (response.ok) {
+                alert(`Invitation sent to ${inviteEmail}`);
+                setInviteEmail("");
+                setInviteDialogOpen(false);
+            } else {
+                const err = await response.text();
+                alert(`Failed to invite: ${err}`);
+            }
+        } catch (error) {
+            console.error(error);
+            alert("An error occurred while sending the invite.");
+        } finally {
+            setIsInviting(false);
+        }
     };
+    // --- INVITE LOGIC END ---
 
     // Handle clicking a card
     const handleEventClick = () => {
@@ -294,7 +310,7 @@ export default function StartupDashboard() {
                             <Button variant="ghost" size="icon"><ArrowLeft className="h-5 w-5" /></Button>
                         </Link>
                         <div>
-                            <h1 className="text-xl font-bold text-[#576238]">Hello {userData.name} 👋</h1>
+                            <h1 className="text-xl font-bold text-[#576238]">Hello {userName} 👋</h1>
                             <p className="text-sm text-muted-foreground">{startupName}</p>
                         </div>
                     </div>
@@ -579,27 +595,62 @@ export default function StartupDashboard() {
                 <DialogContent className="sm:max-w-[500px]">
                     <DialogHeader>
                         <DialogTitle className="text-[#576238]">Invite Team Member</DialogTitle>
-                        <DialogDescription>Send an invitation to collaborate on {startupName}. Choose their role and access level.</DialogDescription>
+                        <DialogDescription>Send an invitation to collaborate on {startupName}.</DialogDescription>
                     </DialogHeader>
+
                     <div className="grid gap-4 py-4">
                         <div className="grid gap-2">
                             <Label htmlFor="email" className="text-[#576238]">Email Address</Label>
-                            <Input id="email" type="email" placeholder="colleague@example.com" value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)} className="border-[#576238]/30 focus:border-[#576238]" />
+                            <Input
+                                id="email"
+                                type="email"
+                                placeholder="colleague@example.com"
+                                value={inviteEmail}
+                                onChange={(e) => setInviteEmail(e.target.value)}
+                                className="border-[#576238]/30 focus:border-[#576238]"
+                            />
                         </div>
+
                         <div className="grid gap-2">
-                            <Label htmlFor="role" className="text-[#576238]">Role</Label>
-                            <Select value={inviteRole} onValueChange={setInviteRole}>
-                                <SelectTrigger id="role" className="border-[#576238]/30"><SelectValue placeholder="Select role" /></SelectTrigger>
-                                <SelectContent>
-                                    <SelectItem value="contributor"><div className="flex flex-col items-start"><span className="font-semibold">Contributor</span><span className="text-xs text-muted-foreground">Read-only access to resources</span></div></SelectItem>
-                                    <SelectItem value="team-member"><div className="flex flex-col items-start"><span className="font-semibold">Team Member</span><span className="text-xs text-muted-foreground">Full access to collaborate</span></div></SelectItem>
-                                </SelectContent>
-                            </Select>
+                            <Label htmlFor="role" className="text-[#576238] flex items-center gap-2">
+                                Role
+                            </Label>
+
+                            <TooltipProvider>
+                                <Tooltip>
+                                    <TooltipTrigger asChild>
+                                        <div className="relative group cursor-help">
+                                            <div className="flex items-center justify-between w-full px-3 py-2 border rounded-md bg-gray-100 text-gray-600 border-[#576238]/10">
+                                                <span className="font-medium">Contributor</span>
+                                                <Info className="h-4 w-4 text-[#576238]" />
+                                            </div>
+                                        </div>
+                                    </TooltipTrigger>
+                                    <TooltipContent className="bg-[#576238] text-white p-3 max-w-xs text-sm">
+                                        <p>Contributor can view same view of the founder and perform tasks</p>
+                                    </TooltipContent>
+                                </Tooltip>
+                            </TooltipProvider>
+                            <p className="text-[10px] text-muted-foreground">
+                                Only the Contributor role is available for invitation at this stage.
+                            </p>
                         </div>
                     </div>
+
                     <DialogFooter>
                         <Button variant="outline" onClick={() => setInviteDialogOpen(false)}>Cancel</Button>
-                        <Button onClick={handleSendInvite} disabled={!inviteEmail || !inviteRole} className="bg-[#576238] hover:bg-[#6b7c3f] text-white"><Share2 className="mr-2 h-4 w-4" /> Send Invite</Button>
+                        <Button
+                            onClick={handleSendInvite}
+                            disabled={!inviteEmail || isInviting}
+                            className="bg-[#576238] hover:bg-[#6b7c3f] text-white"
+                        >
+                            {isInviting ? (
+                                <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+                            ) : (
+                                <Share2 className="mr-2 h-4 w-4" />
+                            )}
+                            {isInviting ? "Sending..." : "Send Invite"}
+                        </Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>

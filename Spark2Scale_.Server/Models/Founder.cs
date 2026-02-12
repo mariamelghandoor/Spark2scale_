@@ -7,10 +7,8 @@ namespace Spark2Scale_.Server.Models
     [Table("founders")]
     public class Founder : BaseModel
     {
-        
-
-        [PrimaryKey("user_id", false)] 
-        [Column("user_id")]            
+        [PrimaryKey("user_id", false)]
+        [Column("user_id")]
         public Guid user_id { get; set; }
     }
 

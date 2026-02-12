@@ -1,9 +1,9 @@
-﻿using Microsoft.AspNetCore.Http; // Required for IFormFile
+using Microsoft.AspNetCore.Http; // Required for IFormFile
 using Microsoft.AspNetCore.Mvc;
 using Spark2Scale_.Server.Models;
 using System;
 using System.Collections.Generic;
-using System.IO; // Required for memory stream
+using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using Newtonsoft.Json;
@@ -20,6 +20,164 @@ namespace Spark2Scale_.Server.Controllers
         {
             _supabase = supabase;
         }
+
+
+        // GET: api/pitchdecks/with-startups
+        [HttpGet("with-startups")]
+        public async Task<IActionResult> GetAllPitchDecksWithStartups([FromQuery] bool onlyPublic = false)
+        {
+            try
+            {
+                Console.WriteLine("[DEBUG] Starting GetAllPitchDecksWithStartups...");
+
+                // 1. Fetch all Pitch Decks
+                Console.WriteLine("[DEBUG] Fetching pitch decks...");
+
+                var query = _supabase
+                    .From<PitchDeck>()
+                    .Order("created_at", Supabase.Postgrest.Constants.Ordering.Descending);
+
+                // Added: Filter by canaccess if requested
+                if (onlyPublic)
+                {
+                    query = query.Filter("canaccess", Supabase.Postgrest.Constants.Operator.Equals, "true");
+                }
+
+                var decksResponse = await query.Get();
+
+                var decks = decksResponse.Models;
+                Console.WriteLine($"[DEBUG] Found {decks?.Count ?? 0} pitch decks");
+
+                if (decks == null || !decks.Any())
+                {
+                    Console.WriteLine("[WARNING] No pitch decks found in database");
+                    return Ok(new List<object>()); // Return empty array instead of error
+                }
+
+                // 2. Fetch all Startups
+                Console.WriteLine("[DEBUG] Fetching startups...");
+                var startupsResponse = await _supabase
+                    .From<Startup>()
+                    .Get();
+
+                var startups = startupsResponse.Models;
+                Console.WriteLine($"[DEBUG] Found {startups?.Count ?? 0} startups");
+
+                if (startups == null || !startups.Any())
+                {
+                    Console.WriteLine("[WARNING] No startups found in database");
+                    return Ok(new List<object>()); // Return empty array
+                }
+
+                // 3. Join them manually using LINQ
+                Console.WriteLine("[DEBUG] Performing LINQ join...");
+                var joinedData = from deck in decks
+                                 join startup in startups
+                                 on deck.startup_id equals startup.Sid
+                                 select new
+                                 {
+                                     pitchdeckid = deck.pitchdeckid.ToString(),
+                                     startup_id = deck.startup_id.ToString(),
+                                     deck.video_url,
+                                     pitchname = deck.pitchname ?? "Untitled Pitch",
+                                     deck.is_current,
+                                     deck.analysis,
+                                     tags = deck.tags ?? new List<string>(),
+                                     deck.countlikes,
+                                     deck.created_at,
+                                     startup = new
+                                     {
+                                         sid = startup.Sid.ToString(),
+                                         startupname = startup.StartupName,
+                                         field = startup.Field,
+                                         idea_description = startup.IdeaDescription
+                                     }
+                                 };
+
+                var result = joinedData.ToList();
+                Console.WriteLine($"[DEBUG] Joined data count: {result.Count}");
+                Console.WriteLine($"[DEBUG] Returning JSON response...");
+
+                return Ok(result);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[ERROR] Exception in GetAllPitchDecksWithStartups: {ex.Message}");
+                Console.WriteLine($"[ERROR] Stack trace: {ex.StackTrace}");
+                return StatusCode(500, new
+                {
+                    error = ex.Message,
+                    details = ex.StackTrace,
+                    source = "GetAllPitchDecksWithStartups"
+                });
+            }
+        }
+
+        // GET: api/pitchdecks/details/{pitchDeckId}
+        [HttpGet("details/{pitchDeckId}")]
+        public async Task<IActionResult> GetPitchDeckById(Guid pitchDeckId)
+        {
+            try
+            {
+                Console.WriteLine($"[DEBUG] Fetching details for pitch deck: {pitchDeckId}");
+
+                // Fetch the pitch deck
+                var deckResult = await _supabase.From<PitchDeck>()
+                                        .Where(x => x.pitchdeckid == pitchDeckId)
+                                        .Get();
+
+                var deck = deckResult.Models.FirstOrDefault();
+
+                if (deck == null)
+                {
+                    Console.WriteLine($"[WARNING] Pitch deck not found: {pitchDeckId}");
+                    return NotFound(new { message = "Pitch deck not found" });
+                }
+
+                Console.WriteLine($"[DEBUG] Found pitch deck, fetching startup info...");
+
+                // Fetch the associated startup
+                var startupResult = await _supabase.From<Startup>()
+                                           .Where(x => x.Sid == deck.startup_id)
+                                           .Get();
+
+                var startup = startupResult.Models.FirstOrDefault();
+
+                var response = new
+                {
+                    pitchdeckid = deck.pitchdeckid.ToString(),
+                    startup_id = deck.startup_id.ToString(),
+                    deck.video_url,
+                    pitchname = deck.pitchname ?? "Untitled Pitch",
+                    deck.is_current,
+                    deck.analysis,
+                    tags = deck.tags ?? new List<string>(),
+                    deck.countlikes,
+                    deck.created_at,
+                    startup = startup != null ? new
+                    {
+                        sid = startup.Sid.ToString(),
+                        startupname = startup.StartupName,
+                        field = startup.Field,
+                        idea_description = startup.IdeaDescription
+                    } : null
+                };
+
+                Console.WriteLine($"[DEBUG] Returning pitch deck details");
+                return Ok(response);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[ERROR] Exception in GetPitchDeckById: {ex.Message}");
+                return StatusCode(500, new
+                {
+                    error = ex.Message,
+                    source = "GetPitchDeckById"
+                });
+            }
+        }
+
+
 
         [HttpPost("upload")]
         public async Task<IActionResult> UploadPitchDeck([FromForm] PitchDeckUploadDto input)
@@ -85,13 +243,20 @@ namespace Spark2Scale_.Server.Controllers
         }
 
         [HttpGet("{startupId}")]
-        public async Task<IActionResult> GetPitchDecks(Guid startupId)
+        public async Task<IActionResult> GetPitchDecks(Guid startupId, [FromQuery] bool onlyPublic = false)
         {
             // Fetch only for specific startup
-            var result = await _supabase.From<PitchDeck>()
+            var query = _supabase.From<PitchDeck>()
                                         .Select("*")
-                                        .Filter("startup_id", Supabase.Postgrest.Constants.Operator.Equals, startupId.ToString())
-                                        .Get();
+                                        .Filter("startup_id", Supabase.Postgrest.Constants.Operator.Equals, startupId.ToString());
+
+            // Added: Filter by canaccess if requested
+            if (onlyPublic)
+            {
+                query = query.Filter("canaccess", Supabase.Postgrest.Constants.Operator.Equals, "true");
+            }
+
+            var result = await query.Get();
 
             var dtos = result.Models.Select(d => new PitchDeckResponseDto
             {
@@ -118,11 +283,12 @@ namespace Spark2Scale_.Server.Controllers
             try
             {
                 var update = await _supabase.From<PitchDeck>()
-                                          .Where(x => x.pitchdeckid == pitchDeckId)
-                                          .Set(x => x.pitchname, request.NewTitle) // Updates specific column
-                                          .Update();
+                                        .Where(x => x.pitchdeckid == pitchDeckId)
+                                        .Set(x => x.pitchname, request.NewTitle)
+                                        .Update();
 
                 var result = update.Models.FirstOrDefault();
+
 
                 if (result == null) return NotFound("Pitch deck not found.");
 
@@ -141,7 +307,9 @@ namespace Spark2Scale_.Server.Controllers
             {
                 Console.WriteLine($"[INFO] Generating analysis for: {pitchDeckId}");
 
+
                 // 1. Mock Data Generation
+
                 var mockAnalysis = new AnalysisContent
                 {
                     Short = new ShortAnalysis
@@ -173,25 +341,22 @@ namespace Spark2Scale_.Server.Controllers
                     }
                 };
 
-                // 2. Update Supabase
+
                 var update = await _supabase.From<PitchDeck>()
-                                          .Where(x => x.pitchdeckid == pitchDeckId)
-                                          .Set(x => x.analysis, mockAnalysis)
-                                          .Update();
+                                        .Where(x => x.pitchdeckid == pitchDeckId)
+                                        .Set(x => x.analysis, mockAnalysis)
+                                        .Update();
 
                 var updatedModel = update.Models.FirstOrDefault();
+                if (updatedModel == null) return NotFound("Pitch deck not found or update failed.");
 
-                if (updatedModel == null)
-                {
-                    return NotFound("Pitch deck not found or update failed.");
-                }
 
-                // 3. MAP TO DTO
                 var responseDto = new PitchDeckResponseDto
                 {
                     pitchdeckid = updatedModel.pitchdeckid,
                     startup_id = updatedModel.startup_id,
                     video_url = updatedModel.video_url,
+                    pitchname = updatedModel.pitchname,
                     is_current = updatedModel.is_current,
                     analysis = updatedModel.analysis,
                     tags = updatedModel.tags,
@@ -208,40 +373,12 @@ namespace Spark2Scale_.Server.Controllers
             }
         }
 
-        [HttpGet("details/{pitchDeckId}")]
-        public async Task<IActionResult> GetPitchDeckById(Guid pitchDeckId)
-        {
-            var result = await _supabase.From<PitchDeck>()
-                                        .Where(x => x.pitchdeckid == pitchDeckId)
-                                        .Get();
-
-            var deck = result.Models.FirstOrDefault();
-            if (deck == null) return NotFound();
-
-            var responseDto = new PitchDeckResponseDto
-            {
-                pitchdeckid = deck.pitchdeckid,
-                startup_id = deck.startup_id,
-                video_url = deck.video_url,
-                is_current = deck.is_current,
-                analysis = deck.analysis,
-                tags = deck.tags,
-                countlikes = deck.countlikes,
-                created_at = deck.created_at
-            };
-
-            return Ok(responseDto);
-        }
-
-
-        // Inside PitchDecksController.cs
-
         [HttpGet("count/{startupId}")]
         public async Task<IActionResult> GetPitchCount(Guid startupId)
         {
             try
             {
-                // 1. Select ONLY the ID column (saves bandwidth)
+
                 var result = await _supabase.From<PitchDeck>()
                                             .Select("pitchdeckid")
                                             .Filter("startup_id", Supabase.Postgrest.Constants.Operator.Equals, startupId.ToString())
@@ -258,5 +395,5 @@ namespace Spark2Scale_.Server.Controllers
             }
         }
     }
-  
+
 }

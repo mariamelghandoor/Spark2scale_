@@ -4,7 +4,6 @@ using Spark2Scale_.Server.Services;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
-using System.Text.Json;
 using System;
 
 // Load .env
@@ -15,26 +14,21 @@ var builder = WebApplication.CreateBuilder(args);
 // CORS policy name
 var MyAllowSpecificOrigins = "_myAllowSpecificOrigins";
 
-// CORS ï¿½ allow Next.js dev server
+// CORS – allow Next.js dev server
 builder.Services.AddCors(options =>
 {
-    options.AddPolicy(name: MyAllowSpecificOrigins, policy =>
-    {
-        // Note: Using http and https covers you regardless of how you access localhost
-        policy.WithOrigins("http://localhost:3000", "https://localhost:3000")
-              .AllowAnyHeader()
-              .AllowAnyMethod();
-    });
+    options.AddPolicy("AllowFrontend",
+        policy =>
+        {
+            policy.WithOrigins("http://localhost:3000") // Your Frontend URL
+                  .AllowAnyHeader()
+                  .AllowAnyMethod()
+                  .AllowCredentials();
+        });
 });
 
-// Configure JSON to accept both camelCase and PascalCase
-builder.Services.AddControllers()
-    .AddJsonOptions(options =>
-    {
-        // Accept both camelCase (from frontend) and PascalCase (C# default)
-        options.JsonSerializerOptions.PropertyNameCaseInsensitive = true;
-        options.JsonSerializerOptions.PropertyNamingPolicy = null; // Keep PascalCase
-    });
+
+builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
@@ -84,14 +78,11 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
-// --- FIX: Apply CORS before other middleware ---
-app.UseCors(MyAllowSpecificOrigins);
+app.UseRouting();
+// 2. USE THE POLICY (Must be before UseAuthorization)
+app.UseCors("AllowFrontend");
 
-// --- FIX: Comment out HTTPS Redirection to solve "Redirect not allowed" error ---
-// app.UseHttpsRedirection(); 
-
+app.UseHttpsRedirection();
 app.UseAuthorization();
-
 app.MapControllers();
-
 app.Run();
