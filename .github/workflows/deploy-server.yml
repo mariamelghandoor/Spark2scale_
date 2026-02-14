@@ -1,0 +1,25 @@
+name: Deploy .NET Server
+on:
+  push:
+    branches: [ "Sarah" ]
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Publish
+        # Note the specific path to your .csproj file
+        run: dotnet publish ./Spark2Scale_.Server/Spark2Scale_.Server.csproj -c Release -o ./publish
+
+      - name: Deploy to Azure
+        uses: azure/webapps-deploy@v2
+        with:
+          app-name: 'YOUR_APP_SERVICE_NAME' # Change to your app name
+          publish-profile: ${{ secrets.AZURE_SERVER_PUBLISH_PROFILE }}
+          package: ./publish
