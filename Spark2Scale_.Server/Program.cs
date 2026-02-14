@@ -82,16 +82,16 @@ var app = builder.Build();
 app.UseCors(MyAllowSpecificOrigins);
 
 // FIXED: Swagger enabled for both Development and Production (Azure)
-if (app.Environment.IsDevelopment())
+// Enable Swagger in BOTH Development and Production
+if (app.Environment.IsDevelopment() || app.Environment.IsProduction())
 {
     app.UseSwagger();
     app.UseSwaggerUI(options =>
     {
         options.SwaggerEndpoint("/swagger/v1/swagger.json", "v1");
-        options.RoutePrefix = "swagger"; // Access via /swagger
+        options.RoutePrefix = "swagger"; 
     });
 }
-
 app.UseAuthorization();
 app.MapControllers();
 
