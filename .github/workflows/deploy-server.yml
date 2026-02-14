@@ -19,16 +19,8 @@ jobs:
 
       - name: 'Build and Publish'
         run: |
-          # 1. Clean previous build artifacts
-          dotnet clean ./Spark2Scale_.Server/Spark2Scale_.Server.csproj
-          
-          # 2. Publish with the -p:PublishDir flag to force a flat output
-          dotnet publish ./Spark2Scale_.Server/Spark2Scale_.Server.csproj \
-            -c Release \
-            -r linux-x64 \
-            --self-contained false \
-            -o ./publish \
-            -p:PublishDir=./publish
+          dotnet build ./Spark2Scale_.Server/Spark2Scale_.Server.csproj --configuration Release
+          dotnet publish ./Spark2Scale_.Server/Spark2Scale_.Server.csproj -c Release -o ./publish
 
       - name: 'Deploy to Azure Web App'
         uses: azure/webapps-deploy@v2
@@ -36,7 +28,4 @@ jobs:
           app-name: 'spark2scale-server'
           publish-profile: ${{ secrets.AZURE_SERVER_PUBLISH_PROFILE }}
           package: ./publish
-          clean: true # <--- 1. Wipes the folder before deploying
-          
-          # Optional: If you still get errors, you can uncomment this to force a restart
-          # slot-name: 'production'
+          clean: true # <--- The ONLY addition. Fixes the "Bad IL / Corruption" crash.
