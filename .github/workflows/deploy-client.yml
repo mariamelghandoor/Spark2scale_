@@ -20,22 +20,35 @@ jobs:
           npm install
           npm run build
           
-          # --- THE FIX STARTS HERE ---
-          # Create a clean folder for deployment
+          # --- THE "SMART FIND" FIX ---
+          echo "🔍 Searching for server.js..."
+          
+          # 1. Find the exact folder containing server.js
+          # This works regardless of folder names (spark2scale_.client vs Spark2Scale_.Client)
+          SERVER_DIR=$(find .next/standalone -type f -name "server.js" -exec dirname {} \; | head -n 1)
+          
+          echo "✅ Found app in: $SERVER_DIR"
+          
+          # 2. Create the clean output folder
           mkdir -p ../deploy_out
           
-          # 1. Copy the inner project files (where server.js lives) to the ROOT of deploy_out
-          # This brings server.js out of the subfolder
-          cp -r .next/standalone/spark2scale_.client/. ../deploy_out/
+          # 3. Copy the APP files (flattening them to root)
+          cp -r "$SERVER_DIR"/. ../deploy_out/
           
-          # 2. Copy the shared node_modules to the ROOT
-          cp -r .next/standalone/node_modules ../deploy_out/
+          # 4. If node_modules exists in the standalone root (shared libs), copy it too
+          if [ "$SERVER_DIR" != ".next/standalone" ] && [ -d ".next/standalone/node_modules" ]; then
+             echo "📦 Copying shared node_modules..."
+             cp -r .next/standalone/node_modules ../deploy_out/
+          fi
           
-          # 3. Manually put static assets where Next.js expects them (at the root)
+          # 5. Manually copy static assets to the correct relative locations
           mkdir -p ../deploy_out/.next/static
           mkdir -p ../deploy_out/public
           cp -r .next/static/. ../deploy_out/.next/static/
           cp -r public/. ../deploy_out/public/ || true
+          
+          # Debug: Show us what we built (optional, for logs)
+          ls -la ../deploy_out
           # ---------------------------
 
       - name: Deploy to Azure Web App
@@ -43,5 +56,5 @@ jobs:
         with:
           app-name: 'spark2scale-client'
           publish-profile: ${{ secrets.AZURE_CLIENT_PUBLISH_PROFILE }}
-          # Deploy the clean, flattened folder
+          # Deploy the clean, flattened folder we just made
           package: ./deploy_out
