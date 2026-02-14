@@ -64,7 +64,7 @@ namespace Spark2Scale_.Server.Controllers
                         { "tags", request.Tags ?? Array.Empty<string>() },
                         { "startup_id", request.StartupId?.ToString() ?? "" }
                     },
-                    RedirectTo = $"{Request.Scheme}://localhost:3000/auth/callback"
+                    RedirectTo = $"{Environment.GetEnvironmentVariable("CLIENT_URL") ?? "http://localhost:3000"}/auth/callback"
                 };
 
                 // VALIDATION: Ensure Contributor has a StartupId

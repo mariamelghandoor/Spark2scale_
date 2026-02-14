@@ -3,7 +3,7 @@ import path from "node:path";
 
 const nextConfig: NextConfig = {
     // 1. MUST ADD: This creates the standalone folder for Azure
-    output: 'standalone', 
+    output: 'standalone',
 
     images: {
         remotePatterns: [
@@ -28,7 +28,7 @@ const nextConfig: NextConfig = {
     async rewrites() {
         // 2. DYNAMIC API: Use the Azure variable if it exists, otherwise localhost
         const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5231';
-        
+
         return [
             {
                 source: '/api/:path*',

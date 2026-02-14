@@ -21,7 +21,7 @@ builder.Services.AddCors(options =>
     options.AddPolicy(name: MyAllowSpecificOrigins, policy =>
     {
         // Allows localhost for dev and your future Azure Static Web App URL
-        policy.SetIsOriginAllowed(origin => new Uri(origin).Host == "localhost" || origin.Contains("azurestaticapps.net"))
+        policy.SetIsOriginAllowed(origin => new Uri(origin).Host == "localhost" || origin.Contains("azurestaticapps.net") || origin == Environment.GetEnvironmentVariable("CLIENT_URL"))
               .AllowAnyHeader()
               .AllowAnyMethod();
     });
