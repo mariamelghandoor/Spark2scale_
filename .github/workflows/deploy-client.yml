@@ -25,4 +25,4 @@ jobs:
         with:
           app-name: 'spark2scale-client' # Use your new frontend app name
           publish-profile: ${{ secrets.AZURE_CLIENT_PUBLISH_PROFILE }}
-          package: ./spark2scale_.client/.next # Deploying the build output
+          package: ./spark2scale_.client # Deploying the build output
