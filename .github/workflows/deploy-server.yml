@@ -1,25 +1,31 @@
-name: Deploy .NET Server
+name: Deploy .NET Server to Azure
 on:
   push:
-    branches: [ "Sarah" ]
+    branches:
+      - sarah  # Triggers only when you push to the sarah branch
 
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v4
-      - name: Setup .NET
+      - name: 'Checkout Github Action'
+        uses: actions/checkout@v4
+
+      - name: 'Setup .NET Core'
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: '8.0.x'
+          dotnet-version: '8.0.x' # Optimized for .NET 8 on Linux
 
-      - name: Publish
-        # Note the specific path to your .csproj file
-        run: dotnet publish ./Spark2Scale_.Server/Spark2Scale_.Server.csproj -c Release -o ./publish
+      - name: 'Build and Publish'
+        # Targets your specific subfolder and project file
+        run: |
+          dotnet build ./Spark2Scale_.Server/Spark2Scale_.Server.csproj --configuration Release
+          dotnet publish ./Spark2Scale_.Server/Spark2Scale_.Server.csproj -c Release -o ./publish
 
-      - name: Deploy to Azure
+      - name: 'Deploy to Azure Web App'
         uses: azure/webapps-deploy@v2
         with:
-          app-name: 'YOUR_APP_SERVICE_NAME' # Change to your app name
+          app-name: 'spark2scale-server' # Matches your "Default domain" name
           publish-profile: ${{ secrets.AZURE_SERVER_PUBLISH_PROFILE }}
           package: ./publish
