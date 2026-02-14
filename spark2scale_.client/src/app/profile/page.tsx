@@ -13,6 +13,7 @@ import { motion } from "framer-motion";
 import { useRouter } from "next/navigation";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { userService } from "@/services/userService"; // Import the service
+import { useAuth } from "@/context/AuthContext";
 
 interface ProfileData {
     fname: string;
@@ -23,12 +24,9 @@ interface ProfileData {
     avatarUrl?: string;
 }
 
-// 1. HARDCODED USER ID (As requested)
-const STATIC_USER_ID = "645bde5c-ab6e-47bc-ba8d-cd6f5500bc30";
-
 export default function ProfilePage() {
+    const { user } = useAuth();
     const router = useRouter();
-
     const [isLoading, setIsLoading] = useState(false);
     const [statusMessage, setStatusMessage] = useState<string | null>(null);
 
@@ -47,15 +45,21 @@ export default function ProfilePage() {
 
     // 2. Fetch Profile using Service
     useEffect(() => {
+        if (!user?.id) return;
+
         const fetchProfile = async () => {
             try {
-                // Call Service with Static ID
-                const data = await userService.getProfile(STATIC_USER_ID);
+                // Call Service with Dynamic ID
+                const data = await userService.getProfile(user.id);
+
+                // If the user hasn't set up a profile yet, data might be empty or default.
+                // We should handle that gracefully.
+                // Assuming data.user conforms to what we expect.
 
                 setProfile({
-                    fname: data.user.fname || "",
-                    lname: data.user.lname || "",
-                    email: data.user.email || "",
+                    fname: data.user.fname || user.fname || "",
+                    lname: data.user.lname || user.lname || "",
+                    email: data.user.email || user.email || "",
                     phoneNumber: data.user.phone_number || "",
                     addressRegion: data.user.address_region || "",
                     avatarUrl: data.avatarUrl || ""
@@ -66,7 +70,7 @@ export default function ProfilePage() {
         };
 
         fetchProfile();
-    }, []);
+    }, [user]);
 
     const handleChange = (field: keyof ProfileData) => {
         return (e: ChangeEvent<HTMLInputElement>) => {
@@ -97,13 +101,17 @@ export default function ProfilePage() {
                 formData.append("Photo", selectedFile);
             }
 
-            // Call Service with Static ID
-            const result = await userService.updateProfile(STATIC_USER_ID, formData);
+            // Call Service with Dynamic ID
+            if (user?.id) {
+                const result = await userService.updateProfile(user.id, formData);
 
-            setStatusMessage("Profile updated successfully!");
+                setStatusMessage("Profile updated successfully!");
 
-            if (result.avatarUrl) {
-                setProfile(prev => ({ ...prev, avatarUrl: result.avatarUrl }));
+                if (result.avatarUrl) {
+                    setProfile(prev => ({ ...prev, avatarUrl: result.avatarUrl }));
+                }
+            } else {
+                setStatusMessage("User not authenticated. Cannot save profile.");
             }
         } catch (error: any) {
             console.error("Error:", error);
@@ -116,9 +124,11 @@ export default function ProfilePage() {
 
     const handleDelete = async () => {
         try {
-            // Call Service with Static ID
-            await userService.deleteProfile(STATIC_USER_ID);
-            router.push("/signup");
+            // Call Service with Dynamic ID
+            if (user?.id) {
+                await userService.deleteProfile(user.id);
+                router.push("/signup");
+            }
         } catch (error: any) {
             console.error("Error deleting profile:", error);
             alert("Error deleting profile. See console for details.");

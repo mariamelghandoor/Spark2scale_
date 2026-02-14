@@ -1,4 +1,6 @@
-// services/marketResearchService.ts
+// services/marketResearchService.tsx
+
+import apiClient from "@/lib/apiClient";
 
 export interface MarketResearchDoc {
     did: string;
@@ -10,16 +12,27 @@ export interface MarketResearchDoc {
     is_current?: boolean; // Optional property
 }
 
-const API_BASE_URL = "https://localhost:7155/api";
+interface WorkflowApiResponse {
+    ideaCheck?: boolean;
+    IdeaCheck?: boolean;
+    marketResearch?: boolean;
+    MarketResearch?: boolean;
+    evaluation?: boolean;
+    Evaluation?: boolean;
+    recommendation?: boolean;
+    Recommendation?: boolean;
+    documents?: boolean;
+    Documents?: boolean;
+    pitchDeck?: boolean;
+    PitchDeck?: boolean;
+}
 
 export const marketResearchService = {
     // 1. Fetch the specific Market Research Document
     async getCurrentResearch(startupId: string): Promise<MarketResearchDoc | null> {
         try {
-            const response = await fetch(`${API_BASE_URL}/Documents?startupId=${startupId}`);
-            if (!response.ok) throw new Error("Failed to fetch documents");
-
-            const docs: MarketResearchDoc[] = await response.json();
+            const response = await apiClient.get<MarketResearchDoc[]>(`/api/Documents?startupId=${startupId}`);
+            const docs = response.data;
 
             // Find the correct document (flexible logic for 'is_current')
             const doc = docs.find(d => {
@@ -42,10 +55,8 @@ export const marketResearchService = {
     // 2. Check Workflow Status
     async getWorkflowStatus(startupId: string): Promise<boolean> {
         try {
-            const response = await fetch(`${API_BASE_URL}/StartupWorkflow/${startupId}`);
-            if (!response.ok) return false;
-
-            const workflow = await response.json();
+            const response = await apiClient.get<WorkflowApiResponse>(`/api/StartupWorkflow/${startupId}`);
+            const workflow = response.data;
             // Handle casing variations
             return workflow.marketResearch === true || workflow.MarketResearch === true;
         } catch (error) {
@@ -57,17 +68,13 @@ export const marketResearchService = {
     // 3. Generate New Research
     async generateResearch(startupId: string, region: string, category: string): Promise<boolean> {
         try {
-            const response = await fetch(`${API_BASE_URL}/Documents/generate-mock`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    startupId: startupId,
-                    type: "Market Research",
-                    region: region,
-                    category: category
-                })
+            await apiClient.post(`/api/Documents/generate-mock`, {
+                startupId: startupId,
+                type: "Market Research",
+                region: region,
+                category: category
             });
-            return response.ok;
+            return true;
         } catch (error) {
             console.error("Error generating research:", error);
             return false;
@@ -78,9 +85,8 @@ export const marketResearchService = {
     async completeStage(startupId: string): Promise<boolean> {
         try {
             // A. Get current state to preserve flags
-            const getRes = await fetch(`${API_BASE_URL}/StartupWorkflow/${startupId}`);
-            if (!getRes.ok) throw new Error("Failed to fetch workflow");
-            const currentData = await getRes.json();
+            const getRes = await apiClient.get<WorkflowApiResponse>(`/api/StartupWorkflow/${startupId}`);
+            const currentData = getRes.data;
 
             // B. Construct update payload
             const updatedWorkflow = {
@@ -94,13 +100,9 @@ export const marketResearchService = {
             };
 
             // C. Send Update
-            const postRes = await fetch(`${API_BASE_URL}/StartupWorkflow/update`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(updatedWorkflow)
-            });
+            await apiClient.post(`/api/StartupWorkflow/update`, updatedWorkflow);
 
-            return postRes.ok;
+            return true;
         } catch (error) {
             console.error("Error completing stage:", error);
             return false;

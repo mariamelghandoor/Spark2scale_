@@ -79,7 +79,7 @@ namespace Spark2Scale_.Server.Controllers
                 if (founder != null && !string.IsNullOrEmpty(founder.email))
                 {
                     // Direct approval link hitting our new GET endpoint
-                    string baseUrl = "https://localhost:7155"; // Check your launchSettings.json for the correct port (http vs https)
+                    string baseUrl = "https://localhost:5231"; // Check your launchSettings.json for the correct port (http vs https)
                     string approvalLink = $"{baseUrl}/api/investordocumentaccess/confirm-access?investorId={request.InvestorId}&startupId={request.StartupId}";
 
                     // --- EMAIL DESIGN ---
@@ -164,7 +164,7 @@ namespace Spark2Scale_.Server.Controllers
 
                 // 3. Redirect to Founder Dashboard (Success Page)
                 // Ensure this URL matches your frontend (usually port 5173 or 3000)
-                return Redirect("http://localhost:5173/founder/dashboard?status=access_granted");
+                return Redirect("http://localhost:3000/founder/dashboard?status=access_granted");
             }
             catch (Exception ex)
             {

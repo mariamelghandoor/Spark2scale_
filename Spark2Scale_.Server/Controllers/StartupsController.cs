@@ -12,15 +12,18 @@ namespace Spark2Scale_.Server.Controllers
     public class StartupsController : ControllerBase
     {
         private readonly Supabase.Client _supabase;
+        private readonly Services.AccessControlService _access;
 
-        public StartupsController(Supabase.Client supabase)
+        public StartupsController(Supabase.Client supabase, Services.AccessControlService access)
         {
             _supabase = supabase;
+            _access = access;
         }
 
         [HttpPost("add")]
         public async Task<IActionResult> AddStartup([FromBody] StartupInsertDto input)
         {
+            // ... (keep existing login, maybe add global role check if needed)
             if (input == null || string.IsNullOrEmpty(input.startupname))
                 return BadRequest("Startup Name is required.");
 
@@ -31,6 +34,8 @@ namespace Spark2Scale_.Server.Controllers
                 StartupName = input.startupname,
                 Field = input.field,
                 IdeaDescription = input.idea_description,
+                Region = input.region,
+                StartupStage = input.startup_stage,
                 FounderId = input.founder_id,
                 CreatedAt = DateTime.UtcNow
             };
@@ -47,6 +52,8 @@ namespace Spark2Scale_.Server.Controllers
                 startupname = inserted.StartupName,
                 field = inserted.Field,
                 idea_description = inserted.IdeaDescription,
+                region = inserted.Region,
+                startup_stage = inserted.StartupStage,
                 founder_id = inserted.FounderId,
                 created_at = inserted.CreatedAt
             };
@@ -74,6 +81,8 @@ namespace Spark2Scale_.Server.Controllers
                         startupname = s.StartupName,
                         field = s.Field,
                         idea_description = s.IdeaDescription,
+                        region = s.Region,
+                        startup_stage = s.StartupStage,
                         founder_id = s.FounderId,
                         created_at = s.CreatedAt
                     }).ToList();
@@ -83,11 +92,18 @@ namespace Spark2Scale_.Server.Controllers
                 // If contributorId is provided, filter by it
                 else if (!string.IsNullOrEmpty(contributorId) && Guid.TryParse(contributorId, out Guid cId))
                 {
-                    var links = await _supabase.From<StartupContributor>()
-                       .Where(x => x.ContributorId == cId)
+                    // 1. AUTO-ACCEPT LOGIC REMOVED - Managed via InvitationController
+
+                    // 2. FETCH STARTUPS (Existing Logic)
+                    // Query the 'contributors' table directly using user_id
+                    var links = await _supabase.From<Contributor>()
+                       .Filter("user_id", Supabase.Postgrest.Constants.Operator.Equals, cId.ToString())
                        .Get();
 
-                    var startupIds = links.Models.Select(x => x.StartupId.ToString()).ToList();
+                    var startupIds = links.Models
+                        .Where(x => x.startup_id != null) // Ensure we don't grab nulls
+                        .Select(x => x.startup_id.Value.ToString())
+                        .ToList();
 
                     if (!startupIds.Any()) return Ok(new List<StartupResponseDto>());
 
@@ -95,12 +111,15 @@ namespace Spark2Scale_.Server.Controllers
                        .Filter("sid", Supabase.Postgrest.Constants.Operator.In, startupIds)
                        .Get();
 
+
                     var dtos = result.Models.Select(s => new StartupResponseDto
                     {
                         sid = s.Sid,
                         startupname = s.StartupName,
                         field = s.Field,
                         idea_description = s.IdeaDescription,
+                        region = s.Region,
+                        startup_stage = s.StartupStage,
                         founder_id = s.FounderId,
                         created_at = s.CreatedAt
                     }).ToList();
@@ -112,15 +131,54 @@ namespace Spark2Scale_.Server.Controllers
                     // Otherwise return all (e.g. for investors feed)
                     var result = await _supabase.From<Startup>().Get();
 
-                    var dtos = result.Models.Select(s => new StartupResponseDto
+                    var dtos = new List<StartupResponseDto>();
+                    
+                    // Retrieve User ID from Token for Role Check (if available)
+                    Guid? currentUserId = null;
+                    var authHeader = Request.Headers["Authorization"].FirstOrDefault();
+                    if (!string.IsNullOrEmpty(authHeader) && authHeader.StartsWith("Bearer "))
                     {
-                        sid = s.Sid,
-                        startupname = s.StartupName,
-                        field = s.Field,
-                        idea_description = s.IdeaDescription,
-                        founder_id = s.FounderId,
-                        created_at = s.CreatedAt
-                    }).ToList();
+                        var token = authHeader.Substring("Bearer ".Length).Trim();
+                        try {
+                            var user = await _supabase.Auth.GetUser(token);
+                            if (user != null && Guid.TryParse(user.Id, out Guid uid))
+                            {
+                                currentUserId = uid;
+                            }
+                        } catch {}
+                    }
+
+                    foreach(var s in result.Models)
+                    {
+                        string? role = null;
+                        if (currentUserId.HasValue)
+                        {
+                            if (s.FounderId == currentUserId.Value) role = "Founder";
+                            else 
+                            {
+                                // Check Contributor
+                                var contrib = await _supabase.From<StartupContributor>()
+                                    .Match(new Dictionary<string, string> {
+                                        { "startup_id", s.Sid.ToString() },
+                                        { "contributor_id", currentUserId.Value.ToString() }
+                                    }).Get();
+                                if (contrib.Models.Any()) role = contrib.Models.First().Role ?? "Contributor";
+                            }
+                        }
+
+                        dtos.Add(new StartupResponseDto
+                        {
+                            sid = s.Sid,
+                            startupname = s.StartupName,
+                            field = s.Field,
+                            idea_description = s.IdeaDescription,
+                            region = s.Region,
+                            startup_stage = s.StartupStage,
+                            founder_id = s.FounderId,
+                            created_at = s.CreatedAt,
+                            current_role = role
+                        });
+                    }
 
                     return Ok(dtos);
                 }
@@ -148,14 +206,52 @@ namespace Spark2Scale_.Server.Controllers
                 if (startup == null)
                     return NotFound("Startup not found");
 
+                // Determine Role
+                string? role = null;
+                var authHeader = Request.Headers["Authorization"].FirstOrDefault();
+                if (!string.IsNullOrEmpty(authHeader) && authHeader.StartsWith("Bearer "))
+                {
+                    var token = authHeader.Substring("Bearer ".Length).Trim();
+                    try 
+                    {
+                        var user = await _supabase.Auth.GetUser(token);
+                        if (user != null && Guid.TryParse(user.Id, out Guid currentUserId))
+                        {
+                            if (startup.FounderId == currentUserId) 
+                            {
+                                role = "Founder";
+                            }
+                            else 
+                            {
+                                var contrib = await _supabase.From<StartupContributor>()
+                                    .Match(new Dictionary<string, string> {
+                                        { "startup_id", sId.ToString() },
+                                        { "contributor_id", currentUserId.ToString() }
+                                    }).Get();
+                                if (contrib.Models.Any()) 
+                                {
+                                    role = contrib.Models.First().Role ?? "Contributor";
+                                }
+                            }
+                        }
+                    }
+                    catch 
+                    { 
+                        // Token might be invalid or expired, ignore role 
+                    }
+                }
+
                 var response = new StartupResponseDto
                 {
                     sid = startup.Sid,
                     startupname = startup.StartupName,
                     field = startup.Field,
                     idea_description = startup.IdeaDescription,
+                    region = startup.Region,
+                    startup_stage = startup.StartupStage,
                     founder_id = startup.FounderId,
-                    created_at = startup.CreatedAt
+                    created_at = startup.CreatedAt,
+                    current_role = role
                 };
 
                 return Ok(response);
@@ -176,6 +272,16 @@ namespace Spark2Scale_.Server.Controllers
 
             try
             {
+                // CRITICAL: RBAC CHECK
+                var token = Request.Headers["Authorization"].FirstOrDefault()?.Replace("Bearer ", "");
+                
+                if (string.IsNullOrEmpty(token))
+                    return Unauthorized("Missing authorization token.");
+
+                if (!await _access.IsFounderOrOwner(token, sId))
+                {
+                    return StatusCode(403, "Only the Founder can update the idea.");
+                }
 
                 var parameters = new Dictionary<string, object>
                 {

@@ -1,8 +1,7 @@
 // services/startupDashboardService.ts
 
+import apiClient from "@/lib/apiClient";
 import { pitchDeckService } from "./pitchDeckService";
-
-const API_BASE_URL = "https://localhost:7155/api";
 
 // --- Types ---
 export interface WorkflowData {
@@ -29,6 +28,7 @@ export interface Meeting {
 export interface DashboardData {
     workflow: WorkflowData | null;
     startupName: string;
+    role: string;
     docCount: number;
     meetings: Meeting[];
     videoCount: number;
@@ -40,36 +40,46 @@ export const startupDashboardService = {
         try {
             // Execute all requests in parallel for performance
             const [workflowRes, startupRes, docCountRes, meetingsRes, videoCount] = await Promise.all([
-                fetch(`${API_BASE_URL}/StartupWorkflow/${startupId}`),
-                fetch(`${API_BASE_URL}/startups/${startupId}`),
-                fetch(`${API_BASE_URL}/DocumentVersions/count/${startupId}`),
-                fetch(`${API_BASE_URL}/Meetings?userId=${userId}`),
+                apiClient.get(`/api/StartupWorkflow/${startupId}`),
+                apiClient.get(`/api/startups/${startupId}`),
+                apiClient.get(`/api/DocumentVersions/count/${startupId}`),
+                apiClient.get(`/api/Meetings?userId=${userId}`),
                 pitchDeckService.getPitchCount(startupId) // Reusing existing service method
             ]);
 
             // --- Process Workflow ---
-            const workflow = workflowRes.ok ? await workflowRes.json() : null;
+            const rawWf = workflowRes.data;
+            const workflow: WorkflowData = {
+                startupId: rawWf.startupId || rawWf.StartupId,
+                ideaCheck: rawWf.ideaCheck || rawWf.IdeaCheck,
+                marketResearch: rawWf.marketResearch || rawWf.MarketResearch,
+                evaluation: rawWf.evaluation || rawWf.Evaluation,
+                recommendation: rawWf.recommendation || rawWf.Recommendation,
+                documents: rawWf.documents || rawWf.Documents,
+                pitchDeck: rawWf.pitchDeck || rawWf.PitchDeck
+            };
 
             // --- Process Startup Name ---
             let startupName = "Unknown Startup";
-            if (startupRes.ok) {
-                const data = await startupRes.json();
-                startupName = data.startupname;
+            let role = "Viewer";
+            if (startupRes.data) {
+                startupName = startupRes.data.startupname;
+                role = startupRes.data.current_role || "Viewer";
             }
 
             // --- Process Doc Count ---
             let docCount = 0;
-            if (docCountRes.ok) {
-                const data = await docCountRes.json();
-                docCount = data.count;
+            if (docCountRes.data) {
+                docCount = docCountRes.data.count;
             }
 
             // --- Process Meetings ---
-            const meetings = meetingsRes.ok ? await meetingsRes.json() : [];
+            const meetings = meetingsRes.data || [];
 
             return {
                 workflow,
                 startupName,
+                role,
                 docCount,
                 meetings,
                 videoCount
@@ -81,6 +91,7 @@ export const startupDashboardService = {
             return {
                 workflow: null,
                 startupName: "Error Loading Data",
+                role: "Viewer",
                 docCount: 0,
                 meetings: [],
                 videoCount: 0
@@ -89,26 +100,27 @@ export const startupDashboardService = {
     },
 
     // 2. Invite Team Member Action
-    async inviteTeamMember(email: string, startupId: string): Promise<{ success: boolean; message?: string }> {
+    async inviteTeamMember(email: string, startupId: string, userId: string): Promise<{ success: boolean; message?: string }> {
         try {
-            const response = await fetch(`${API_BASE_URL}/Contributor/invite`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    email: email,
-                    startupId: startupId
-                })
+            await apiClient.post(`/api/Invitation/send`, {
+                email: email,
+                startupId: startupId,
+                role: "Contributor",
+                InvitedBy: userId
             });
 
-            if (response.ok) {
-                return { success: true };
-            } else {
-                const errorText = await response.text();
-                return { success: false, message: errorText };
-            }
-        } catch (error) {
+            return { success: true };
+        } catch (error: unknown) {
             console.error("Invite error:", error);
-            return { success: false, message: "Network error occurred." };
+            let message = "Network error occurred.";
+            if (error && typeof error === 'object' && 'response' in error) {
+                const errResponse = (error as any).response?.data;
+                if (errResponse) message = errResponse;
+            }
+            else if (error instanceof Error) {
+                message = error.message;
+            }
+            return { success: false, message: typeof message === 'string' ? message : JSON.stringify(message) };
         }
     }
 };

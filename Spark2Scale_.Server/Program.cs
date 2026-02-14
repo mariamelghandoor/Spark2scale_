@@ -15,13 +15,13 @@ var builder = WebApplication.CreateBuilder(args);
 // CORS policy name
 var MyAllowSpecificOrigins = "_myAllowSpecificOrigins";
 
-// CORS � allow Next.js dev server
+// CORS – allow Next.js dev server
 builder.Services.AddCors(options =>
 {
     options.AddPolicy(name: MyAllowSpecificOrigins, policy =>
     {
-        // Note: Using http and https covers you regardless of how you access localhost
-        policy.WithOrigins("http://localhost:3000", "https://localhost:3000")
+        // Allow any localhost port (fixing the issue if frontend is on 3001, 3002 etc)
+        policy.SetIsOriginAllowed(origin => new Uri(origin).Host == "localhost")
               .AllowAnyHeader()
               .AllowAnyMethod();
     });
@@ -35,13 +35,13 @@ builder.Services.AddControllers()
         options.JsonSerializerOptions.PropertyNameCaseInsensitive = true;
         options.JsonSerializerOptions.PropertyNamingPolicy = null; // Keep PascalCase
     });
+
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
 // Email sender service (uses SMTP settings in your env)
 builder.Services.AddTransient<EmailService>();
-
-// REMOVED: Duplicate builder.Services.AddControllers();
+builder.Services.AddTransient<AccessControlService>();
 
 // Supabase URL + API key from environment
 var url = Environment.GetEnvironmentVariable("SUPABASE_URL");
@@ -77,6 +77,9 @@ builder.Services.AddSingleton(supabaseClient);
 
 var app = builder.Build();
 
+// --- FIX: Apply CORS *BEFORE* other middleware like Swagger or Auth ---
+app.UseCors(MyAllowSpecificOrigins);
+
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
 {
@@ -84,11 +87,7 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
-// --- FIX: Apply CORS before other middleware ---
-app.UseCors(MyAllowSpecificOrigins);
-
-// --- FIX: Comment out HTTPS Redirection to solve "Redirect not allowed" error ---
-// app.UseHttpsRedirection(); 
+// app.UseHttpsRedirection(); // Keep commented out to avoid redirect loops on localhost
 
 app.UseAuthorization();
 

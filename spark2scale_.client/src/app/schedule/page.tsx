@@ -12,12 +12,15 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { userService } from "@/services/userService";
+import { useAuth } from "@/context/AuthContext";
 
 // 1. HARDCODED USER ID PRESERVED
-const TEST_USER_ID = "3e59c30f-e3d2-43d2-ba48-818e69b7a9fd";
+import { useRouter } from "next/navigation";
 
 export default function SchedulePage() {
-    const [userName, setUserName] = useState("Alex");
+    const { user } = useAuth();
+    const router = useRouter();
+    const [userName, setUserName] = useState("User");
     const [meetings, setMeetings] = useState<MeetingDto[]>([]);
     const [isLoading, setIsLoading] = useState(true);
 
@@ -45,15 +48,25 @@ export default function SchedulePage() {
     const todayStr = new Date().toISOString().split('T')[0];
 
     useEffect(() => {
+        if (!user) {
+            // Optional: redirect to login if no user
+            // router.push('/signin');
+            return;
+        }
+
         const initializePage = async () => {
             try {
-                const roleData = await userService.getUserRole(TEST_USER_ID);
+                if (user.fname) {
+                    setUserName(user.fname);
+                }
+
+                const roleData = await userService.getUserRole(user.id);
                 if (roleData.role === "investor") {
                     setBackLink("/investor/feed");
                 } else if (roleData.role === "founder") {
                     setBackLink("/founder/dashboard");
                 }
-                await fetchMeetings();
+                await fetchMeetings(user.id);
             } catch (error) {
                 console.error("Error initializing page", error);
             } finally {
@@ -61,11 +74,13 @@ export default function SchedulePage() {
             }
         };
         initializePage();
-    }, []);
+    }, [user]);
 
-    const fetchMeetings = async () => {
+    const fetchMeetings = async (userId?: string) => {
+        const idToUse = userId || user?.id;
+        if (!idToUse) return;
         try {
-            const data = await meetingService.getUserMeetings(TEST_USER_ID);
+            const data = await meetingService.getUserMeetings(idToUse);
             setMeetings(data);
         } catch (error) {
             console.error("Failed to fetch meetings", error);
@@ -94,8 +109,14 @@ export default function SchedulePage() {
 
         setIsScheduling(true);
         try {
+            if (!user?.id) {
+                setErrorMessage("User not identified.");
+                setIsScheduling(false);
+                return;
+            }
+
             await meetingService.createMeeting({
-                sender_id: TEST_USER_ID,
+                sender_id: user.id,
                 invitee_email: newMeeting.investorEmail,
                 meeting_date: newMeeting.date,
                 meeting_time: newMeeting.time + ":00",
@@ -285,7 +306,7 @@ export default function SchedulePage() {
                                 ) : (
                                     <div className="space-y-4">
                                         {upcomingMeetings.map((meeting, index) => {
-                                            const isSender = meeting.sender_id === TEST_USER_ID;
+                                            const isSender = meeting.sender_id === user?.id;
                                             const isPending = meeting.status === 'pending';
                                             const isAccepted = meeting.status === 'accepted';
                                             const isWorking = actionLoadingId === meeting.meeting_id;

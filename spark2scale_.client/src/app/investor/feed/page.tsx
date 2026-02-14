@@ -57,8 +57,11 @@ interface InvestorDto {
     tags: string[];
 }
 
+import { useAuth } from "@/context/AuthContext";
+
 export default function InvestorFeed() {
-    const [userName, setUserName] = useState("Sarah");
+    const { user, loading: authLoading } = useAuth();
+    const [userName, setUserName] = useState("");
     const [currentIndex, setCurrentIndex] = useState(0);
     const [pitchDecks, setPitchDecks] = useState<PitchDeck[]>([]);
     const [loading, setLoading] = useState(true);
@@ -67,8 +70,14 @@ export default function InvestorFeed() {
     const [actionLoading, setActionLoading] = useState(false);
     const [investorTags, setInvestorTags] = useState<string[]>([]);
 
-    // Hardcoded ID as requested
-    const investorId = "3e59c30f-e3d2-43d2-ba48-818e69b7a9fd";
+    useEffect(() => {
+        if (user) {
+            setUserName(user.fname || "Investor");
+        }
+    }, [user]);
+
+    // Use actual user ID
+    const investorId = user?.id;
 
     // Calculate tag match count for sorting
     const getTagMatchCount = (pitchTags: string[]) => {
@@ -80,6 +89,8 @@ export default function InvestorFeed() {
 
     useEffect(() => {
         const fetchPitchDecks = async () => {
+            if (authLoading || !investorId) return;
+
             try {
                 setLoading(true);
                 console.log("🔍 Fetching pitch decks...");
@@ -150,7 +161,7 @@ export default function InvestorFeed() {
         };
 
         fetchPitchDecks();
-    }, []);
+    }, [investorId, authLoading]);
 
     const checkLikedPitches = async (pitches: PitchDeck[]) => {
         try {

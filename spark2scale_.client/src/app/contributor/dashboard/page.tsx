@@ -7,31 +7,45 @@ import { Calendar, User, FolderOpen, Video } from "lucide-react";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import NotificationsDropdown from "@/components/shared/NotificationsDropdown";
+import { useAuth } from "@/context/AuthContext";
+
+interface StartupApiResponse {
+    sid: string;
+    startupname: string;
+    field: string;
+    location?: string;
+    [key: string]: unknown;
+}
+
+interface Startup {
+    id: string;
+    name: string;
+    field: string;
+    region: string;
+    invitedBy: string;
+    role: string;
+}
+
+interface StartupContributor {
+    contributorId: string;
+    invitedBy?: string;
+    [key: string]: unknown;
+}
+
+interface BackendUser {
+    uid: string;
+    fname?: string;
+    lname?: string;
+    email?: string;
+    [key: string]: unknown;
+}
 
 export default function ContributorDashboard() {
-    // Initialize user data from localStorage
-    const [userData] = useState<{ name: string; id: string }>(() => {
-        if (typeof window === 'undefined') return { name: 'Contributor', id: '' };
-
-        const userStr = localStorage.getItem('user');
-        if (userStr) {
-            try {
-                const user = JSON.parse(userStr);
-                const name = user.fname && user.lname
-                    ? `${user.fname} ${user.lname}`
-                    : user.email?.split('@')[0] || 'Contributor';
-                return { name, id: user.id || '' };
-            } catch {
-                return { name: 'Contributor', id: '' };
-            }
-        }
-        return { name: 'Contributor', id: '' };
-    });
-
-    const [startups, setStartups] = useState<any[]>([]);
+    const { user, loading } = useAuth();
+    const [startups, setStartups] = useState<Startup[]>([]);
 
     useEffect(() => {
-        if (!userData.id) return;
+        if (loading || !user?.id) return;
 
         const fetchStartups = async () => {
             try {
@@ -40,25 +54,25 @@ export default function ContributorDashboard() {
                 cleanApiUrl = cleanApiUrl.replace(/\/api$/, '');
 
                 // Fetch startups where user is a contributor
-                const response = await fetch(`${cleanApiUrl}/api/Startups?contributorId=${userData.id}`);
+                const response = await fetch(`${cleanApiUrl}/api/Startups?contributorId=${user.id}`);
                 if (response.ok) {
-                    const data = await response.json();
+                    const data: StartupApiResponse[] = await response.json();
 
                     // Fetch contributor relationships to get invited_by info
-                    const mapped = await Promise.all(data.map(async (s: any) => {
+                    const mapped = await Promise.all(data.map(async (s) => {
                         let invitedByName = "Unknown";
                         try {
                             // Fetch startup contributors to get invited_by
                             const contributorsRes = await fetch(`${cleanApiUrl}/api/StartupContributor/${s.sid}`);
                             if (contributorsRes.ok) {
-                                const contributors = await contributorsRes.json();
-                                const contributor = contributors.find((c: any) => c.contributorId === userData.id);
+                                const contributors: StartupContributor[] = await contributorsRes.json();
+                                const contributor = contributors.find(c => c.contributorId === user.id);
                                 if (contributor?.invitedBy) {
                                     // Fetch user name
                                     const userRes = await fetch(`${cleanApiUrl}/api/Users`);
                                     if (userRes.ok) {
-                                        const users = await userRes.json();
-                                        const inviter = users.find((u: any) => u.uid === contributor.invitedBy);
+                                        const users: BackendUser[] = await userRes.json();
+                                        const inviter = users.find(u => u.uid === contributor.invitedBy);
                                         if (inviter) {
                                             invitedByName = `${inviter.fname || ''} ${inviter.lname || ''}`.trim() || inviter.email || "Unknown";
                                         }
@@ -87,7 +101,14 @@ export default function ContributorDashboard() {
         };
 
         fetchStartups();
-    }, [userData.id]);
+    }, [user, loading]);
+
+    // Derived User Name
+    const userName = user?.fname || "Contributor";
+
+    if (loading) {
+        return <div className="min-h-screen flex items-center justify-center">Loading...</div>;
+    }
 
     return (
         <div className="min-h-screen bg-gradient-to-br from-[#F0EADC] via-[#fff] to-[#FFD95D]/20">
@@ -96,7 +117,7 @@ export default function ContributorDashboard() {
                 <div className="container mx-auto px-4 py-4 flex justify-between items-center">
                     <div>
                         <h1 className="text-2xl font-bold text-[#576238]">
-                            Hello {userData.name}!
+                            Hello {userName}!
                         </h1>
                         <p className="text-sm text-muted-foreground">Contributor Dashboard</p>
                     </div>
@@ -195,7 +216,7 @@ export default function ContributorDashboard() {
                         </motion.div>
                     ))}
 
-                    {startups.length === 0 && (
+                    {!loading && startups.length === 0 && (
                         <div className="col-span-full text-center py-12">
                             <p className="text-muted-foreground">You haven't been added to any startups yet.</p>
                         </div>
@@ -254,3 +275,4 @@ export default function ContributorDashboard() {
         </div>
     );
 }
+

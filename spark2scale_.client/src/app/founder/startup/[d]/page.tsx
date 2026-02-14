@@ -21,13 +21,15 @@ import { Label } from "@/components/ui/label";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import NotificationsDropdown from "@/components/shared/NotificationsDropdown";
 
+import { useAuth } from "@/context/AuthContext";
+
 // Import the new service
 import { startupDashboardService, WorkflowData, Meeting } from "@/services/startupDashboardService";
 
 export default function StartupDashboard() {
     const params = useParams();
     const router = useRouter();
-    const [userName] = useState("Alex");
+    const { user, loading } = useAuth();
 
     // --- State ---
     const [startupName, setStartupName] = useState("Loading...");
@@ -35,6 +37,7 @@ export default function StartupDashboard() {
     const [docCount, setDocCount] = useState(0);
     const [videoCount, setVideoCount] = useState(0);
     const [isLoading, setIsLoading] = useState(true);
+    const [userRole, setUserRole] = useState<string>("Viewer");
 
     // Meeting & Calendar State
     const [currentMonthDate, setCurrentMonthDate] = useState(new Date());
@@ -45,29 +48,40 @@ export default function StartupDashboard() {
     const [inviteEmail, setInviteEmail] = useState("");
     const [isInviting, setIsInviting] = useState(false);
 
+    // Success Dialog State
+    const [inviteSuccessOpen, setInviteSuccessOpen] = useState(false);
+    const [lastInvitedEmail, setLastInvitedEmail] = useState("");
+
     // ID Logic
     const rawId = params?.d;
     const cleanId = rawId ? (Array.isArray(rawId) ? rawId[0] : rawId).toString() : "";
-
-    // Mock Auth ID
-    const currentUserId = "3e59c30f-e3d2-43d2-ba48-818e69b7a9fd";
 
     // ---------------------------------------------------------
     // 1. Initial Data Fetch
     // ---------------------------------------------------------
     useEffect(() => {
         const init = async () => {
-            if (!cleanId) return;
-            const data = await startupDashboardService.getDashboardData(cleanId, currentUserId);
-            setWorkflowData(data.workflow);
-            setStartupName(data.startupName);
-            setDocCount(data.docCount);
-            setVideoCount(data.videoCount);
-            setMeetings(data.meetings);
-            setIsLoading(false);
+            if (!cleanId || loading || !user?.id) return;
+
+            try {
+                const data = await startupDashboardService.getDashboardData(cleanId, user.id);
+                setWorkflowData(data.workflow);
+                setStartupName(data.startupName);
+                setUserRole(data.role); // Set Role
+                setDocCount(data.docCount);
+                setVideoCount(data.videoCount);
+                setMeetings(data.meetings);
+            } catch (error) {
+                console.error("Dashboard load failed", error);
+            } finally {
+                setIsLoading(false);
+            }
         };
         init();
-    }, [cleanId]);
+    }, [cleanId, user, loading]);
+
+    // Derived User Name
+    const userName = user?.fname || "Founder";
 
     // ---------------------------------------------------------
     // 2. Logic & Handlers
@@ -149,13 +163,14 @@ export default function StartupDashboard() {
         }
     };
     const handleSendInvite = async () => {
-        if (!inviteEmail) return;
+        if (!inviteEmail || !user?.id) return;
         setIsInviting(true);
-        const result = await startupDashboardService.inviteTeamMember(inviteEmail, cleanId);
+        const result = await startupDashboardService.inviteTeamMember(inviteEmail, cleanId, user.id);
         if (result.success) {
-            alert(`Invitation sent to ${inviteEmail}`);
+            setLastInvitedEmail(inviteEmail);
             setInviteEmail("");
             setInviteDialogOpen(false);
+            setInviteSuccessOpen(true);
         } else {
             alert(`Failed to invite: ${result.message}`);
         }
@@ -186,9 +201,16 @@ export default function StartupDashboard() {
                             <NotificationsDropdown />
                             <Link href="/profile"><Button variant="ghost" size="icon"><User className="h-5 w-5" /></Button></Link>
                         </div>
-                        <Button variant="outline" onClick={() => setInviteDialogOpen(true)}>
-                            <Share2 className="mr-2 h-4 w-4" /> Invite Team
-                        </Button>
+                        {userRole === "Founder" && (
+                            <Button variant="outline" onClick={() => setInviteDialogOpen(true)}>
+                                <Share2 className="mr-2 h-4 w-4" /> Invite Team
+                            </Button>
+                        )}
+                        {userRole !== "Founder" && (
+                            <div className="px-3 py-1 bg-gray-100 rounded-md text-xs font-medium text-gray-500 border border-gray-200">
+                                {userRole} View
+                            </div>
+                        )}
                     </div>
                 </div>
             </div>
@@ -579,6 +601,33 @@ export default function StartupDashboard() {
                                 <Share2 className="mr-2 h-4 w-4" />
                             )}
                             {isInviting ? "Sending..." : "Send Invite"}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* Success Dialog */}
+            <Dialog open={inviteSuccessOpen} onOpenChange={setInviteSuccessOpen}>
+                <DialogContent className="sm:max-w-[400px]">
+                    <DialogHeader>
+                        <DialogTitle className="text-[#576238] flex items-center gap-2">
+                            <Check className="h-5 w-5" /> Invitation Sent
+                        </DialogTitle>
+                    </DialogHeader>
+                    <div className="py-4">
+                        <p className="text-gray-600">
+                            Invitation sent successfully to <span className="font-bold text-[#576238]">{lastInvitedEmail}</span>.
+                        </p>
+                        <p className="text-sm text-muted-foreground mt-2">
+                            They will receive an email with a link to join your startup.
+                        </p>
+                    </div>
+                    <DialogFooter>
+                        <Button
+                            onClick={() => setInviteSuccessOpen(false)}
+                            className="bg-[#576238] hover:bg-[#6b7c3f] text-white"
+                        >
+                            Done
                         </Button>
                     </DialogFooter>
                 </DialogContent>

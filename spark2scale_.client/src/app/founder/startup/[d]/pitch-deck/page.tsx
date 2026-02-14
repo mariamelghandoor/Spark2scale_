@@ -8,6 +8,7 @@ import Link from "next/link";
 import { motion } from "framer-motion";
 import { useParams } from "next/navigation";
 import { pitchDeckService, PitchDeck } from "@/services/pitchDeckService";
+import { startupService } from "@/services/startupService";
 
 export default function PitchDeckPage() {
     const params = useParams();
@@ -28,6 +29,7 @@ export default function PitchDeckPage() {
 
     // State to track if stage is already done
     const [isStageDone, setIsStageDone] = useState(false);
+    const [userRole, setUserRole] = useState<string>("Viewer");
 
     const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -38,13 +40,15 @@ export default function PitchDeckPage() {
             setIsLoading(true);
             try {
                 // Parallel fetch
-                const [pitchData, isComplete] = await Promise.all([
+                const [pitchData, isComplete, startupDetails] = await Promise.all([
                     pitchDeckService.getPitches(startupId),
-                    pitchDeckService.getWorkflowStatus(startupId)
+                    pitchDeckService.getWorkflowStatus(startupId),
+                    startupService.getById(startupId)
                 ]);
 
                 setPitches(pitchData);
                 setIsStageDone(isComplete);
+                if (startupDetails) setUserRole(startupDetails.current_role || "Viewer");
             } catch (error) {
                 console.error("Failed to load data", error);
             } finally {
@@ -158,7 +162,7 @@ export default function PitchDeckPage() {
                                 🎤 Pitch Deck
                             </h1>
                             <p className="text-sm text-muted-foreground">
-                                Stage 6 of 6 - Perfect your pitch
+                                Stage 6 of 6 - Perfect your pitch • {userRole} View
                             </p>
                         </div>
                     </div>
@@ -174,44 +178,46 @@ export default function PitchDeckPage() {
             <main className="container mx-auto px-4 py-8">
                 <div className="max-w-4xl mx-auto">
                     {/* Upload Section */}
-                    <motion.div
-                        initial={{ opacity: 0, y: 20 }}
-                        animate={{ opacity: 1, y: 0 }}
-                    >
-                        <Card className="mb-6 border-2 border-[#FFD95D]">
-                            <CardHeader className="bg-gradient-to-r from-[#FFD95D]/20 to-transparent">
-                                <CardTitle className="text-[#576238]">
-                                    Upload Pitch Video
-                                </CardTitle>
-                                <CardDescription>
-                                    Upload your latest take to get AI feedback.
-                                </CardDescription>
-                            </CardHeader>
-                            <CardContent className="pt-6">
-                                <div className="w-full">
-                                    <Button
-                                        className="h-32 flex-col gap-3 w-full"
-                                        variant="outline"
-                                        size="lg"
-                                        onClick={handleUploadClick}
-                                        disabled={isUploading}
-                                    >
-                                        {isUploading ? (
-                                            <>
-                                                <Loader2 className="h-8 w-8 animate-spin text-[#576238]" />
-                                                <span>Uploading... Please wait</span>
-                                            </>
-                                        ) : (
-                                            <>
-                                                <Upload className="h-8 w-8" />
-                                                <span>Select Video File</span>
-                                            </>
-                                        )}
-                                    </Button>
-                                </div>
-                            </CardContent>
-                        </Card>
-                    </motion.div>
+                    {userRole === 'Founder' && (
+                        <motion.div
+                            initial={{ opacity: 0, y: 20 }}
+                            animate={{ opacity: 1, y: 0 }}
+                        >
+                            <Card className="mb-6 border-2 border-[#FFD95D]">
+                                <CardHeader className="bg-gradient-to-r from-[#FFD95D]/20 to-transparent">
+                                    <CardTitle className="text-[#576238]">
+                                        Upload Pitch Video
+                                    </CardTitle>
+                                    <CardDescription>
+                                        Upload your latest take to get AI feedback.
+                                    </CardDescription>
+                                </CardHeader>
+                                <CardContent className="pt-6">
+                                    <div className="w-full">
+                                        <Button
+                                            className="h-32 flex-col gap-3 w-full"
+                                            variant="outline"
+                                            size="lg"
+                                            onClick={handleUploadClick}
+                                            disabled={isUploading}
+                                        >
+                                            {isUploading ? (
+                                                <>
+                                                    <Loader2 className="h-8 w-8 animate-spin text-[#576238]" />
+                                                    <span>Uploading... Please wait</span>
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <Upload className="h-8 w-8" />
+                                                    <span>Select Video File</span>
+                                                </>
+                                            )}
+                                        </Button>
+                                    </div>
+                                </CardContent>
+                            </Card>
+                        </motion.div>
+                    )}
 
                     {/* Latest Pitch View */}
                     <motion.div
@@ -273,7 +279,7 @@ export default function PitchDeckPage() {
                                                     size="sm"
                                                     className="bg-[#576238] hover:bg-[#6b7c3f]"
                                                     onClick={handleGenerateAnalysis}
-                                                    disabled={isAnalyzing}
+                                                    disabled={isAnalyzing || userRole !== 'Founder'}
                                                 >
                                                     {isAnalyzing ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <BarChart3 className="h-4 w-4 mr-2" />}
                                                     Analyze
@@ -346,7 +352,7 @@ export default function PitchDeckPage() {
                                     <Button
                                         size="lg"
                                         onClick={handleCompleteStage}
-                                        disabled={isCompleting}
+                                        disabled={isCompleting || userRole !== 'Founder'}
                                         className="bg-[#FFD95D] hover:bg-[#ffe89a] text-black font-semibold px-8 h-14 text-lg shadow-lg hover:shadow-xl transition-all w-full md:w-auto"
                                     >
                                         {isCompleting ? (

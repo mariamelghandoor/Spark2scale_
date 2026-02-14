@@ -7,7 +7,6 @@ namespace Spark2Scale_.Server.Models
     [Table("startup_contributors")]
     public class StartupContributor : BaseModel
     {
-        [PrimaryKey("contributor_id", false)]
         [Column("contributor_id")]
         public Guid ContributorId { get; set; }
 

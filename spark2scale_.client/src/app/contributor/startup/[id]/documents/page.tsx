@@ -34,8 +34,7 @@ export default function ContributorDocumentsPage() {
   const [documents, setDocuments] = useState<DocumentData[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // ID Logic
-  const rawId = params?.id;
+  const rawId = params?.id as string | string[] | undefined;
   const startupId = rawId ? (Array.isArray(rawId) ? rawId[0] : rawId).toString() : "";
 
   // Version Selection State: { type_name: "vid_of_version" }

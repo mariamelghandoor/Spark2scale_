@@ -14,7 +14,9 @@ namespace Spark2Scale_.Server.Models
         public Guid user_id { get; set; }
 
         [Column("startup_id")]
-        public Guid startup_id { get; set; }
+        public Guid? startup_id { get; set; }
+
+
 
        
     }

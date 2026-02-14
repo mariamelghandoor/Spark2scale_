@@ -15,10 +15,18 @@ namespace Spark2Scale_.Server.Controllers
     public class DocumentsController : ControllerBase
     {
         private readonly Client _supabase;
+        private readonly Spark2Scale_.Server.Services.AccessControlService _access;
 
-        public DocumentsController(Client supabase)
+        public DocumentsController(Client supabase, Spark2Scale_.Server.Services.AccessControlService access)
         {
             _supabase = supabase;
+            _access = access;
+        }
+
+        private string GetToken()
+        {
+            var header = Request.Headers["Authorization"].FirstOrDefault();
+            return header?.StartsWith("Bearer ") == true ? header.Substring(7) : "";
         }
 
         // GET: api/documents?startupId=...&investorId=...
@@ -194,6 +202,10 @@ namespace Spark2Scale_.Server.Controllers
             if (form.File == null || form.File.Length == 0) return BadRequest("No file.");
             if (!Guid.TryParse(form.StartupId, out Guid sId)) return BadRequest("Invalid Startup ID.");
 
+            // AUTH CHECK
+            if (!await _access.IsFounderOrOwner(GetToken(), sId))
+                return Unauthorized(new { message = "Unauthorized upload." });
+
             try
             {
                 var fileName = $"{sId}/{DateTime.Now.Ticks}_{form.File.FileName}";
@@ -274,6 +286,10 @@ namespace Spark2Scale_.Server.Controllers
         {
             if (input.StartupId == Guid.Empty) return BadRequest("Invalid Startup ID");
 
+            // AUTH CHECK
+            if (!await _access.IsFounderOrOwner(GetToken(), input.StartupId))
+                return Unauthorized(new { message = "Unauthorized generation." });
+
             try
             {
                 string mockUrl = "https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf";
@@ -348,14 +364,23 @@ namespace Spark2Scale_.Server.Controllers
         public async Task<IActionResult> DeleteDocument(string documentId)
         {
             if (!Guid.TryParse(documentId, out Guid dId)) return BadRequest("Invalid ID");
-            try
+            
+            try 
             {
+                // Verify ownership via StartupId
+                var docRes = await _supabase.From<Document>().Where(x => x.Did == dId).Get();
+                var doc = docRes.Models.FirstOrDefault();
+                if (doc == null) return NotFound("Document not found.");
+
+                if (!await _access.IsFounderOrOwner(GetToken(), doc.StartupId))
+                     return Unauthorized(new { message = "Unauthorized delete." });
+
                 await _supabase.From<Document>().Where(x => x.Did == dId).Delete();
                 return Ok(new { message = "Document deleted" });
             }
             catch (Exception ex)
             {
-                return StatusCode(500, $"Delete failed: {ex.Message}");
+                 return StatusCode(500, $"Delete failed: {ex.Message}");
             }
         }
     }

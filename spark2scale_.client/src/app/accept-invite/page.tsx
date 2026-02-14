@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Check, AlertCircle, Loader2 } from "lucide-react";
 import { motion } from "framer-motion";
+import apiClient from "@/lib/apiClient";
 
 function AcceptInviteContent() {
     const searchParams = useSearchParams();
@@ -28,35 +29,26 @@ function AcceptInviteContent() {
         setStatus("loading");
 
         try {
-            const response = await fetch("https://localhost:7155/api/Contributor/accept", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    userId: uid,
-                    startupId: sid
-                })
+            await apiClient.post("/api/Contributor/accept", {
+                userId: uid,
+                startupId: sid
             });
 
-            if (response.ok) {
-                setStatus("success");
-                // Wait 2 seconds then redirect
-                setTimeout(() => {
-                    // FIX 1: Removed '/dashboard' from the URL to fix the 404
-                    // FIX 2: Redirect to Sign In page instead of directly to the startup
-                    // We pass the startup URL as a 'callbackUrl' or 'next' param so they go there after login
-                    const targetUrl = `/founder/startup/${sid}`;
-                    router.push(`/signin?callbackUrl=${encodeURIComponent(targetUrl)}`);
+            setStatus("success");
+            // No auto-redirect. Let user choose action.
 
-                    // NOTE: Check if your login route is "/signin" or "/auth/signin" and update above
-                }, 2000);
-            } else {
-                const text = await response.text();
-                setStatus("error");
-                setErrorMessage(text || "Failed to accept invitation.");
+        } catch (error: any) {
+            const errorData = error.response?.data;
+            const errorString = typeof errorData === 'string' ? errorData : JSON.stringify(errorData);
+
+            // Handle specific "Duplicate Key" error (User already a contributor)
+            if (errorString.includes("23505") || errorString.includes("already exists")) {
+                setStatus("success");
+                return;
             }
-        } catch (error) {
+
             setStatus("error");
-            setErrorMessage("Network error. Please try again.");
+            setErrorMessage(typeof errorData === 'string' ? errorData : JSON.stringify(errorData) || "Failed to accept invitation.");
         }
     };
 
@@ -95,12 +87,39 @@ function AcceptInviteContent() {
                     )}
 
                     {status === "success" && (
-                        <div className="py-4">
+                        <div className="py-4 space-y-4">
                             <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
                                 <Check className="w-8 h-8 text-green-600" />
                             </div>
                             <h2 className="text-xl font-bold text-green-700 mb-2">Welcome Aboard!</h2>
-                            <p className="text-sm text-gray-500">Redirecting you to the dashboard...</p>
+                            <p className="text-sm text-gray-500 mb-6">
+                                You have successfully joined the team.
+                            </p>
+
+                            <div className="space-y-3">
+                                <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">
+                                    What would you like to do?
+                                </p>
+                                <Button
+                                    onClick={() => {
+                                        const targetUrl = `/founder/startup/${sid}`;
+                                        router.push(`/signin?callbackUrl=${encodeURIComponent(targetUrl)}`);
+                                    }}
+                                    className="w-full bg-[#576238] hover:bg-[#46502d] text-white"
+                                >
+                                    I have an account (Sign In)
+                                </Button>
+                                <Button
+                                    variant="outline"
+                                    onClick={() => {
+                                        // Send to signup with special flag to allow contributor signup and pass startup ID
+                                        router.push(`/signup?userType=contributor&inviteAccepted=true&sid=${sid}`);
+                                    }}
+                                    className="w-full"
+                                >
+                                    I need an account (Register)
+                                </Button>
+                            </div>
                         </div>
                     )}
 

@@ -1,21 +1,15 @@
-// MAKE SURE THIS MATCHES YOUR CONTROLLER ROUTE
-// Your controller says: [Route("api/[controller]")] -> api/StartupWorkflow
-const API_BASE_URL = "https://localhost:7155/api/StartupWorkflow";
+// services/workflowService.tsx
+
+import apiClient from "@/lib/apiClient";
 
 export const workflowService = {
     completePitchStage: async (startupId: string) => {
-        const response = await fetch(`${API_BASE_URL}/complete-pitch/${startupId}`, {
-            method: "POST",
-            headers: {
-                'Content-Type': 'application/json',
-            },
-        });
-
-        if (!response.ok) {
-            const errorText = await response.text();
-            throw new Error(errorText || "Failed to update workflow.");
+        try {
+            const response = await apiClient.post(`/api/StartupWorkflow/complete-pitch/${startupId}`);
+            return response.data;
+        } catch (error: any) {
+            const errorText = error.response?.data || "Failed to update workflow.";
+            throw new Error(typeof errorText === 'string' ? errorText : JSON.stringify(errorText));
         }
-
-        return await response.json();
     }
 };

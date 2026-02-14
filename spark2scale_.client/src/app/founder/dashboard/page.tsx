@@ -1,6 +1,7 @@
 ﻿"use client";
 
 import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Calendar, Plus, User } from "lucide-react";
@@ -15,11 +16,11 @@ import LegoLoader from "@/components/lego/LegoLoader";
 import LegoAddTrigger from "@/components/lego/LegoAddTrigger";
 import NotificationsDropdown from "@/components/shared/NotificationsDropdown";
 
-const TEST_USER_ID = "645bde5c-ab6e-47bc-ba8d-cd6f5500bc30";
-const CACHE_KEY = `dashboard_data_${TEST_USER_ID}`;
+import { useAuth } from "@/context/AuthContext";
 
 export default function FounderDashboard() {
-    const [userName] = useState("Alex");
+    const { user, loading: authLoading } = useAuth();
+    const [userName, setUserName] = useState("");
     const [startups, setStartups] = useState<any[]>([]);
 
     const [isFetching, setIsFetching] = useState(true);
@@ -28,6 +29,7 @@ export default function FounderDashboard() {
 
     const [open, setOpen] = useState(false);
     const [isBlockDropped, setIsBlockDropped] = useState(false);
+    const router = useRouter();
 
     const [newStartup, setNewStartup] = useState({
         name: "",
@@ -38,6 +40,20 @@ export default function FounderDashboard() {
     });
 
     useEffect(() => {
+        if (!authLoading && !user) {
+            router.push('/signin');
+            return;
+        }
+
+        if (user) {
+            setUserName(user.fname || "User");
+        }
+    }, [user, authLoading, router]);
+
+    useEffect(() => {
+        if (!user?.id) return;
+
+        const CACHE_KEY = `dashboard_data_${user.id}`;
         const loaderTimer = setTimeout(() => setShowLoader(true), 200);
 
         const loadData = async () => {
@@ -54,7 +70,7 @@ export default function FounderDashboard() {
             }
 
             try {
-                const data = await startupService.getByFounder(TEST_USER_ID);
+                const data = await startupService.getByFounder(user.id);
                 const formattedStartups = data.map((s) => ({
                     id: s.sid,
                     name: s.startupname,
@@ -79,7 +95,7 @@ export default function FounderDashboard() {
 
         loadData();
         return () => clearTimeout(loaderTimer);
-    }, []);
+    }, [user]);
 
     const handleTriggerClick = () => {
         setIsBlockDropped(true);
@@ -99,6 +115,11 @@ export default function FounderDashboard() {
             return;
         }
 
+        if (!user?.id) {
+            alert("User not authenticated.");
+            return;
+        }
+
         setIsCreating(true);
 
         try {
@@ -112,7 +133,7 @@ export default function FounderDashboard() {
                 region: newStartup.region,
                 startup_stage: newStartup.stage,
                 idea_description: desc,
-                founder_id: TEST_USER_ID
+                founder_id: user.id
             };
 
             const createdStartup = await startupService.create(payload);
@@ -130,6 +151,8 @@ export default function FounderDashboard() {
 
             const updatedList = [...startups, newStartupUI];
             setStartups(updatedList);
+
+            const CACHE_KEY = `dashboard_data_${user.id}`;
             localStorage.setItem(CACHE_KEY, JSON.stringify(updatedList));
 
             setNewStartup({ name: "", field: "", region: "", stage: "", description: "" });
@@ -142,6 +165,14 @@ export default function FounderDashboard() {
             setIsCreating(false);
         }
     };
+
+    if (authLoading) {
+        return (
+            <div className="h-screen w-full flex items-center justify-center bg-[#F0EADC]">
+                <LegoLoader />
+            </div>
+        );
+    }
 
     return (
         <div className="h-screen w-full overflow-y-auto bg-gradient-to-br from-[#F0EADC] via-[#fff] to-[#FFD95D]/20">

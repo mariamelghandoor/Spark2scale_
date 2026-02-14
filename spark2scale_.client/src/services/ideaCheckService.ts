@@ -1,6 +1,4 @@
-// services/ideaCheckService.ts
-
-const API_BASE_URL = "https://localhost:7155/api";
+import apiClient from '@/lib/apiClient';
 
 // --- Types ---
 
@@ -40,13 +38,45 @@ export interface WorkflowUpdatePayload {
     PitchDeck: boolean;
 }
 
+interface WorkflowApiResponse {
+    ideaCheck?: boolean;
+    IdeaCheck?: boolean;
+    marketResearch?: boolean;
+    MarketResearch?: boolean;
+    evaluation?: boolean;
+    Evaluation?: boolean;
+    recommendation?: boolean;
+    Recommendation?: boolean;
+    documents?: boolean;
+    Documents?: boolean;
+    pitchDeck?: boolean;
+    PitchDeck?: boolean;
+}
+
+interface SessionApiResponse {
+    sessionId?: string;
+    SessionId?: string;
+    sessionName?: string;
+    SessionName?: string;
+    createdAt?: string;
+    CreatedAt?: string;
+}
+
+interface MessageApiResponse {
+    role?: string;
+    Role?: string;
+    content?: string;
+    Content?: string;
+    timestamp?: string;
+    Timestamp?: string;
+}
+
 export const ideaCheckService = {
     // 1. Get Basic Startup Info
     async getStartupDetails(startupId: string): Promise<StartupDetails | null> {
         try {
-            const response = await fetch(`${API_BASE_URL}/startups/${startupId}`);
-            if (response.ok) return await response.json();
-            return null;
+            const response = await apiClient.get<StartupDetails>(`/api/startups/${startupId}`);
+            return response.data;
         } catch (error) {
             console.error("Error fetching startup details:", error);
             throw error;
@@ -62,20 +92,18 @@ export const ideaCheckService = {
         };
 
         try {
-            const response = await fetch(`${API_BASE_URL}/StartupWorkflow/${startupId}`);
-            if (response.ok) {
-                const json = await response.json();
-                // Normalize keys (handle PascalCase vs camelCase from API)
-                return {
-                    ideaCheck: json.ideaCheck || json.IdeaCheck || false,
-                    marketResearch: json.marketResearch || json.MarketResearch || false,
-                    evaluation: json.evaluation || json.Evaluation || false,
-                    recommendation: json.recommendation || json.Recommendation || false,
-                    documents: json.documents || json.Documents || false,
-                    pitchDeck: json.pitchDeck || json.PitchDeck || false,
-                };
-            }
-            return defaultState;
+            const response = await apiClient.get<WorkflowApiResponse>(`/api/StartupWorkflow/${startupId}`);
+            const json = response.data;
+
+            // Normalize keys (handle PascalCase vs camelCase from API)
+            return {
+                ideaCheck: json.ideaCheck || json.IdeaCheck || false,
+                marketResearch: json.marketResearch || json.MarketResearch || false,
+                evaluation: json.evaluation || json.Evaluation || false,
+                recommendation: json.recommendation || json.Recommendation || false,
+                documents: json.documents || json.Documents || false,
+                pitchDeck: json.pitchDeck || json.PitchDeck || false,
+            };
         } catch (error) {
             console.error("Error fetching workflow:", error);
             return defaultState;
@@ -84,12 +112,8 @@ export const ideaCheckService = {
 
     async updateWorkflow(payload: WorkflowUpdatePayload): Promise<boolean> {
         try {
-            const response = await fetch(`${API_BASE_URL}/StartupWorkflow/update`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload),
-            });
-            return response.ok;
+            await apiClient.post('/api/StartupWorkflow/update', payload);
+            return true;
         } catch (error) {
             console.error("Error updating workflow:", error);
             return false;
@@ -98,10 +122,8 @@ export const ideaCheckService = {
 
     async resetWorkflow(startupId: string): Promise<boolean> {
         try {
-            const response = await fetch(`${API_BASE_URL}/StartupWorkflow/reset/${startupId}`, {
-                method: 'POST',
-            });
-            return response.ok;
+            await apiClient.post(`/api/StartupWorkflow/reset/${startupId}`);
+            return true;
         } catch (error) {
             console.error("Error resetting workflow:", error);
             return false;
@@ -111,12 +133,8 @@ export const ideaCheckService = {
     // 3. Idea Management
     async updateIdea(startupId: string, description: string): Promise<boolean> {
         try {
-            const response = await fetch(`${API_BASE_URL}/startups/update-idea/${startupId}`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ ideaDescription: description }),
-            });
-            return response.ok;
+            await apiClient.put(`/api/startups/update-idea/${startupId}`, { ideaDescription: description });
+            return true;
         } catch (error) {
             console.error("Error updating idea:", error);
             return false;
@@ -126,9 +144,12 @@ export const ideaCheckService = {
     // 4. Chat Management
     async getSessions(startupId: string): Promise<SessionSummary[]> {
         try {
-            const response = await fetch(`${API_BASE_URL}/Chat/sessions/${startupId}/idea_check`);
-            if (response.ok) return await response.json();
-            return [];
+            const response = await apiClient.get<SessionApiResponse[]>(`/api/Chat/sessions/${startupId}/idea_check`);
+            return response.data.map(s => ({
+                sessionId: s.sessionId || s.SessionId || "",
+                sessionName: s.sessionName || s.SessionName || "New Session",
+                createdAt: s.createdAt || s.CreatedAt || new Date().toISOString()
+            }));
         } catch (error) {
             console.error("Error fetching sessions:", error);
             return [];
@@ -137,9 +158,12 @@ export const ideaCheckService = {
 
     async getMessages(sessionId: string): Promise<ChatMessage[]> {
         try {
-            const response = await fetch(`${API_BASE_URL}/Chat/messages/${sessionId}`);
-            if (response.ok) return await response.json();
-            return [];
+            const response = await apiClient.get<MessageApiResponse[]>(`/api/Chat/messages/${sessionId}`);
+            return response.data.map(m => ({
+                role: m.role || m.Role || "user",
+                content: m.content || m.Content || "",
+                timestamp: m.timestamp || m.Timestamp
+            }));
         } catch (error) {
             console.error("Error fetching messages:", error);
             return [];
@@ -148,24 +172,17 @@ export const ideaCheckService = {
 
     async startNewSession(startupId: string): Promise<SessionSummary | null> {
         try {
-            const response = await fetch(`${API_BASE_URL}/Chat/start-new`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    StartupId: startupId,
-                    FeatureType: 'idea_check'
-                })
+            const response = await apiClient.post<SessionApiResponse>('/api/Chat/start-new', {
+                StartupId: startupId,
+                FeatureType: 'idea_check'
             });
 
-            if (response.ok) {
-                const data = await response.json();
-                return {
-                    sessionId: data.sessionId,
-                    sessionName: data.sessionName,
-                    createdAt: new Date().toISOString()
-                };
-            }
-            return null;
+            const data = response.data;
+            return {
+                sessionId: data.sessionId || data.SessionId || "",
+                sessionName: data.sessionName || data.SessionName || "",
+                createdAt: new Date().toISOString()
+            };
         } catch (error) {
             console.error("Error creating session:", error);
             return null;
@@ -174,14 +191,10 @@ export const ideaCheckService = {
 
     async sendMessage(sessionId: string, content: string): Promise<void> {
         try {
-            await fetch(`${API_BASE_URL}/Chat/send`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    SessionId: sessionId,
-                    Role: "user",
-                    Content: content
-                })
+            await apiClient.post('/api/Chat/send', {
+                SessionId: sessionId,
+                Role: "user",
+                Content: content
             });
         } catch (error) {
             console.error("Error sending message:", error);

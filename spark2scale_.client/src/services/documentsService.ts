@@ -1,8 +1,7 @@
 // services/documentsService.ts
 
 import { Presentation, Table, Users, Scale, FileText } from "lucide-react";
-
-const API_BASE_URL = "https://localhost:7155/api";
+import apiClient from "@/lib/apiClient";
 
 // --- Configuration: Required Documents ---
 export const REQUIRED_DOCS = [
@@ -105,6 +104,27 @@ export interface ChatMessage {
     content: string;
 }
 
+// 6. Interfaces for API Responses
+interface WorkflowData {
+    [key: string]: unknown;
+}
+
+interface ChatSessionResponse {
+    sessionId?: string;
+    SessionId?: string;
+    sessionName?: string;
+    SessionName?: string;
+    createdAt?: string;
+    CreatedAt?: string;
+}
+
+interface ChatMessageResponse {
+    role?: string;
+    Role?: string;
+    content?: string;
+    Content?: string;
+}
+
 // --- Service Methods ---
 export const documentsService = {
 
@@ -114,9 +134,8 @@ export const documentsService = {
 
     async getDocuments(startupId: string): Promise<DBDocument[]> {
         try {
-            const res = await fetch(`${API_BASE_URL}/documents?startupId=${startupId}`);
-            if (res.ok) return await res.json();
-            return [];
+            const res = await apiClient.get<DBDocument[]>(`/api/documents?startupId=${startupId}`);
+            return res.data;
         } catch (error) {
             console.error("Error fetching documents:", error);
             return [];
@@ -132,8 +151,12 @@ export const documentsService = {
         if (dbId) formData.append("documentId", dbId);
 
         try {
-            const res = await fetch(`${API_BASE_URL}/documents/upload`, { method: "POST", body: formData });
-            return res.ok;
+            await apiClient.post(`/api/documents/upload`, formData, {
+                headers: {
+                    'Content-Type': 'multipart/form-data',
+                },
+            });
+            return true;
         } catch (error) {
             console.error("Error uploading document:", error);
             return false;
@@ -142,8 +165,8 @@ export const documentsService = {
 
     async deleteDocument(dbId: string): Promise<boolean> {
         try {
-            const res = await fetch(`${API_BASE_URL}/documents/${dbId}`, { method: 'DELETE' });
-            return res.ok;
+            await apiClient.delete(`/api/documents/${dbId}`);
+            return true;
         } catch (error) {
             console.error("Error deleting document:", error);
             return false;
@@ -152,12 +175,8 @@ export const documentsService = {
 
     async generateMockDocument(startupId: string, type: string): Promise<boolean> {
         try {
-            const res = await fetch(`${API_BASE_URL}/documents/generate-mock`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ StartupId: startupId, Type: type })
-            });
-            return res.ok;
+            await apiClient.post(`/api/documents/generate-mock`, { StartupId: startupId, Type: type });
+            return true;
         } catch (error) {
             console.error("Error generating mock:", error);
             return false;
@@ -171,16 +190,15 @@ export const documentsService = {
     async getGroupedDocuments(startupId: string): Promise<DocumentData[]> {
         try {
             // A. Fetch All Docs
-            const res = await fetch(`${API_BASE_URL}/documents/all?startupId=${startupId}`);
-            if (!res.ok) throw new Error("Failed to fetch documents");
-            const docs: DocumentData[] = await res.json();
+            const res = await apiClient.get<DocumentData[]>(`/api/documents/all?startupId=${startupId}`);
+            const docs = res.data;
 
             // B. Fetch History for each (Parallel)
             const docsWithHistory = await Promise.all(
                 docs.map(async (doc) => {
                     try {
-                        const hRes = await fetch(`${API_BASE_URL}/documentversions/${doc.did}`);
-                        const history: DocumentVersion[] = hRes.ok ? await hRes.json() : [];
+                        const hRes = await apiClient.get<DocumentVersion[]>(`/api/documentversions/${doc.did}`);
+                        const history = hRes.data || [];
                         return { ...doc, versions: history };
                     } catch (err) {
                         console.warn(`Could not load history for ${doc.did}`, err);
@@ -232,12 +250,10 @@ export const documentsService = {
 
     async toggleVersionVisibility(versionId: string, newStatus: boolean): Promise<boolean> {
         try {
-            const res = await fetch(`${API_BASE_URL}/documentversions/visibility/${versionId}`, {
-                method: "PATCH",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(newStatus)
+            await apiClient.patch(`/api/documentversions/visibility/${versionId}`, newStatus, {
+                headers: { "Content-Type": "application/json" }
             });
-            return res.ok;
+            return true;
         } catch (error) {
             console.error("Error toggling visibility:", error);
             return false;
@@ -250,34 +266,47 @@ export const documentsService = {
 
     async checkCompletion(startupId: string): Promise<{ isComplete: boolean; missingDocs?: string[] } | null> {
         try {
-            const res = await fetch(`${API_BASE_URL}/documents/check-completion/${startupId}`);
-            if (res.ok) return await res.json();
-            return null;
+            const res = await apiClient.get<{ isComplete: boolean; missingDocs?: string[] }>(`/api/documents/check-completion/${startupId}`);
+            return res.data;
         } catch (error) {
             console.error("Error checking completion:", error);
             return null;
         }
     },
 
-    async getWorkflow(startupId: string): Promise<any> {
+    async checkStepCompletion(startupId: string, stepName: string): Promise<boolean | null> {
         try {
-            const res = await fetch(`${API_BASE_URL}/StartupWorkflow/${startupId}`);
-            if (res.ok) return await res.json();
-            return {};
+            const res = await apiClient.get<WorkflowData>(`/api/StartupWorkflow/${startupId}`);
+            const data = res.data;
+
+            // Check both camelCase (JSON) and PascalCase (C# DTO)
+            const keyCamel = stepName.charAt(0).toLowerCase() + stepName.slice(1);
+            const keyPascal = stepName.charAt(0).toUpperCase() + stepName.slice(1);
+
+            if (data[keyCamel] === true || data[keyPascal] === true) {
+                return true;
+            }
+            return false;
+        } catch (error) {
+            console.error("Error checking completion:", error);
+            return null;
+        }
+    },
+
+    async getWorkflow(startupId: string): Promise<WorkflowData> {
+        try {
+            const res = await apiClient.get<WorkflowData>(`/api/StartupWorkflow/${startupId}`);
+            return res.data;
         } catch (error) {
             console.error("Error fetching workflow:", error);
             return {};
         }
     },
 
-    async updateWorkflow(payload: any): Promise<boolean> {
+    async updateWorkflow(payload: unknown): Promise<boolean> {
         try {
-            const res = await fetch(`${API_BASE_URL}/StartupWorkflow/update`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload),
-            });
-            return res.ok;
+            await apiClient.post(`/api/StartupWorkflow/update`, payload);
+            return true;
         } catch (error) {
             console.error("Error updating workflow:", error);
             return false;
@@ -290,9 +319,12 @@ export const documentsService = {
 
     async getChatSessions(startupId: string): Promise<SessionSummary[]> {
         try {
-            const res = await fetch(`${API_BASE_URL}/Chat/sessions/${startupId}/document_gen`);
-            if (res.ok) return await res.json();
-            return [];
+            const res = await apiClient.get<ChatSessionResponse[]>(`/api/Chat/sessions/${startupId}/document_gen`);
+            return res.data.map(s => ({
+                sessionId: s.sessionId || s.SessionId || "",
+                sessionName: s.sessionName || s.SessionName || "New Session",
+                createdAt: s.createdAt || s.CreatedAt || new Date().toISOString()
+            }));
         } catch (error) {
             console.error("Error fetching chat sessions:", error);
             return [];
@@ -301,20 +333,14 @@ export const documentsService = {
 
     async startNewSession(startupId: string): Promise<SessionSummary | null> {
         try {
-            const res = await fetch(`${API_BASE_URL}/Chat/start-new`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ StartupId: startupId, FeatureType: 'document_gen' })
-            });
-            if (res.ok) {
-                const data = await res.json();
-                return {
-                    sessionId: data.sessionId,
-                    sessionName: data.sessionName,
-                    createdAt: new Date().toISOString()
-                };
-            }
-            return null;
+            const res = await apiClient.post<ChatSessionResponse>(`/api/Chat/start-new`, { StartupId: startupId, FeatureType: 'document_gen' });
+
+            const data = res.data;
+            return {
+                sessionId: data.sessionId || data.SessionId || "",
+                sessionName: data.sessionName || data.SessionName || "New Session",
+                createdAt: new Date().toISOString()
+            };
         } catch (error) {
             console.error("Error starting session:", error);
             return null;
@@ -323,9 +349,11 @@ export const documentsService = {
 
     async getMessages(sessionId: string): Promise<ChatMessage[]> {
         try {
-            const res = await fetch(`${API_BASE_URL}/Chat/messages/${sessionId}`);
-            if (res.ok) return await res.json();
-            return [];
+            const res = await apiClient.get<ChatMessageResponse[]>(`/api/Chat/messages/${sessionId}`);
+            return res.data.map(m => ({
+                role: m.role || m.Role || "system",
+                content: m.content || m.Content || ""
+            }));
         } catch (error) {
             console.error("Error fetching messages:", error);
             return [];
@@ -334,11 +362,7 @@ export const documentsService = {
 
     async sendMessage(sessionId: string, content: string): Promise<void> {
         try {
-            await fetch(`${API_BASE_URL}/Chat/send`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ SessionId: sessionId, Role: "user", Content: content })
-            });
+            await apiClient.post(`/api/Chat/send`, { SessionId: sessionId, Role: "user", Content: content });
         } catch (error) {
             console.error("Error sending message:", error);
         }

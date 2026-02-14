@@ -12,9 +12,11 @@ import { motion } from "framer-motion";
 import { useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
 import { handleAuthSuccess, User, getDashboardRoute, resolveUserType, setCookie } from "@/lib/auth";
+import { useAuth } from "@/context/AuthContext";
 
 export default function SigninPage() {
     const router = useRouter();
+    const { login } = useAuth();
     const [redirectTo, setRedirectTo] = useState<string | null>(null);
 
     const [formData, setFormData] = useState({
@@ -27,9 +29,10 @@ export default function SigninPage() {
     // Read redirect parameter from URL on mount
     useEffect(() => {
         if (typeof window !== 'undefined') {
-            // Try URL parameter first
             const params = new URLSearchParams(window.location.search);
-            let redirect = params.get('redirect');
+            console.log('Redirect param from URL:', params.get('redirect'));
+            console.log('CallbackUrl param from URL:', params.get('callbackUrl'));
+            let redirect = params.get('redirect') || params.get('callbackUrl');
 
             // Fallback to cookie if no URL param
             if (!redirect) {
@@ -42,8 +45,12 @@ export default function SigninPage() {
                 }
             }
 
-            console.log('Detected redirect path:', redirect);
-            setRedirectTo(redirect);
+            if (redirect) {
+                console.log('✅ Setting redirect destination:', redirect);
+                setRedirectTo(redirect);
+            } else {
+                console.log('❌ No redirect destination found');
+            }
         }
     }, []);
 
@@ -69,6 +76,7 @@ export default function SigninPage() {
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
+        console.log('Form submitted. Current redirect state:', redirectTo);
         setLoading(true);
         setError(null);
 
@@ -154,15 +162,18 @@ export default function SigninPage() {
             }
 
             // Store token in both localStorage and cookie
-            localStorage.setItem('auth_token', data.token);
-            setCookie('auth_token', data.token, 30); // 30 days expiration
+            // localStorage.setItem('auth_token', data.token);
+            // setCookie('auth_token', data.token, 30); // 30 days expiration
 
             const user = data.user as User;
             if (!user) {
                 throw new Error('Invalid response: missing user data');
             }
 
-            localStorage.setItem('user', JSON.stringify(user));
+            // localStorage.setItem('user', JSON.stringify(user));
+
+            // Use AuthContext login to update state immediately
+            login(user, data.token);
 
             console.log('=== SIGNIN SUCCESS ===');
             console.log('User:', user);

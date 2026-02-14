@@ -13,12 +13,12 @@ import { notificationService, NotificationDto } from "@/services/notificationSer
 import { meetingService } from "@/services/meetingService";
 import { motion, AnimatePresence } from "framer-motion";
 import LegoNotificationEmpty from "@/components/lego/LegoNotificationEmpty";
+import { useAuth } from "@/context/AuthContext";
 
-// 1. HARDCODED USER RESTORED (As requested)
-const TEST_USER_ID = "3e59c30f-e3d2-43d2-ba48-818e69b7a9fd";
 const INITIAL_COUNT = 5;
 
 export default function NotificationsDropdown() {
+    const { user } = useAuth();
     const [notifications, setNotifications] = useState<NotificationDto[]>([]);
     const [isOpen, setIsOpen] = useState(false);
     const [visibleCount, setVisibleCount] = useState(INITIAL_COUNT);
@@ -27,17 +27,18 @@ export default function NotificationsDropdown() {
     const closeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
     useEffect(() => {
+        if (!user?.id) return;
+
         const fetchNotifs = async () => {
             try {
-                // Fetching for the HARDCODED user
-                const data = await notificationService.getByUser(TEST_USER_ID);
+                const data = await notificationService.getByUser(user.id);
                 setNotifications(data);
             } catch (error) {
                 console.error("Failed to fetch notifications", error);
             }
         };
         fetchNotifs();
-    }, []);
+    }, [user?.id]);
 
     const handleNotificationClick = async (n: NotificationDto) => {
         if (expandedId === n.nid) {

@@ -13,6 +13,7 @@ namespace Spark2Scale_.Server.Models
         public string AddressRegion { get; set; } = "";
         public string UserType { get; set; } = "founder";
         public string[] Tags { get; set; } = Array.Empty<string>();
+        public Guid? StartupId { get; set; }
     }
 
     public class SignInRequest

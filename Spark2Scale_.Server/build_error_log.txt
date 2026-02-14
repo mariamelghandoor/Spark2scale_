@@ -1,0 +1,11 @@
+﻿  Determining projects to restore...
+  All projects are up-to-date for restore.
+C:\Graduation_Project\Project_implementation\Spark2Scale\Spark2scale_\Spark2Scale_.Server\Models\Contributor.cs(17,10): error CS0579: Duplicate 'Column' attribute [C:\Graduation_Project\Project_implementation\Spark2Scale\Spark2scale_\Spark2Scale_.Server\Spark2Scale_.Server.csproj]
+
+Build FAILED.
+
+C:\Graduation_Project\Project_implementation\Spark2Scale\Spark2scale_\Spark2Scale_.Server\Models\Contributor.cs(17,10): error CS0579: Duplicate 'Column' attribute [C:\Graduation_Project\Project_implementation\Spark2Scale\Spark2scale_\Spark2Scale_.Server\Spark2Scale_.Server.csproj]
+    0 Warning(s)
+    1 Error(s)
+
+Time Elapsed 00:00:01.81

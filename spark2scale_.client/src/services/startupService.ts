@@ -19,6 +19,7 @@ export interface StartupResponse {
     created_at: string;
     founder_id: string;
 
+    current_role: string;
     total_likes: number;
     progress_count: number;
     progress_has_gap: boolean;
@@ -31,7 +32,12 @@ export const startupService = {
     },
 
     getByFounder: async (founderId: string) => {
-        const response = await apiClient.get<StartupResponse[]>(`/api/Startups/dashboard?founderId=${founderId}`);
+        const response = await apiClient.get<StartupResponse[]>(`/api/Startups?founderId=${founderId}`);
+        return response.data;
+    },
+
+    getById: async (id: string) => {
+        const response = await apiClient.get<StartupResponse>(`/api/Startups/${id}`);
         return response.data;
     }
 };

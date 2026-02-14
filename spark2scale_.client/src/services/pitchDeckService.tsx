@@ -1,7 +1,6 @@
 // src/services/pitchDeckService.ts
 
-const API_BASE_URL = "https://localhost:7155/api/PitchDecks";
-const WORKFLOW_API_URL = "https://localhost:7155/api/StartupWorkflow";
+import apiClient from "@/lib/apiClient";
 
 export interface AnalysisData {
     // Support lowercase (standard JSON)
@@ -51,17 +50,21 @@ export const pitchDeckService = {
         formData.append("startup_id", startupId);
         formData.append("file", file);
 
-        const response = await fetch(`${API_BASE_URL}/upload`, {
-            method: "POST",
-            body: formData,
-        });
-
-        if (!response.ok) {
-            const errorText = await response.text();
-            throw new Error(errorText || "Failed to upload video");
+        try {
+            const response = await apiClient.post(`/api/PitchDecks/upload`, formData, {
+                headers: {
+                    'Content-Type': 'multipart/form-data',
+                },
+            });
+            return response.data;
+        } catch (error: unknown) {
+            let errorText = "Failed to upload video";
+            if (error && typeof error === 'object' && 'response' in error) {
+                const errResponse = (error as any).response?.data;
+                if (errResponse) errorText = errResponse;
+            }
+            throw new Error(typeof errorText === 'string' ? errorText : JSON.stringify(errorText));
         }
-
-        return await response.json();
     },
 
     // 2. Get All Pitches for a Startup
@@ -71,74 +74,52 @@ export const pitchDeckService = {
             return [];
         }
 
-        const response = await fetch(`${API_BASE_URL}/${startupId}`, {
-            method: "GET",
-        });
-
-        if (!response.ok) {
-            throw new Error("Failed to fetch pitches");
-        }
-
-        return await response.json();
+        const response = await apiClient.get(`/api/PitchDecks/${startupId}`);
+        return response.data;
     },
 
     // 3. Generate Analysis (Mock AI)
     generateAnalysis: async (pitchDeckId: string): Promise<PitchDeck> => {
-        const response = await fetch(`${API_BASE_URL}/analyze/${pitchDeckId}`, {
-            method: "POST",
-        });
-
-        if (!response.ok) {
-            throw new Error("Failed to generate analysis");
-        }
-
-        return await response.json();
+        const response = await apiClient.post(`/api/PitchDecks/analyze/${pitchDeckId}`);
+        return response.data;
     },
 
     getPitchById: async (pitchDeckId: string): Promise<PitchDeck> => {
-        const response = await fetch(`${API_BASE_URL}/details/${pitchDeckId}`, {
-            method: "GET",
-        });
-
-        if (!response.ok) throw new Error("Failed to fetch pitch details");
-
-        return await response.json();
+        const response = await apiClient.get(`/api/PitchDecks/details/${pitchDeckId}`);
+        return response.data;
     },
 
     updatePitchTitle: async (pitchId: string, newTitle: string): Promise<void> => {
-        const response = await fetch(`${API_BASE_URL}/rename/${pitchId}`, {
-            method: "PATCH",
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ newTitle: newTitle })
-        });
-
-        if (!response.ok) {
-            const errorText = await response.text();
-            throw new Error(errorText || "Failed to update pitch name");
+        try {
+            await apiClient.patch(`/api/PitchDecks/rename/${pitchId}`, { newTitle: newTitle });
+        } catch (error: unknown) {
+            let errorText = "Failed to update pitch name";
+            if (error && typeof error === 'object' && 'response' in error) {
+                const errResponse = (error as any).response?.data;
+                if (errResponse) errorText = errResponse;
+            }
+            throw new Error(typeof errorText === 'string' ? errorText : JSON.stringify(errorText));
         }
     },
 
     togglePitchVisibility: async (pitchDeckId: string, startupId: string, isPublic: boolean) => {
-        const response = await fetch(`${API_BASE_URL}/visibility`, {
-            method: "PATCH",
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ pitchDeckId, startupId, isPublic })
-        });
-
-        if (!response.ok) {
-            const errorText = await response.text();
-            throw new Error(errorText || "Failed to update visibility");
+        try {
+            const response = await apiClient.patch(`/api/PitchDecks/visibility`, { pitchDeckId, startupId, isPublic });
+            return response.data;
+        } catch (error: unknown) {
+            let errorText = "Failed to update visibility";
+            if (error && typeof error === 'object' && 'response' in error) {
+                const errResponse = (error as any).response?.data;
+                if (errResponse) errorText = errResponse;
+            }
+            throw new Error(typeof errorText === 'string' ? errorText : JSON.stringify(errorText));
         }
-
-        return await response.json();
     },
 
     getPitchCount: async (startupId: string): Promise<number> => {
         try {
-            const response = await fetch(`${API_BASE_URL}/count/${startupId}`, { method: "GET" });
-            if (!response.ok) return 0;
-            const data = await response.json();
-            return data.count;
+            const response = await apiClient.get(`/api/PitchDecks/count/${startupId}`);
+            return response.data.count;
         } catch (error) {
             console.error(error);
             return 0;
@@ -150,9 +131,8 @@ export const pitchDeckService = {
     // Check if stage is complete
     getWorkflowStatus: async (startupId: string): Promise<boolean> => {
         try {
-            const response = await fetch(`${WORKFLOW_API_URL}/${startupId}`);
-            if (!response.ok) return false;
-            const data = await response.json();
+            const response = await apiClient.get(`/api/StartupWorkflow/${startupId}`);
+            const data = response.data;
             // Check PascalCase or camelCase
             return data.pitchDeck === true || data.PitchDeck === true;
         } catch (error) {
@@ -165,9 +145,8 @@ export const pitchDeckService = {
     completeStage: async (startupId: string): Promise<boolean> => {
         try {
             // A. Fetch current state
-            const getRes = await fetch(`${WORKFLOW_API_URL}/${startupId}`);
-            if (!getRes.ok) throw new Error("Failed to fetch workflow");
-            const currentData = await getRes.json();
+            const getRes = await apiClient.get(`/api/StartupWorkflow/${startupId}`);
+            const currentData = getRes.data;
 
             // B. Prepare Update
             const updatedPayload = {
@@ -181,13 +160,9 @@ export const pitchDeckService = {
             };
 
             // C. Send Update
-            const postRes = await fetch(`${WORKFLOW_API_URL}/update`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(updatedPayload)
-            });
+            const postRes = await apiClient.post(`/api/StartupWorkflow/update`, updatedPayload);
 
-            return postRes.ok;
+            return postRes.status === 200;
         } catch (error) {
             console.error("Error completing pitch stage:", error);
             return false;

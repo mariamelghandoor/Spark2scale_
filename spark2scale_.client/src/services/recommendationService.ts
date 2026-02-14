@@ -1,6 +1,6 @@
 // services/recommendationService.ts
 
-const API_BASE_URL = "https://localhost:7155/api";
+import apiClient from "@/lib/apiClient";
 
 // --- Types ---
 
@@ -48,11 +48,8 @@ export const recommendationService = {
     // 1. Fetch Recommendations for the specific Startup ID
     async getRecommendations(startupId: string): Promise<DBRecommendation[]> {
         try {
-            const response = await fetch(`${API_BASE_URL}/Recommendations/${startupId}/idea_check`);
-            if (response.ok) {
-                return await response.json();
-            }
-            return [];
+            const response = await apiClient.get<DBRecommendation[]>(`/api/Recommendations/${startupId}/idea_check`);
+            return response.data;
         } catch (error) {
             console.error("Error in getRecommendations:", error);
             return [];
@@ -67,10 +64,8 @@ export const recommendationService = {
         };
 
         try {
-            const response = await fetch(`${API_BASE_URL}/StartupWorkflow/${startupId}`);
-            if (!response.ok) return defaultState;
-
-            const json = await response.json();
+            const response = await apiClient.get<any>(`/api/StartupWorkflow/${startupId}`);
+            const json = response.data;
 
             // Normalize data (API might return PascalCase or camelCase)
             return {
@@ -91,11 +86,7 @@ export const recommendationService = {
     // --- Workflow Helper: Update State ---
     // FIX: Replaced 'any' with 'WorkflowUpdatePayload'
     async _updateWorkflow(payload: WorkflowUpdatePayload): Promise<void> {
-        await fetch(`${API_BASE_URL}/StartupWorkflow/update`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload),
-        });
+        await apiClient.post(`/api/StartupWorkflow/update`, payload);
     },
 
     // 2. Action: Complete Stage
@@ -128,13 +119,9 @@ export const recommendationService = {
     async loopBackToStart(startupId: string): Promise<boolean> {
         try {
             // A. Start New Chat Session
-            await fetch(`${API_BASE_URL}/Chat/start-new`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    StartupId: startupId,
-                    FeatureType: 'idea_check'
-                })
+            await apiClient.post(`/api/Chat/start-new`, {
+                StartupId: startupId,
+                FeatureType: 'idea_check'
             });
 
             // B. Reset Workflow

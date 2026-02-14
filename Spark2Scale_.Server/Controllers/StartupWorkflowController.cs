@@ -12,10 +12,18 @@ namespace Spark2Scale_.Server.Controllers
     public class StartupWorkflowController : ControllerBase
     {
         private readonly Client _supabase;
+        private readonly Spark2Scale_.Server.Services.AccessControlService _access;
 
-        public StartupWorkflowController(Client supabase)
+        public StartupWorkflowController(Client supabase, Spark2Scale_.Server.Services.AccessControlService access)
         {
             _supabase = supabase;
+            _access = access;
+        }
+
+        private string GetToken()
+        {
+            var header = Request.Headers["Authorization"].FirstOrDefault();
+            return header?.StartsWith("Bearer ") == true ? header.Substring(7) : "";
         }
 
         // GET: api/StartupWorkflow/{startupId}
@@ -83,6 +91,10 @@ namespace Spark2Scale_.Server.Controllers
             if (!Guid.TryParse(request.StartupId, out Guid sId))
                 return BadRequest($"Invalid Startup ID format: {request.StartupId}");
 
+            // AUTH CHECK
+            if (!await _access.IsFounderOrOwner(GetToken(), sId))
+                return Unauthorized(new { message = "Only the startup founder can modify the workflow." });
+
             // 2. Check if Startup actually exists (Foreign Key Check)
             // This prevents adding a workflow for a non-existent startup
             var startupCheck = await _supabase.From<Startup>()
@@ -144,6 +156,10 @@ namespace Spark2Scale_.Server.Controllers
         {
             if (!Guid.TryParse(startupId, out Guid sId)) return BadRequest("Invalid ID");
 
+            // AUTH CHECK
+            if (!await _access.IsFounderOrOwner(GetToken(), sId))
+                return Unauthorized(new { message = "Only the startup founder can reset progress." });
+
             try
             {
                 // 1. Archive Documents
@@ -191,6 +207,9 @@ namespace Spark2Scale_.Server.Controllers
         [HttpPost("complete-pitch/{startupId}")]
         public async Task<IActionResult> CompletePitchDeckStage(Guid startupId)
         {
+            // AUTH CHECK
+            if (!await _access.IsFounderOrOwner(GetToken(), startupId))
+                return Unauthorized(new { message = "Unauthorized." });
             try
             {
                 var update = await _supabase.From<StartupWorkflow>()

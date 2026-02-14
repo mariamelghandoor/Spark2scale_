@@ -40,10 +40,11 @@ namespace Spark2Scale_.Server.Controllers
         [HttpPost("signup")]
         public async Task<IActionResult> SignUp([FromBody] FullSignUpRequest request)
         {
+            Console.WriteLine($"[SignUp] Request received for: {request.Email}, Type: {request.UserType}, StartupId: {request.StartupId}");
+
             if (request.Password != request.ConfirmPassword)
                 return BadRequest(new { message = "Passwords do not match." });
 
-            // Server-side password validation
             if (string.IsNullOrWhiteSpace(request.Password) || request.Password.Length < 8)
                 return BadRequest(new { message = "Password must be at least 8 characters long." });
 
@@ -60,34 +61,33 @@ namespace Spark2Scale_.Server.Controllers
                         { "phone", request.Phone ?? "" },
                         { "address_region", request.AddressRegion ?? "" },
                         { "user_type", request.UserType.ToLower() },
-                        { "tags", request.Tags ?? Array.Empty<string>() }
+                        { "tags", request.Tags ?? Array.Empty<string>() },
+                        { "startup_id", request.StartupId?.ToString() ?? "" }
                     },
                     RedirectTo = $"{Request.Scheme}://localhost:3000/auth/callback"
                 };
 
-                var auth = await _supabase.Auth.SignUp(email, request.Password, options);
+                // VALIDATION: Ensure Contributor has a StartupId
+                if (request.UserType.ToLower() == "contributor" && (!request.StartupId.HasValue || request.StartupId == Guid.Empty))
+                {
+                    return BadRequest(new { message = "Invalid invitation link. Startup ID is missing. Please ask the founder to resend the invite." });
+                }
 
-                // Email confirmation ON → auth.User may be null, but user is still created in auth.users
-                // We need to get the user ID even if email confirmation is required
+                Console.WriteLine("[SignUp] Calling Supabase Auth.SignUp...");
+                var auth = await _supabase.Auth.SignUp(email, request.Password, options);
+                Console.WriteLine($"[SignUp] Auth.SignUp complete. User ID: {auth.User?.Id ?? "NULL (Confirmation Required)"}");
+
                 string? authUserId = null;
                 bool requiresEmailConfirmation = false;
 
-                if (auth.User != null)
+                if (auth.User != null && auth.User.Identities != null && auth.User.Identities.Count > 0)
                 {
-                    // Email confirmation OFF - user is immediately available
-                    authUserId = auth.User.Id;
+                    // User created and available
+                     authUserId = auth.User.Id;
                 }
                 else
                 {
-                    // Email confirmation ON - user exists but needs verification
-                    // When email confirmation is required, auth.User is null
-                    // Data is stored in User Metadata and will be retrieved in VerifyEmail
                     requiresEmailConfirmation = true;
-
-                    // Return success - profile will be created after email verification
-                    
-
-
                     return Ok(new
                     {
                         message = "Signup successful. Please check your email to verify your account.",
@@ -95,185 +95,49 @@ namespace Spark2Scale_.Server.Controllers
                     });
                 }
 
-                // If we have user ID, create profile immediately
+                // If immediate (Email Confirm OFF), create profile/roles now
                 if (!string.IsNullOrEmpty(authUserId))
                 {
                     var uid = Guid.Parse(authUserId);
                     var (fname, lname) = SplitName(request.Name);
 
-                    // 2️⃣ Create profile (check if it already exists)
-                    var existingProfileResult = await _supabase
-                        .From<PublicUser>()
-                        .Filter("uid", Supabase.Postgrest.Constants.Operator.Equals, uid.ToString())
-                        .Get();
+                    // 2️⃣ Create/Update Profile
+                    await EnsureProfileExists(uid, email, fname, lname, request);
 
-                    var existingProfile = existingProfileResult.Models.FirstOrDefault();
-
-                    // Check if profile exists or needs update
-                    PublicUser? finalProfile = existingProfile;
+                    // 3️⃣ Roles & Invitation Sync
                     string userType = request.UserType.ToLower();
-
-                    bool needsProfileCreation = existingProfile == null ||
-                                               (existingProfile != null && string.IsNullOrEmpty(existingProfile.fname));
-
-                    if (needsProfileCreation)
+                    if (userType == "contributor")
                     {
-                        if (existingProfile == null)
-                        {
-                            // Create new profile
-                            var profile = new PublicUser
-                            {
-                                uid = uid,
-                                fname = fname,
-                                lname = lname,
-                                email = email,
-                                phone_number = request.Phone ?? "",
-                                address_region = request.AddressRegion ?? "",
-                                avatar_url = "",
-                                created_at = DateTime.UtcNow,
-                                user_type = request.UserType.ToLower()
-                            };
-
-                            try
-                            {
-                                var insertResult = await _supabase.From<PublicUser>().Insert(profile);
-                                Console.WriteLine($"Profile created successfully for user {uid} with name: {fname} {lname}");
-                                finalProfile = profile;
-                            }
-                            catch (PostgrestException ex)
-                            {
-                                // If insert fails, try to update existing profile using Upsert
-                                Console.WriteLine($"Profile insert failed: {ex.Message}. Attempting upsert...");
-                                try
-                                {
-                                    // Use Upsert which will update if exists, insert if not
-                                    await _supabase.From<PublicUser>().Upsert(profile);
-                                    Console.WriteLine($"Profile upserted successfully for user {uid}");
-                                    finalProfile = profile;
-                                }
-                                catch (Exception updateEx)
-                                {
-                                    Console.WriteLine($"Profile upsert also failed: {updateEx.Message}");
-                                    throw; // Re-throw if both insert and upsert fail
-                                }
-                            }
-                            catch (Exception ex)
-                            {
-                                Console.WriteLine($"Unexpected error creating profile: {ex.Message}");
-                                throw; // Re-throw unexpected errors
-                            }
-                        }
-                        else
-                        {
-                            // Profile exists but has NULL values - update it using Upsert
-                            try
-                            {
-                                // Update existing profile with signup data
-                                existingProfile.fname = fname;
-                                existingProfile.lname = lname;
-                                existingProfile.phone_number = request.Phone ?? "";
-                                existingProfile.address_region = request.AddressRegion ?? "";
-                                existingProfile.user_type = request.UserType.ToLower();
-
-                                await _supabase.From<PublicUser>().Upsert(existingProfile);
-                                Console.WriteLine($"Profile updated with signup data for user {uid}");
-                                finalProfile = existingProfile;
-                            }
-                            catch (Exception updateEx)
-                            {
-                                Console.WriteLine($"Failed to update existing profile: {updateEx.Message}");
-                                // Don't throw - profile exists, just missing some data
-                                finalProfile = existingProfile;
-                            }
-                        }
+                        await LinkContributorToStartup(uid, request.StartupId, email);
+                    }
+                    else if (userType == "founder") 
+                    {
+                        // ... ensure founder role ...
+                        await EnsureFounderRole(uid);
+                    }
+                     else if (userType == "investor")
+                    {
+                        await EnsureInvestorRole(uid, request.Tags);
                     }
 
-                    // 3️⃣ Role table (check if it already exists)
-                    if (finalProfile != null)
-                    {
-                        userType = finalProfile.user_type;
-
-                        switch (userType)
-                        {
-                            case "founder":
-                                var founderCheck = await _supabase
-                                    .From<Founder>()
-                                    .Filter("user_id", Supabase.Postgrest.Constants.Operator.Equals, uid.ToString())
-                                    .Get();
-                                if (founderCheck.Models.Count == 0)
-                                {
-                                    await _supabase.From<Founder>().Insert(new Founder { user_id = uid });
-                                }
-                                break;
-
-                            case "investor":
-                                var investorCheck = await _supabase
-                                    .From<Investor>()
-                                    .Filter("user_id", Supabase.Postgrest.Constants.Operator.Equals, uid.ToString())
-                                    .Get();
-                                if (investorCheck.Models.Count == 0)
-                                {
-                                    await _supabase.From<Investor>().Insert(new Investor
-                                    {
-                                        user_id = uid,
-                                        tags = request.Tags
-                                    });
-                                }
-                                break;
-
-                            case "contributor":
-                                var contributorCheck = await _supabase
-                                    .From<Contributor>()
-                                    .Filter("user_id", Supabase.Postgrest.Constants.Operator.Equals, uid.ToString())
-                                    .Get();
-                                if (contributorCheck.Models.Count == 0)
-                                {
-                                    await _supabase.From<Contributor>().Insert(new Contributor { user_id = uid });
-                                }
-                                break;
-                        }
-                    }
 
                     return Ok(new
                     {
-                        message = requiresEmailConfirmation
-                            ? "Account created. Please verify your email before signing in."
-                            : "Account created successfully.",
-                        requiresConfirmation = requiresEmailConfirmation
+                        message = "Account created successfully.",
+                        requiresConfirmation = false
                     });
                 }
 
-                // Fallback: Profile will be created in verify-email callback
                 return Ok(new
                 {
                     message = "Signup successful. Please verify your email.",
                     requiresConfirmation = true
                 });
             }
-            catch (GotrueException ex)
+           catch (Exception ex)
             {
-                if (ex.Message.Contains("already registered"))
-                {
-                    return BadRequest(new
-                    {
-                        message = "An account with this email already exists."
-                    });
-                }
-
-                return BadRequest(new { message = ex.Message });
-            }
-            catch (PostgrestException ex)
-            {
-                // Check for unique constraint violation (duplicate email)
-                if (ex.Message?.Contains("23505") == true || ex.Message?.Contains("duplicate") == true)
-                {
-                    return BadRequest(new
-                    {
-                        message = "An account with this email already exists."
-                    });
-                }
-
-                throw;
+                Console.WriteLine($"[SignUp] ERROR: {ex.Message}");
+                return StatusCode(500, new { message = $"Internal Error: {ex.Message}" });
             }
         }
 
@@ -465,6 +329,7 @@ namespace Spark2Scale_.Server.Controllers
                 string addressRegion = "";
                 string userType = "founder";
                 string[] tags = Array.Empty<string>();
+                string startupIdStr = "";
 
                 if (user.UserMetadata != null)
                 {
@@ -486,6 +351,8 @@ namespace Spark2Scale_.Server.Controllers
                             // Fallback if deserialization fails
                         }
                     }
+
+                    if (user.UserMetadata.TryGetValue("startup_id", out var startupIdObj)) startupIdStr = startupIdObj?.ToString() ?? "";
                 }
 
                 // Track if we need to update an existing incomplete profile
@@ -497,196 +364,45 @@ namespace Spark2Scale_.Server.Controllers
                      string.IsNullOrWhiteSpace(existingProfile.user_type));
 
                 // If profile doesn't exist OR has incomplete data, create/update it using signup data
-                if (existingProfile == null || needsProfileUpdate)
-                {
-                    // Split name into first and last
-                    var (fname, lname) = SplitName(name);
-                    
-                    // If metadata was empty (fallback), try to keep existing profile data
-                    if (string.IsNullOrWhiteSpace(name) && existingProfile != null)
-                    {
-                        fname = existingProfile.fname;
-                        lname = existingProfile.lname;
-                    }
-
-                    // Prepare profile data
-                    var profileData = new PublicUser
-                    {
-                        uid = uid,
-                        fname = !string.IsNullOrWhiteSpace(fname) ? fname : (existingProfile?.fname ?? ""),
-                        lname = !string.IsNullOrWhiteSpace(lname) ? lname : (existingProfile?.lname ?? ""),
-                        email = userEmail,
-                        phone_number = !string.IsNullOrWhiteSpace(phone) ? phone : (existingProfile?.phone_number ?? ""),
-                        address_region = !string.IsNullOrWhiteSpace(addressRegion) ? addressRegion : (existingProfile?.address_region ?? ""),
-                        avatar_url = existingProfile?.avatar_url ?? "",
-                        created_at = existingProfile?.created_at ?? DateTime.UtcNow,
-                        user_type = !string.IsNullOrWhiteSpace(userType) ? userType : (existingProfile?.user_type ?? "founder")
-                    };
-
-                    if (existingProfile == null)
-                    {
-                        // Create new profile
-                        var newProfile = profileData;
-
-                        try
-                        {
-                            await _supabase.From<PublicUser>().Insert(newProfile);
-                            existingProfile = newProfile;
-                            Console.WriteLine($"Profile created for user {uid} after email verification with data: fname={newProfile.fname}, lname={newProfile.lname}, phone={newProfile.phone_number}, region={newProfile.address_region}, type={newProfile.user_type}");
-                        }
-                        catch (PostgrestException ex)
-                        {
-                            // Handle duplicate key error (23505) - profile might have been created by another request
-                            if (ex.Message?.Contains("23505") == true || ex.Message?.Contains("duplicate key") == true)
-                            {
-                                Console.WriteLine($"Profile already exists for user {uid} (duplicate key - fetching existing profile)");
-                            }
-                            else
-                            {
-                                Console.WriteLine($"Profile insert failed: {ex.Message}");
-                            }
-
-                            // Try to get existing profile
-                            try
-                            {
-                                var retryProfile = await _supabase
-                                    .From<PublicUser>()
-                                    .Filter("uid", Supabase.Postgrest.Constants.Operator.Equals, uid.ToString())
-                                    .Get();
-                                existingProfile = retryProfile.Models.FirstOrDefault();
-                            }
-                            catch (Exception retryEx)
-                            {
-                                Console.WriteLine($"Failed to retry profile fetch: {retryEx.Message}");
-                            }
-                        }
-                        catch (Exception ex)
-                        {
-                            Console.WriteLine($"Unexpected error creating profile: {ex.Message}");
-                            // Try one more time to get existing profile
-                            try
-                            {
-                                var retryProfile = await _supabase
-                                    .From<PublicUser>()
-                                    .Filter("uid", Supabase.Postgrest.Constants.Operator.Equals, uid.ToString())
-                                    .Get();
-                                existingProfile = retryProfile.Models.FirstOrDefault();
-                            }
-                            catch
-                            {
-                                // If we still can't get the profile, continue with null
-                            }
-                        }
-                    }
-                    else if (needsProfileUpdate)
-                    {
-                        // Update existing incomplete profile
-                        try
-                        {
-                            var updateData = new PublicUser
-                            {
-                                uid = uid,
-                                fname = !string.IsNullOrWhiteSpace(profileData.fname) ? profileData.fname : existingProfile.fname,
-                                lname = !string.IsNullOrWhiteSpace(profileData.lname) ? profileData.lname : existingProfile.lname,
-                                phone_number = !string.IsNullOrWhiteSpace(profileData.phone_number) ? profileData.phone_number : existingProfile.phone_number,
-                                address_region = !string.IsNullOrWhiteSpace(profileData.address_region) ? profileData.address_region : existingProfile.address_region,
-                                user_type = !string.IsNullOrWhiteSpace(profileData.user_type) ? profileData.user_type : existingProfile.user_type,
-                                email = existingProfile.email,
-                                avatar_url = existingProfile.avatar_url ?? "",
-                                created_at = existingProfile.created_at
-                            };
-
-                            await _supabase.From<PublicUser>()
-                                .Filter("uid", Supabase.Postgrest.Constants.Operator.Equals, uid.ToString())
-                                .Update(updateData);
-
-                            // Refresh the profile
-                            var updatedProfileResult = await _supabase
-                                .From<PublicUser>()
-                                .Filter("uid", Supabase.Postgrest.Constants.Operator.Equals, uid.ToString())
-                                .Get();
-                            existingProfile = updatedProfileResult.Models.FirstOrDefault();
-
-                            Console.WriteLine($"Profile updated for user {uid} with missing data: fname={updateData.fname}, lname={updateData.lname}, phone={updateData.phone_number}, region={updateData.address_region}, type={updateData.user_type}");
-                        }
-                        catch (Exception updateEx)
-                        {
-                            Console.WriteLine($"Warning: Failed to update incomplete profile: {updateEx.Message}");
-                        }
-                    }
-                }
+                // We reconstruct a minimal request object from metadata for the helper
+                var profileRequest = new FullSignUpRequest 
+                { 
+                    Phone = phone, 
+                    AddressRegion = addressRegion, 
+                    UserType = userType 
+                };
+                
+                var (fname, lname) = SplitName(name);
+                await EnsureProfileExists(uid, userEmail, fname, lname, profileRequest);
 
                 // Create role-specific entry based on user type
-                var finalUserType = existingProfile?.user_type ?? userType ?? "founder";
+                var finalUserType = userType ?? "founder";
                 switch (finalUserType.ToLower())
                 {
                     case "founder":
-                        var founderCheck = await _supabase
-                            .From<Founder>()
-                            .Filter("user_id", Supabase.Postgrest.Constants.Operator.Equals, uid.ToString())
-                            .Get();
-                        if (founderCheck.Models.Count == 0)
-                        {
-                            try
-                            {
-                                await _supabase.From<Founder>().Insert(new Founder { user_id = uid });
-                                Console.WriteLine($"Founder role created for user {uid}");
-                            }
-                            catch (Exception ex)
-                            {
-                                Console.WriteLine($"Warning: Failed to create founder role: {ex.Message}");
-                            }
-                        }
+                        await EnsureFounderRole(uid);
                         break;
 
                     case "investor":
-                        var investorCheck = await _supabase
-                            .From<Investor>()
-                            .Filter("user_id", Supabase.Postgrest.Constants.Operator.Equals, uid.ToString())
-                            .Get();
-                        if (investorCheck.Models.Count == 0)
-                        {
-                            try
-                            {
-                                await _supabase.From<Investor>().Insert(new Investor
-                                {
-                                    user_id = uid,
-                                    tags = tags
-                                });
-                                Console.WriteLine($"Investor role created for user {uid} with tags");
-                            }
-                            catch (Exception ex)
-                            {
-                                Console.WriteLine($"Warning: Failed to create investor role: {ex.Message}");
-                            }
-                        }
+                        await EnsureInvestorRole(uid, tags);
                         break;
 
                     case "contributor":
-                        var contributorCheck = await _supabase
-                            .From<Contributor>()
-                            .Filter("user_id", Supabase.Postgrest.Constants.Operator.Equals, uid.ToString())
-                            .Get();
-                        if (contributorCheck.Models.Count == 0)
+                         Guid? sid = null;
+                        if (!string.IsNullOrEmpty(startupIdStr) && Guid.TryParse(startupIdStr, out var parsedSid))
                         {
-                            try
-                            {
-                                await _supabase.From<Contributor>().Insert(new Contributor { user_id = uid });
-                                Console.WriteLine($"Contributor role created for user {uid}");
-                            }
-                            catch (Exception ex)
-                            {
-                                Console.WriteLine($"Warning: Failed to create contributor role: {ex.Message}");
-                            }
+                            sid = parsedSid;
                         }
+                        await LinkContributorToStartup(uid, sid, userEmail);
                         break;
                 }
 
-                // Ensure we have a profile before returning
-                if (existingProfile == null)
-                {
-                    return StatusCode(500, new { message = "Failed to create user profile. Please contact support." });
-                }
+                // Retrieve profile again to return consistent user type
+                 var refreshedProfileResult = await _supabase
+                    .From<PublicUser>()
+                    .Filter("uid", Supabase.Postgrest.Constants.Operator.Equals, uid.ToString())
+                    .Get();
+                existingProfile = refreshedProfileResult.Models.FirstOrDefault();
 
                 return Ok(new
                 {
@@ -697,7 +413,7 @@ namespace Spark2Scale_.Server.Controllers
                         id = uid,
                         email = user.Email,
                         emailVerified = user.EmailConfirmedAt != null,
-                        userType = existingProfile.user_type,
+                        userType = existingProfile?.user_type ?? "founder",
                         needsProfile = false
                     }
                 });
@@ -831,6 +547,120 @@ namespace Spark2Scale_.Server.Controllers
             catch (Exception ex)
             {
                 return StatusCode(500, new { message = "An error occurred while fetching user data." });
+            }
+        }
+
+        // ===================== HELPERS =====================
+
+        private async Task EnsureProfileExists(Guid uid, string email, string fname, string lname, FullSignUpRequest? request)
+        {
+             // 2️⃣ Create profile (check if it already exists)
+            var existingProfileResult = await _supabase
+                .From<PublicUser>()
+                .Filter("uid", Supabase.Postgrest.Constants.Operator.Equals, uid.ToString())
+                .Get();
+
+            var existingProfile = existingProfileResult.Models.FirstOrDefault();
+            
+            if (existingProfile == null)
+            {
+                var profile = new PublicUser
+                {
+                    uid = uid,
+                    fname = fname,
+                    lname = lname,
+                    email = email,
+                    phone_number = request?.Phone ?? "",
+                    address_region = request?.AddressRegion ?? "",
+                    avatar_url = "",
+                    created_at = DateTime.UtcNow,
+                    user_type = request?.UserType?.ToLower() ?? "founder"
+                };
+                 await _supabase.From<PublicUser>().Insert(profile);
+            }
+             else
+            {
+                 // Update if needed
+                 if (string.IsNullOrEmpty(existingProfile.fname))
+                 {
+                    existingProfile.fname = fname;
+                    existingProfile.lname = lname; 
+                    existingProfile.phone_number = request?.Phone ?? "";
+                    existingProfile.address_region = request?.AddressRegion ?? "";
+                    existingProfile.user_type = request?.UserType?.ToLower() ?? "founder";
+                    await _supabase.From<PublicUser>().Upsert(existingProfile);
+                 }
+            }
+        }
+
+        private async Task EnsureFounderRole(Guid uid)
+        {
+            var founderCheck = await _supabase.From<Founder>()
+                .Filter("user_id", Supabase.Postgrest.Constants.Operator.Equals, uid.ToString())
+                .Get();
+            if (founderCheck.Models.Count == 0)
+            {
+                await _supabase.From<Founder>().Insert(new Founder { user_id = uid });
+            }
+        }
+
+        private async Task EnsureInvestorRole(Guid uid, string[] tags)
+        {
+            var investorCheck = await _supabase.From<Investor>()
+                .Filter("user_id", Supabase.Postgrest.Constants.Operator.Equals, uid.ToString())
+                .Get();
+            if (investorCheck.Models.Count == 0)
+            {
+                await _supabase.From<Investor>().Insert(new Investor { user_id = uid, tags = tags });
+            }
+        }
+
+        private async Task LinkContributorToStartup(Guid uid, Guid? startupId, string email)
+        {
+            if (!startupId.HasValue || startupId == Guid.Empty) return;
+
+            // 1. Add to StartupContributor
+            var contributorCheck = await _supabase
+                .From<StartupContributor>()
+                .Match(new Dictionary<string, string> {
+                    { "contributor_id", uid.ToString() },
+                    { "startup_id", startupId.Value.ToString() }
+                })
+                .Get();
+            
+            if (contributorCheck.Models.Count == 0)
+            {
+                var contributor = new StartupContributor 
+                { 
+                    ContributorId = uid,
+                    StartupId = startupId.Value,
+                    Role = "Contributor",
+                    InvitedAt = DateTime.UtcNow
+                };
+
+                // Try to find who invited them (optional, for metadata)
+                 var inviteRes = await _supabase.From<Invitation>()
+                    .Match(new Dictionary<string, string> {
+                        { "email", email },
+                        { "startup_id", startupId.Value.ToString() },
+                        { "status", "Pending" }
+                    })
+                    .Get();
+                
+                var invite = inviteRes.Models.FirstOrDefault();
+                if (invite != null)
+                {
+                    contributor.InvitedBy = invite.InvitedBy;
+                    
+                    // 2. Update Invitation to Accepted
+                    await _supabase.From<Invitation>()
+                        .Where(i => i.Id == invite.Id)
+                        .Set(i => i.Status, "Accepted")
+                        .Update();
+                }
+
+                await _supabase.From<StartupContributor>().Insert(contributor);
+                Console.WriteLine($"[LinkContributor] User {uid} linked to Startup {startupId}");
             }
         }
     }

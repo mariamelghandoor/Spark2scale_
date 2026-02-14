@@ -9,6 +9,7 @@ import { motion } from "framer-motion";
 import { useParams } from "next/navigation";
 import { Progress } from "@/components/ui/progress";
 import { evaluationService, EvaluationDocument } from "@/services/evaluationService";
+import { startupService } from "@/services/startupService";
 
 export default function EvaluatePage() {
     const params = useParams();
@@ -19,6 +20,7 @@ export default function EvaluatePage() {
     const [isWorkflowComplete, setIsWorkflowComplete] = useState(false);
     const [isLoading, setIsLoading] = useState(true);
     const [isGenerating, setIsGenerating] = useState(false);
+    const [userRole, setUserRole] = useState<string>("Viewer");
 
     // Initial Data Fetch
     useEffect(() => {
@@ -27,12 +29,14 @@ export default function EvaluatePage() {
             setIsLoading(true);
 
             // Parallel fetch for speed
-            const [doc, isComplete] = await Promise.all([
+            const [doc, isComplete, startupDetails] = await Promise.all([
                 evaluationService.getCurrentEvaluation(startupId),
-                evaluationService.getWorkflowStatus(startupId)
+                evaluationService.getWorkflowStatus(startupId),
+                startupService.getById(startupId)
             ]);
 
             setEvalDoc(doc);
+            if (startupDetails) setUserRole(startupDetails.current_role || "Viewer");
             setIsWorkflowComplete(isComplete);
             setIsLoading(false);
         };
@@ -101,7 +105,7 @@ export default function EvaluatePage() {
                         <div>
                             <h1 className="text-xl font-bold text-[#576238]">🎯 Evaluate</h1>
                             <p className="text-sm text-muted-foreground">
-                                Stage 4 of 6 - Get comprehensive evaluation
+                                Stage 4 of 6 - Get comprehensive evaluation • {userRole} View
                             </p>
                         </div>
                     </div>
@@ -112,7 +116,7 @@ export default function EvaluatePage() {
                 <div className="max-w-4xl mx-auto">
 
                     {/* SCENARIO 1: No Document Exists - Show "Run Evaluation" */}
-                    {!evalDoc && (
+                    {!evalDoc && userRole === 'Founder' && (
                         <motion.div
                             initial={{ opacity: 0, y: 20 }}
                             animate={{ opacity: 1, y: 0 }}
@@ -163,7 +167,7 @@ export default function EvaluatePage() {
                                 <Button
                                     variant="outline"
                                     onClick={handleRunEvaluation}
-                                    disabled={isGenerating}
+                                    disabled={isGenerating || userRole !== 'Founder'}
                                 >
                                     {isGenerating ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <PlayCircle className="w-4 h-4 mr-2" />}
                                     Regenerate Evaluation
@@ -250,7 +254,7 @@ export default function EvaluatePage() {
                                 <Button
                                     size="lg"
                                     onClick={handleCompleteStage}
-                                    disabled={isWorkflowComplete}
+                                    disabled={isWorkflowComplete || userRole !== 'Founder'}
                                     className={`
                                         font-semibold transition-all duration-300
                                         ${isWorkflowComplete

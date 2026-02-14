@@ -15,12 +15,19 @@ namespace Spark2Scale_.Server.Controllers
     public class PitchDecksController : ControllerBase
     {
         private readonly Supabase.Client _supabase;
+        private readonly Spark2Scale_.Server.Services.AccessControlService _access;
 
-        public PitchDecksController(Supabase.Client supabase)
+        public PitchDecksController(Supabase.Client supabase, Spark2Scale_.Server.Services.AccessControlService access)
         {
             _supabase = supabase;
+            _access = access;
         }
 
+        private string GetToken()
+        {
+            var header = Request.Headers["Authorization"].FirstOrDefault();
+            return header?.StartsWith("Bearer ") == true ? header.Substring(7) : "";
+        }
 
         // GET: api/pitchdecks/with-startups
         [HttpGet("with-startups")]
@@ -28,49 +35,25 @@ namespace Spark2Scale_.Server.Controllers
         {
             try
             {
-                Console.WriteLine("[DEBUG] Starting GetAllPitchDecksWithStartups...");
-
-                // 1. Fetch all Pitch Decks
-                Console.WriteLine("[DEBUG] Fetching pitch decks...");
-
                 var query = _supabase
                     .From<PitchDeck>()
                     .Order("created_at", Supabase.Postgrest.Constants.Ordering.Descending);
 
-                // Added: Filter by canaccess if requested
                 if (onlyPublic)
                 {
                     query = query.Filter("canaccess", Supabase.Postgrest.Constants.Operator.Equals, "true");
                 }
 
                 var decksResponse = await query.Get();
-
                 var decks = decksResponse.Models;
-                Console.WriteLine($"[DEBUG] Found {decks?.Count ?? 0} pitch decks");
 
-                if (decks == null || !decks.Any())
-                {
-                    Console.WriteLine("[WARNING] No pitch decks found in database");
-                    return Ok(new List<object>()); // Return empty array instead of error
-                }
+                if (decks == null || !decks.Any()) return Ok(new List<object>());
 
-                // 2. Fetch all Startups
-                Console.WriteLine("[DEBUG] Fetching startups...");
-                var startupsResponse = await _supabase
-                    .From<Startup>()
-                    .Get();
-
+                var startupsResponse = await _supabase.From<Startup>().Get();
                 var startups = startupsResponse.Models;
-                Console.WriteLine($"[DEBUG] Found {startups?.Count ?? 0} startups");
 
-                if (startups == null || !startups.Any())
-                {
-                    Console.WriteLine("[WARNING] No startups found in database");
-                    return Ok(new List<object>()); // Return empty array
-                }
+                if (startups == null || !startups.Any()) return Ok(new List<object>());
 
-                // 3. Join them manually using LINQ
-                Console.WriteLine("[DEBUG] Performing LINQ join...");
                 var joinedData = from deck in decks
                                  join startup in startups
                                  on deck.startup_id equals startup.Sid
@@ -95,22 +78,11 @@ namespace Spark2Scale_.Server.Controllers
                                      }
                                  };
 
-                var result = joinedData.ToList();
-                Console.WriteLine($"[DEBUG] Joined data count: {result.Count}");
-                Console.WriteLine($"[DEBUG] Returning JSON response...");
-
-                return Ok(result);
+                return Ok(joinedData.ToList());
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[ERROR] Exception in GetAllPitchDecksWithStartups: {ex.Message}");
-                Console.WriteLine($"[ERROR] Stack trace: {ex.StackTrace}");
-                return StatusCode(500, new
-                {
-                    error = ex.Message,
-                    details = ex.StackTrace,
-                    source = "GetAllPitchDecksWithStartups"
-                });
+                return StatusCode(500, new { error = ex.Message });
             }
         }
 
@@ -120,24 +92,13 @@ namespace Spark2Scale_.Server.Controllers
         {
             try
             {
-                Console.WriteLine($"[DEBUG] Fetching details for pitch deck: {pitchDeckId}");
-
-                // Fetch the pitch deck
                 var deckResult = await _supabase.From<PitchDeck>()
                                         .Where(x => x.pitchdeckid == pitchDeckId)
                                         .Get();
 
                 var deck = deckResult.Models.FirstOrDefault();
+                if (deck == null) return NotFound(new { message = "Pitch deck not found" });
 
-                if (deck == null)
-                {
-                    Console.WriteLine($"[WARNING] Pitch deck not found: {pitchDeckId}");
-                    return NotFound(new { message = "Pitch deck not found" });
-                }
-
-                Console.WriteLine($"[DEBUG] Found pitch deck, fetching startup info...");
-
-                // Fetch the associated startup
                 var startupResult = await _supabase.From<Startup>()
                                            .Where(x => x.Sid == deck.startup_id)
                                            .Get();
@@ -164,39 +125,31 @@ namespace Spark2Scale_.Server.Controllers
                     } : null
                 };
 
-                Console.WriteLine($"[DEBUG] Returning pitch deck details");
                 return Ok(response);
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[ERROR] Exception in GetPitchDeckById: {ex.Message}");
-                return StatusCode(500, new
-                {
-                    error = ex.Message,
-                    source = "GetPitchDeckById"
-                });
+                return StatusCode(500, new { error = ex.Message });
             }
         }
-
-
 
         [HttpPost("upload")]
         public async Task<IActionResult> UploadPitchDeck([FromForm] PitchDeckUploadDto input)
         {
-            // Validate
             if (input.startup_id == Guid.Empty) return BadRequest("Startup ID is required.");
             if (input.file == null || input.file.Length == 0) return BadRequest("No file uploaded.");
 
+            // AUTH CHECK
+            if (!await _access.IsFounderOrOwner(GetToken(), input.startup_id))
+                return Unauthorized(new { message = "Unauthorized upload." });
+
             try
             {
-                // 1. UPDATE EXISTING VIDEOS: Set is_current = false for this startup
-                // This ensures only the new one will be true
                 await _supabase.From<PitchDeck>()
                              .Where(x => x.startup_id == input.startup_id)
                              .Set(x => x.is_current, false)
                              .Update();
 
-                // 2. Upload Video to Supabase Storage
                 var fileName = $"{input.startup_id}/{Guid.NewGuid()}_{input.file.FileName}";
                 string publicUrl = "";
 
@@ -204,21 +157,17 @@ namespace Spark2Scale_.Server.Controllers
                 {
                     await input.file.CopyToAsync(memoryStream);
                     var bytes = memoryStream.ToArray();
-
-                    // Make sure "pitch-videos" bucket exists in Supabase Storage!
                     await _supabase.Storage.From("pitch-videos").Upload(bytes, fileName);
-
                     publicUrl = _supabase.Storage.From("pitch-videos").GetPublicUrl(fileName);
                 }
 
-                // 3. Save Metadata to Database (Set is_current = true)
                 var newDeck = new PitchDeck
                 {
                     startup_id = input.startup_id,
                     video_url = publicUrl,
                     tags = new List<string>(),
                     countlikes = 0,
-                    is_current = true, // <--- Set this to TRUE
+                    is_current = true,
                     created_at = DateTime.UtcNow
                 };
 
@@ -232,7 +181,7 @@ namespace Spark2Scale_.Server.Controllers
                     pitchdeckid = inserted.pitchdeckid,
                     startup_id = inserted.startup_id,
                     video_url = inserted.video_url,
-                    is_current = inserted.is_current, // Return status
+                    is_current = inserted.is_current,
                     tags = inserted.tags,
                     created_at = inserted.created_at
                 });
@@ -246,12 +195,10 @@ namespace Spark2Scale_.Server.Controllers
         [HttpGet("{startupId}")]
         public async Task<IActionResult> GetPitchDecks(Guid startupId, [FromQuery] bool onlyPublic = false)
         {
-            // Fetch only for specific startup
             var query = _supabase.From<PitchDeck>()
                                         .Select("*")
                                         .Filter("startup_id", Supabase.Postgrest.Constants.Operator.Equals, startupId.ToString());
 
-            // Added: Filter by canaccess if requested
             if (onlyPublic)
             {
                 query = query.Filter("canaccess", Supabase.Postgrest.Constants.Operator.Equals, "true");
@@ -284,16 +231,21 @@ namespace Spark2Scale_.Server.Controllers
 
             try
             {
+                // We need the startupId to verify ownership. Fetch deck first.
+                var deckRes = await _supabase.From<PitchDeck>().Where(x => x.pitchdeckid == pitchDeckId).Get();
+                var deck = deckRes.Models.FirstOrDefault();
+                if (deck == null) return NotFound("Pitch deck not found.");
+
+                // AUTH CHECK
+                if (!await _access.IsFounderOrOwner(GetToken(), deck.startup_id))
+                    return Unauthorized(new { message = "Unauthorized." });
+
                 var update = await _supabase.From<PitchDeck>()
                                         .Where(x => x.pitchdeckid == pitchDeckId)
                                         .Set(x => x.pitchname, request.NewTitle)
                                         .Update();
 
                 var result = update.Models.FirstOrDefault();
-
-
-                if (result == null) return NotFound("Pitch deck not found.");
-
                 return Ok(new { message = "Renamed successfully", pitchname = result.pitchname });
             }
             catch (Exception ex)
@@ -307,42 +259,31 @@ namespace Spark2Scale_.Server.Controllers
         {
             try
             {
-                Console.WriteLine($"[INFO] Generating analysis for: {pitchDeckId}");
+                var deckRes = await _supabase.From<PitchDeck>().Where(x => x.pitchdeckid == pitchDeckId).Get();
+                var deck = deckRes.Models.FirstOrDefault();
+                if (deck == null) return NotFound("Pitch deck not found.");
 
+                // AUTH CHECK
+                if (!await _access.IsFounderOrOwner(GetToken(), deck.startup_id))
+                    return Unauthorized(new { message = "Unauthorized." });
 
-                // 1. Mock Data Generation
-
+                // Mock Data 
                 var mockAnalysis = new AnalysisContent
                 {
                     Short = new ShortAnalysis
                     {
                         Score = 88,
-                        Summary = "Strong opening and good energy. Lacks specific market data in the middle section.",
-                        KeyFeedback = new List<FeedbackItem>
-                        {
-                            new FeedbackItem { Aspect = "Clarity", Score = 90, Comment = "Message is clear" },
-                            new FeedbackItem { Aspect = "Confidence", Score = 85, Comment = "Good eye contact" }
-                        }
+                        Summary = "Strong opening and good energy.",
+                        KeyFeedback = new List<FeedbackItem> { new FeedbackItem { Aspect = "Clarity", Score = 90, Comment = "Message is clear" } }
                     },
                     Detailed = new DetailedAnalysis
                     {
-                        Tone = "Persuasive and Enthusiastic",
-                        Pacing = "140 words per minute (Ideal range)",
-                        Sections = new List<FeedbackItem>
-                        {
-                            new FeedbackItem { Aspect = "Problem Statement", Score = 92, Comment = "Very relatable hook." },
-                            new FeedbackItem { Aspect = "Solution", Score = 88, Comment = "Tech stack is well explained." },
-                            new FeedbackItem { Aspect = "Business Model", Score = 75, Comment = "Revenue projections are vague." },
-                            new FeedbackItem { Aspect = "Ask", Score = 95, Comment = "Clear funding requirements." }
-                        },
-                        TranscriptHighlights = new List<string>
-                        {
-                            "Used power words like 'Revolutionary' and 'Scalable'.",
-                            "Paused effectively after the problem statement."
-                        }
+                        Tone = "Persuasive",
+                        Pacing = "140 wpm",
+                        Sections = new List<FeedbackItem> { new FeedbackItem { Aspect = "Ask", Score = 95, Comment = "Clear funding req." } },
+                        TranscriptHighlights = new List<string> { "Good use of power words." }
                     }
                 };
-
 
                 var update = await _supabase.From<PitchDeck>()
                                         .Where(x => x.pitchdeckid == pitchDeckId)
@@ -350,27 +291,14 @@ namespace Spark2Scale_.Server.Controllers
                                         .Update();
 
                 var updatedModel = update.Models.FirstOrDefault();
-                if (updatedModel == null) return NotFound("Pitch deck not found or update failed.");
-
-
-                var responseDto = new PitchDeckResponseDto
+                return Ok(new
                 {
                     pitchdeckid = updatedModel.pitchdeckid,
-                    startup_id = updatedModel.startup_id,
-                    video_url = updatedModel.video_url,
-                    pitchname = updatedModel.pitchname,
-                    is_current = updatedModel.is_current,
-                    analysis = updatedModel.analysis,
-                    tags = updatedModel.tags,
-                    countlikes = updatedModel.countlikes,
-                    created_at = updatedModel.created_at
-                };
-
-                return Ok(responseDto);
+                    analysis = updatedModel.analysis
+                });
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[CRITICAL ERROR] {ex.Message}");
                 return StatusCode(500, $"Internal Server Error: {ex.Message}");
             }
         }
@@ -380,16 +308,11 @@ namespace Spark2Scale_.Server.Controllers
         {
             try
             {
-
                 var result = await _supabase.From<PitchDeck>()
                                             .Select("pitchdeckid")
                                             .Filter("startup_id", Supabase.Postgrest.Constants.Operator.Equals, startupId.ToString())
                                             .Get();
-
-                // 2. Count the items in the list using standard C# LINQ
-                int count = result.Models.Count;
-
-                return Ok(new { count = count });
+                return Ok(new { count = result.Models.Count });
             }
             catch (Exception ex)
             {
@@ -401,16 +324,18 @@ namespace Spark2Scale_.Server.Controllers
         [HttpPatch("visibility")]
         public async Task<IActionResult> ToggleVisibility([FromBody] VisibilityDto request)
         {
+            // AUTH CHECK
+            if (!await _access.IsFounderOrOwner(GetToken(), request.startupId))
+                return Unauthorized(new { message = "Unauthorized." });
+
             try
             {
-                // We use RPC to call the secure SQL function we created
-                // This ensures the "Only One Public" rule is enforced by the database
                 var parameters = new Dictionary<string, object>
-        {
-            { "p_pitch_id", request.pitchDeckId },
-            { "p_startup_id", request.startupId },
-            { "p_is_public", request.isPublic }
-        };
+                {
+                    { "p_pitch_id", request.pitchDeckId },
+                    { "p_startup_id", request.startupId },
+                    { "p_is_public", request.isPublic }
+                };
 
                 await _supabase.Rpc("set_pitch_visibility", parameters);
 

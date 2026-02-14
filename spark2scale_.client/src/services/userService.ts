@@ -35,14 +35,14 @@ export const userService = {
     // --- NEW PROFILE METHODS ---
 
     getProfile: async (userId: string) => {
-        const response = await apiClient.get<FullUserProfileResponse>(`/api/users/get-profile/${userId}`);
+        const response = await apiClient.get<FullUserProfileResponse>(`/api/Users/get-profile/${userId}`);
         return response.data;
     },
 
     updateProfile: async (userId: string, formData: FormData) => {
         // We let the browser set the Content-Type header for FormData automatically 
         // (usually includes the boundary), or explicitly set it if your client requires.
-        const response = await apiClient.put<{ avatarUrl: string }>(`/api/users/update-profile/${userId}`, formData, {
+        const response = await apiClient.put<{ avatarUrl: string }>(`/api/Users/update-profile/${userId}`, formData, {
             headers: {
                 'Content-Type': 'multipart/form-data',
             },
@@ -51,6 +51,6 @@ export const userService = {
     },
 
     deleteProfile: async (userId: string) => {
-        await apiClient.delete(`/api/users/delete-profile/${userId}`);
+        await apiClient.delete(`/api/Users/delete-profile/${userId}`);
     }
 };

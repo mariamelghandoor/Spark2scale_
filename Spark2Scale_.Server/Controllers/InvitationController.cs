@@ -1,0 +1,281 @@
+using Microsoft.AspNetCore.Mvc;
+using Supabase;
+using Spark2Scale_.Server.Models;
+using Spark2Scale_.Server.Services;
+using System;
+using System.Threading.Tasks;
+using System.Linq;
+using System.Collections.Generic;
+
+namespace Spark2Scale_.Server.Controllers
+{
+    [ApiController]
+    [Route("api/[controller]")]
+    public class InvitationController : ControllerBase
+    {
+        private readonly Client _supabase;
+        private readonly EmailService _emailService;
+        private readonly ILogger<InvitationController> _logger;
+        private readonly Spark2Scale_.Server.Services.AccessControlService _access;
+
+        public InvitationController(Client supabase, EmailService emailService, ILogger<InvitationController> logger, Spark2Scale_.Server.Services.AccessControlService access)
+        {
+            _supabase = supabase;
+            _emailService = emailService;
+            _logger = logger;
+            _access = access;
+        }
+
+        private string GetToken()
+        {
+            var header = Request.Headers["Authorization"].FirstOrDefault();
+            return header?.StartsWith("Bearer ") == true ? header.Substring(7) : "";
+        }
+
+        [HttpGet("verify/{token}")]
+        public async Task<IActionResult> VerifyInvitation(string token)
+        {
+            if (string.IsNullOrEmpty(token))
+                return BadRequest("Token is required.");
+
+            try
+            {
+                var res = await _supabase.From<Invitation>()
+                    .Where(i => i.Token == token)
+                    .Get();
+
+                var invite = res.Models.FirstOrDefault();
+
+                if (invite == null)
+                    return NotFound(new { message = "Invalid invitation token." });
+
+                if (invite.ExpiresAt < DateTime.UtcNow)
+                    return BadRequest(new { message = "Invitation has expired." });
+
+                if (invite.Status != "Pending")
+                    return BadRequest(new { message = $"Invitation is already {invite.Status}." });
+
+                // Fetch Startup Name
+                var startupRes = await _supabase.From<Startup>()
+                    .Where(s => s.Sid == invite.StartupId)
+                    .Get();
+                
+                var startup = startupRes.Models.FirstOrDefault();
+                var startupName = startup?.StartupName ?? "Unknown Startup";
+
+                return Ok(new InvitationResponse
+                {
+                    InvitationId = invite.Id,
+                    StartupId = invite.StartupId,
+                    StartupName = startupName,
+                    Email = invite.Email,
+                    Role = invite.Role,
+                    Status = invite.Status,
+                    ExpiresAt = invite.ExpiresAt
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error verifying token {Token}", token);
+                return StatusCode(500, new { message = "Error verifying invitation." });
+            }
+        }
+
+        [HttpPost("send")]
+        public async Task<IActionResult> SendInvitation([FromBody] CreateInvitationRequest request)
+        {
+            if (request == null || string.IsNullOrEmpty(request.Email))
+                return BadRequest("Invalid request.");
+
+            // AUTH CHECK
+            if (!await _access.IsFounderOrOwner(GetToken(), request.StartupId))
+                return Unauthorized(new { message = "Only the founder can send invitations." });
+
+            try
+            {
+                _logger.LogInformation("Sending invitation to {Email} for Startup {StartupId}", request.Email, request.StartupId);
+
+                // 1. Check if Startup Exists
+                var startupRes = await _supabase.From<Startup>()
+                    .Where(s => s.Sid == request.StartupId)
+                    .Get();
+
+                var startup = startupRes.Models.FirstOrDefault();
+                if (startup == null) 
+                {
+                    _logger.LogWarning("Startup {StartupId} not found.", request.StartupId);
+                    return NotFound("Startup not found.");
+                }
+
+                // 2. Check if already invited (Pending)
+                var existing = await _supabase.From<Invitation>()
+                    .Match(new Dictionary<string, string> {
+                        { "email", request.Email },
+                        { "startup_id", request.StartupId.ToString() },
+                        { "status", "Pending" }
+                    })
+                    .Get();
+
+                if (existing.Models.Any())
+                {
+                    return Conflict(new { message = "User already has a pending invitation." });
+                }
+                
+                // 3. Create Invitation
+                var token = Guid.NewGuid().ToString(); // Secure token
+                var invitation = new Invitation
+                {
+                    StartupId = request.StartupId,
+                    Email = request.Email,
+                    Role = request.Role ?? "Contributor",
+                    Token = token,
+                    Status = "Pending",
+                    InvitedBy = request.InvitedBy, // From request (optional)
+                    InvitedAt = DateTime.UtcNow,
+                    ExpiresAt = DateTime.UtcNow.AddDays(7) // 7 days expiration
+                };
+
+                await _supabase.From<Invitation>().Insert(invitation);
+                _logger.LogInformation("Invitation created in DB with token {Token}", token);
+
+                // 4. Send Email
+                // Link format: https://spark2scale.com/invite/accept?token={token}
+                // For development: http://localhost:5173/invite/accept?token={token}
+                // We should use an environment variable for the base URL ideally.
+                // Assuming client runs on 5173 for now or whatever origin is configured.
+                
+                // TODO: Load this from config
+                var clientBaseUrl = "http://localhost:5173"; 
+                var inviteLink = $"{clientBaseUrl}/invite/accept?token={token}";
+
+                await _emailService.SendInvitationEmailAsync(request.Email, startup.StartupName, inviteLink);
+                _logger.LogInformation("Invitation email sent to {Email}", request.Email);
+
+                return Ok(new { Message = "Invitation sent successfully.", Token = token });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error sending invitation to {Email}", request.Email);
+                return StatusCode(500, $"Error sending invitation: {ex.Message}");
+            }
+        }
+
+        [HttpPost("respond")]
+        public async Task<IActionResult> RespondToInvitation([FromBody] RespondInvitationRequest request)
+        {
+            if (request == null || string.IsNullOrEmpty(request.Token))
+                return BadRequest("Invalid request.");
+
+            _logger.LogInformation("Processing invitation response. Token: {Token}, Accept: {Accept}, UserId: {UserId}", request.Token, request.Accept, request.UserId);
+
+            try 
+            {
+                var res = await _supabase.From<Invitation>()
+                    .Where(i => i.Token == request.Token)
+                    .Get();
+
+                var invite = res.Models.FirstOrDefault();
+
+                if (invite == null) 
+                {
+                    _logger.LogWarning("Invalid invitation token: {Token}", request.Token);
+                    return NotFound(new { message = "Invalid invitation token." });
+                }
+                
+                if (invite.Status != "Pending") 
+                {
+                    _logger.LogWarning("Invitation {InvitationId} is already {Status}", invite.Id, invite.Status);
+                    return BadRequest(new { message = $"Invitation is already {invite.Status}." });
+                }
+
+                if (request.Accept)
+                {
+                    // Verify User
+                    if (request.UserId == Guid.Empty)
+                        return BadRequest(new { message = "User ID is required for acceptance." });
+
+                    // 1. Add to Startup Contributors
+                    _logger.LogInformation("Adding user {UserId} to startup {StartupId}", request.UserId, invite.StartupId);
+
+                    var existingContrib = await _supabase.From<StartupContributor>()
+                        .Match(new Dictionary<string, string> {
+                            { "contributor_id", request.UserId.ToString() },
+                            { "startup_id", invite.StartupId.ToString() }
+                        }).Get();
+
+                    if (!existingContrib.Models.Any())
+                    {
+                        var contributor = new StartupContributor
+                        {
+                            ContributorId = request.UserId,
+                            StartupId = invite.StartupId,
+                            Role = invite.Role,
+                            InvitedBy = invite.InvitedBy,
+                            InvitedAt = invite.InvitedAt
+                        };
+                        
+                        await _supabase.From<StartupContributor>().Insert(contributor);
+                        _logger.LogInformation("User {UserId} added as contributor to {StartupId}", request.UserId, invite.StartupId);
+                    }
+                    else
+                    {
+                        _logger.LogInformation("User {UserId} is already a contributor to {StartupId}", request.UserId, invite.StartupId);
+                    }
+
+                    // 2. Update Invitation Status
+                    await _supabase.From<Invitation>()
+                        .Where(i => i.Id == invite.Id)
+                        .Set(i => i.Status, "Accepted")
+                        .Update();
+                    
+                    _logger.LogInformation("Invitation {InvitationId} marked as Accepted", invite.Id);
+
+                    return Ok(new { Message = "Invitation accepted.", StartupId = invite.StartupId });
+                }
+                else
+                {
+                    // Reject - No User ID required
+                    await _supabase.From<Invitation>()
+                        .Where(i => i.Id == invite.Id)
+                        .Set(i => i.Status, "Rejected")
+                        .Update();
+
+                    _logger.LogInformation("Invitation {InvitationId} marked as Rejected", invite.Id);
+
+                    return Ok(new { Message = "Invitation rejected." });
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error processing invitation response for token {Token}", request.Token);
+                return StatusCode(500, new { Message = $"Error processing acceptance: {ex.Message}" });
+            }
+        }
+    }
+
+    public class CreateInvitationRequest
+    {
+        public Guid StartupId { get; set; }
+        public string Email { get; set; }
+        public string? Role { get; set; }
+        public Guid? InvitedBy { get; set; }
+    }
+
+    public class RespondInvitationRequest
+    {
+        public string Token { get; set; }
+        public bool Accept { get; set; }
+        public Guid UserId { get; set; }
+    }
+
+    public class InvitationResponse
+    {
+        public Guid InvitationId { get; set; }
+        public Guid StartupId { get; set; }
+        public string StartupName { get; set; }
+        public string Email { get; set; }
+        public string Role { get; set; }
+        public string Status { get; set; }
+        public DateTime ExpiresAt { get; set; }
+    }
+}

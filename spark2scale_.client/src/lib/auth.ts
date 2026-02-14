@@ -1,8 +1,12 @@
 import { AppRouterInstance } from "next/dist/shared/lib/app-router-context.shared-runtime";
 
 export interface User {
+    id: string;
     user_type?: string;
     userType?: string;
+    fname?: string;
+    lname?: string;
+    email?: string;
     [key: string]: unknown;
 }
 

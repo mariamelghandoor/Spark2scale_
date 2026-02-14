@@ -10,6 +10,7 @@ import { useParams } from "next/navigation";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { marketResearchService, MarketResearchDoc } from "@/services/marketResearchService"; // Adjust import path
+import { startupService } from "@/services/startupService";
 
 export default function MarketResearchPage() {
     const params = useParams();
@@ -20,6 +21,7 @@ export default function MarketResearchPage() {
     const [isWorkflowComplete, setIsWorkflowComplete] = useState(false);
     const [isLoading, setIsLoading] = useState(true);
     const [isGenerating, setIsGenerating] = useState(false);
+    const [userRole, setUserRole] = useState<string>("Viewer");
 
     // Form Inputs
     const [region, setRegion] = useState("");
@@ -32,13 +34,17 @@ export default function MarketResearchPage() {
             setIsLoading(true);
             try {
                 // Use service to fetch data in parallel
-                const [doc, isComplete] = await Promise.all([
+                const [doc, isComplete, startupDetails] = await Promise.all([
                     marketResearchService.getCurrentResearch(startupId),
-                    marketResearchService.getWorkflowStatus(startupId)
+                    marketResearchService.getWorkflowStatus(startupId),
+                    startupService.getById(startupId)
                 ]);
 
                 setResearchDoc(doc);
                 setIsWorkflowComplete(isComplete);
+                if (startupDetails) {
+                    setUserRole(startupDetails.current_role || "Viewer");
+                }
             } catch (err) {
                 console.error(err);
             } finally {
@@ -108,7 +114,7 @@ export default function MarketResearchPage() {
                                 📊 Market Research
                             </h1>
                             <p className="text-sm text-muted-foreground">
-                                Stage 3 of 6 - Analyze your market
+                                Stage 3 of 6 - Analyze your market • {userRole} View
                             </p>
                         </div>
                     </div>
@@ -119,7 +125,7 @@ export default function MarketResearchPage() {
                 <div className="max-w-4xl mx-auto">
 
                     {/* SCENARIO 1: No Document -> Show Generator Form */}
-                    {!researchDoc && (
+                    {!researchDoc && userRole === 'Founder' && (
                         <motion.div
                             initial={{ opacity: 0, y: 20 }}
                             animate={{ opacity: 1, y: 0 }}
@@ -191,6 +197,12 @@ export default function MarketResearchPage() {
                         </motion.div>
                     )}
 
+                    {!researchDoc && userRole !== 'Founder' && (
+                        <div className="text-center p-12 bg-gray-50 rounded-lg border-2 border-dashed">
+                            <p className="text-gray-500">No market research generated yet.</p>
+                        </div>
+                    )}
+
                     {/* SCENARIO 2: Document Exists -> Show Report Card */}
                     {researchDoc && (
                         <motion.div
@@ -212,7 +224,7 @@ export default function MarketResearchPage() {
                                             variant="outline"
                                             size="sm"
                                             onClick={handleRegenerateClick}
-                                            disabled={isWorkflowComplete}
+                                            disabled={isWorkflowComplete || userRole !== 'Founder'}
                                             className="text-orange-600 hover:text-orange-700 hover:bg-orange-50 border-orange-200"
                                         >
                                             <RotateCcw className="h-4 w-4 mr-2" />
@@ -263,7 +275,7 @@ export default function MarketResearchPage() {
                                 <Button
                                     size="lg"
                                     onClick={handleComplete}
-                                    disabled={isWorkflowComplete}
+                                    disabled={isWorkflowComplete || userRole !== 'Founder'}
                                     className={`
                                         min-w-[250px] font-semibold transition-all duration-300
                                         ${isWorkflowComplete

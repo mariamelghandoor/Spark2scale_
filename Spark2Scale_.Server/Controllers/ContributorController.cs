@@ -74,7 +74,9 @@ namespace Spark2Scale_.Server.Controllers
 
                     await _supabase.From<PendingInvite>().Insert(pending);
 
-                    string signupLink = $"http://localhost:3000/signup?email={request.Email}";
+
+                    string signupLink = $"http://localhost:3000/signup?userType=contributor&inviteAccepted=true&sid={request.StartupId}&email={request.Email}";
+
 
                     string body = $@"
                 <h3>You're Invited!</h3>

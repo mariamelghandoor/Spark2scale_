@@ -15,6 +15,7 @@ import {
     ChatMessage,
     WorkflowUpdatePayload
 } from "@/services/ideaCheckService"; // Adjust import path
+import { startupService } from "@/services/startupService";
 
 export default function IdeaCheckPage() {
     const params = useParams();
@@ -23,6 +24,7 @@ export default function IdeaCheckPage() {
     // --- State: General Data ---
     const [startupName, setStartupName] = useState("Loading...");
     const [idea, setIdea] = useState("");
+    const [userRole, setUserRole] = useState<string>("Viewer"); // Default to Viewer
 
     // --- State: Status Flags ---
     const [isLoading, setIsLoading] = useState(true);
@@ -57,10 +59,11 @@ export default function IdeaCheckPage() {
 
             try {
                 // A. Fetch Basic Startup Info
-                const startupData = await ideaCheckService.getStartupDetails(cleanId);
+                const startupData = await startupService.getById(cleanId);
                 if (startupData) {
                     setStartupName(startupData.startupname);
                     setIdea(startupData.idea_description);
+                    setUserRole(startupData.current_role || "Viewer");
                 }
 
                 // B. Fetch Workflow Status
@@ -215,7 +218,7 @@ export default function IdeaCheckPage() {
 
                         <div>
                             <h1 className="text-xl font-bold text-[#576238]">💡 Idea Check</h1>
-                            <p className="text-sm text-muted-foreground">{startupName}</p>
+                            <p className="text-sm text-muted-foreground">{startupName} • {userRole} View</p>
                         </div>
                     </div>
                     {isStageCompleted && (
@@ -234,7 +237,7 @@ export default function IdeaCheckPage() {
                         <Button
                             className="w-full bg-[#576238] hover:bg-[#464f2d]"
                             onClick={() => cleanId && handleNewSession(cleanId)}
-                            disabled={isStageCompleted}
+                            disabled={isStageCompleted || userRole !== 'Founder'}
                         >
                             <Plus className="h-4 w-4 mr-2" />
                             New Chat
@@ -287,7 +290,7 @@ export default function IdeaCheckPage() {
                                     variant={isEditing ? "default" : "outline"}
                                     size="sm"
                                     onClick={handleToggleEdit}
-                                    disabled={isSaving}
+                                    disabled={isSaving || userRole !== 'Founder'}
                                     className={isEditing ? "bg-[#576238] hover:bg-[#464f2d] text-white" : ""}
                                 >
                                     {isSaving ? (
@@ -369,15 +372,16 @@ export default function IdeaCheckPage() {
                                     <div className="flex gap-2">
                                         <Input
                                             placeholder="Ask a question..."
+                                            type="text"
                                             value={newMessage}
                                             onChange={(e) => setNewMessage(e.target.value)}
                                             onKeyPress={(e) => e.key === "Enter" && handleSendMessage()}
-                                            disabled={!currentSessionId}
+                                            disabled={!currentSessionId || userRole !== 'Founder'}
                                         />
                                         <Button
                                             onClick={handleSendMessage}
                                             className="bg-[#576238] hover:bg-[#6b7c3f]"
-                                            disabled={!currentSessionId}
+                                            disabled={!currentSessionId || userRole !== 'Founder'}
                                         >
                                             <Send className="h-4 w-4" />
                                         </Button>
@@ -397,7 +401,7 @@ export default function IdeaCheckPage() {
                                 size="lg"
                                 className="bg-[#FFD95D] hover:bg-[#ffe89a] text-black font-semibold"
                                 onClick={handleMarkComplete}
-                                disabled={isMarkingComplete}
+                                disabled={isMarkingComplete || userRole !== 'Founder'}
                             >
                                 {isMarkingComplete ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : "Mark as Complete & Continue"}
                             </Button>

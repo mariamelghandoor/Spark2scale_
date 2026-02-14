@@ -8,6 +8,7 @@ import Link from "next/link";
 import { motion } from "framer-motion";
 import { useParams, useRouter } from "next/navigation";
 import { recommendationService, DBRecommendation } from "@/services/recommendationService"; // Adjust import path
+import { startupService } from "@/services/startupService";
 
 export default function RecommendationsPage() {
     const params = useParams();
@@ -17,6 +18,7 @@ export default function RecommendationsPage() {
     const [isLoadingButtons, setIsLoadingButtons] = useState<boolean>(false);
     const [recommendations, setRecommendations] = useState<DBRecommendation[]>([]);
     const [isLoadingData, setIsLoadingData] = useState(true);
+    const [userRole, setUserRole] = useState<string>("Viewer");
 
     // Helper: Get Clean ID
     const getCleanId = () => {
@@ -35,8 +37,12 @@ export default function RecommendationsPage() {
             if (!cleanId) return;
             setIsLoadingData(true);
             try {
-                const data = await recommendationService.getRecommendations(cleanId);
+                const [data, startupDetails] = await Promise.all([
+                    recommendationService.getRecommendations(cleanId),
+                    startupService.getById(cleanId)
+                ]);
                 setRecommendations(data);
+                if (startupDetails) setUserRole(startupDetails.current_role || "Viewer");
             } finally {
                 setIsLoadingData(false);
             }
@@ -153,7 +159,7 @@ export default function RecommendationsPage() {
                         </Link>
                         <div>
                             <h1 className="text-xl font-bold text-[#576238]">✨ Recommendations & Refinement</h1>
-                            <p className="text-sm text-muted-foreground">Stage 5 of 6 - Improve your startup</p>
+                            <p className="text-sm text-muted-foreground">Stage 5 of 6 - Improve your startup • {userRole} View</p>
                         </div>
                     </div>
                 </div>
@@ -171,7 +177,7 @@ export default function RecommendationsPage() {
                         <>
                             {/* SECTION A: ACTIVE STATE OR GENERATE STATE */}
                             <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
-                                {!activeRecommendation ? (
+                                {!activeRecommendation && userRole === 'Founder' ? (
                                     // A1. NO ACTIVE DATA -> SHOW GENERATE BUTTON ("Brand New" Look)
                                     <Card className="mb-8 border-2 border-[#FFD95D] shadow-lg">
                                         <CardHeader className="bg-gradient-to-r from-[#FFD95D]/20 to-transparent">
@@ -191,6 +197,10 @@ export default function RecommendationsPage() {
                                             </Button>
                                         </CardContent>
                                     </Card>
+                                ) : !activeRecommendation ? (
+                                    <div className="text-center p-12 bg-gray-50 rounded-lg border-2 border-dashed">
+                                        <p className="text-gray-500">No recommendations generated yet.</p>
+                                    </div>
                                 ) : (
                                     // A2. ACTIVE DATA EXISTS -> SHOW RESULTS
                                     <RecommendationView data={activeRecommendation} />
@@ -205,7 +215,7 @@ export default function RecommendationsPage() {
                                 >
                                     <Button
                                         size="lg" variant="outline"
-                                        onClick={handleLoopBack} disabled={isLoadingButtons}
+                                        onClick={handleLoopBack} disabled={isLoadingButtons || userRole !== 'Founder'}
                                         className="border-gray-300 text-gray-600 hover:bg-gray-100"
                                     >
                                         {isLoadingButtons ? <Loader2 className="animate-spin" /> : (
@@ -216,7 +226,7 @@ export default function RecommendationsPage() {
                                     {/* REGENERATE BUTTON */}
                                     <Button
                                         size="lg" variant="outline"
-                                        onClick={handleRegenerate} disabled={isLoadingButtons}
+                                        onClick={handleRegenerate} disabled={isLoadingButtons || userRole !== 'Founder'}
                                         className="border-[#576238] text-[#576238] hover:bg-[#576238]/10"
                                     >
                                         {isLoadingButtons ? <Loader2 className="animate-spin" /> : (
@@ -227,7 +237,7 @@ export default function RecommendationsPage() {
                                     <Button
                                         size="lg"
                                         className="bg-[#FFD95D] text-black hover:bg-[#ffe89a] font-semibold"
-                                        onClick={handleComplete} disabled={isLoadingButtons}
+                                        onClick={handleComplete} disabled={isLoadingButtons || userRole !== 'Founder'}
                                     >
                                         {isLoadingButtons ? <Loader2 className="animate-spin" /> : "Complete & Continue"}
                                     </Button>
