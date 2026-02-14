@@ -1,7 +1,7 @@
 name: Deploy React Client to Azure
 on:
   push:
-    branches: [ "Sarah" ] # Covers both case possibilities
+    branches: [ "Sarah" ] # Handles both case possibilities
 
 jobs:
   build-and-deploy:
@@ -20,13 +20,13 @@ jobs:
           npm install
           npm run build
           
-          # Create a fresh deployment folder at the root
+          # Create a fresh deployment directory at the runner root
           mkdir -p ../deploy_out
           
-          # Copy standalone files into the root of deploy_out
+          # Copy the contents of standalone into that root-level folder
           cp -r .next/standalone/. ../deploy_out/
           
-          # Manually move static assets to where Next.js expects them
+          # Manually move static assets to the correct relative path
           mkdir -p ../deploy_out/.next/static
           cp -r .next/static/. ../deploy_out/.next/static/
           cp -r public/. ../deploy_out/public/ || true
@@ -36,5 +36,5 @@ jobs:
         with:
           app-name: 'spark2scale-client'
           publish-profile: ${{ secrets.AZURE_CLIENT_PUBLISH_PROFILE }}
-          # Deploy from the clean root-level folder
+          # Deploy from the clean folder we just created
           package: ./deploy_out
