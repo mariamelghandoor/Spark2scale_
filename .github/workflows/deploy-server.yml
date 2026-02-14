@@ -2,7 +2,7 @@ name: Deploy .NET Server to Azure
 on:
   push:
     branches:
-      - sarah  # Triggers only when you push to the sarah branch
+      - Sarah  # Triggers only when you push to the sarah branch
 
 jobs:
   build-and-deploy:
