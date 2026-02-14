@@ -19,9 +19,10 @@ jobs:
         run: |
           npm install
           npm run build
-          # REQUIRED: Copy static files into the standalone folder
-          cp -r ./public ./.next/standalone/public
-          cp -r ./.next/static ./.next/standalone/.next/static
+          mkdir -p ./.next/standalone/.next/static
+          mkdir -p ./.next/standalone/public
+          cp -r ./public/* ./.next/standalone/public/ || true
+          cp -r ./.next/static/* ./.next/standalone/.next/static/
 
       - name: Deploy to Azure Web App
         uses: azure/webapps-deploy@v2
