@@ -82,7 +82,7 @@ var app = builder.Build();
 app.UseCors(MyAllowSpecificOrigins);
 
 // FIXED: Swagger enabled for both Development and Production (Azure)
-if (app.Environment.IsDevelopment() || app.Environment.IsProduction())
+if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
     app.UseSwaggerUI(options =>
