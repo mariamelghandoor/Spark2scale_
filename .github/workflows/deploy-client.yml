@@ -1,0 +1,28 @@
+name: Deploy React Client to Azure
+on:
+  push:
+    branches: [ "Sarah" ]
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22' # Using the modern version we discussed
+
+      - name: Install and Build
+        working-directory: ./spark2scale_.client # Points to your client folder
+        run: |
+          npm install
+          npm run build
+
+      - name: Deploy to Azure Web App
+        uses: azure/webapps-deploy@v2
+        with:
+          app-name: 'spark2scale-client' # Use your new frontend app name
+          publish-profile: ${{ secrets.AZURE_CLIENT_PUBLISH_PROFILE }}
+          package: ./spark2scale_.client/.next # Deploying the build output
