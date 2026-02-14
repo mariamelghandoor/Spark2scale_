@@ -12,17 +12,21 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '22' # Using the modern version we discussed
+          node-version: '22'
 
       - name: Install and Build
-        working-directory: ./spark2scale_.client # Points to your client folder
+        working-directory: ./spark2scale_.client
         run: |
           npm install
           npm run build
+          # REQUIRED: Copy static files into the standalone folder
+          cp -r ./public ./.next/standalone/public
+          cp -r ./.next/static ./.next/standalone/.next/static
 
       - name: Deploy to Azure Web App
         uses: azure/webapps-deploy@v2
         with:
-          app-name: 'spark2scale-client' # Use your new frontend app name
+          app-name: 'spark2scale-client'
           publish-profile: ${{ secrets.AZURE_CLIENT_PUBLISH_PROFILE }}
-          package: ./spark2scale_.client/.next # Deploying the build output
+          # FIX: Point exactly to the standalone folder
+          package: ./spark2scale_.client/.next/standalone
