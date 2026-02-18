@@ -4,6 +4,12 @@ using System;
 using System.Collections.Generic; // Required for Dictionary
 using System.Linq;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
+using System.Collections.Generic;
 
 namespace Spark2Scale_.Server.Controllers
 {
@@ -13,11 +19,22 @@ namespace Spark2Scale_.Server.Controllers
     {
         private readonly Supabase.Client _supabase;
         private readonly Services.AccessControlService _access;
+        private readonly ILogger<StartupsController> _logger;
 
-        public StartupsController(Supabase.Client supabase, Services.AccessControlService access)
+        public StartupsController(
+            Supabase.Client supabase,
+            Services.AccessControlService access,
+            ILogger<StartupsController> logger)
         {
             _supabase = supabase;
             _access = access;
+            _logger = logger;
+        }
+
+        public class MarketResearchRequest
+        {
+            public string Region { get; set; }
+            public string Category { get; set; }
         }
 
         [HttpPost("add")]
@@ -303,5 +320,153 @@ namespace Spark2Scale_.Server.Controllers
                 return StatusCode(500, $"Error updating idea: {ex.Message}");
             }
         }
+
+        [HttpPost("{id}/generate-market-research")]
+        public async Task<IActionResult> GenerateMarketResearch(string id, [FromBody] MarketResearchRequest request)
+        {
+            Console.WriteLine($"[MarketResearch] 🚀 Request received for Startup ID: {id}");
+
+            if (!Guid.TryParse(id, out Guid sId)) return BadRequest("Invalid ID format");
+
+            try
+            {
+                // 1. Get Startup Data
+                var result = await _supabase.From<Startup>().Where(s => s.Sid == sId).Get();
+                var startup = result.Models.FirstOrDefault();
+                if (startup == null) return NotFound("Startup not found");
+
+                string jsonContent = "";
+
+                // ---------------------------------------------------------
+                // 2. REAL API CALL (Azure AI Service)
+                // ---------------------------------------------------------
+                using (var client = new HttpClient())
+                {
+                    // Set 10-minute timeout for AI generation
+                    client.Timeout = TimeSpan.FromMinutes(10);
+
+                    var apiUrl = "https://spark2scale-ai-server.azurewebsites.net/api/v1/market-research/research";
+
+                    Console.WriteLine($"[MarketResearch] 📡 Calling Real API: {apiUrl}");
+
+                    var externalPayload = new
+                    {
+                        idea = startup.IdeaDescription ?? "No description",
+                        problem = "Identify primary market pain points for " + startup.StartupName,
+                        region = request.Region,
+                        category = request.Category
+                    };
+
+                    var response = await client.PostAsJsonAsync(apiUrl, externalPayload);
+
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        var error = await response.Content.ReadAsStringAsync();
+                        Console.WriteLine($"[MarketResearch] ❌ API Failed: {response.StatusCode} - {error}");
+                        return StatusCode((int)response.StatusCode, $"AI Service Failed: {error}");
+                    }
+
+                    jsonContent = await response.Content.ReadAsStringAsync();
+                    Console.WriteLine($"[MarketResearch] ✅ Received Data ({jsonContent.Length} bytes)");
+                }
+
+                // ---------------------------------------------------------
+                // 3. PARSE JSON FOR DATABASE (The Fix)
+                // ---------------------------------------------------------
+                // We convert the string to a Dictionary<string, object>.
+                // This ensures Supabase can save it to the 'jsonb' column without crashing.
+                object jsonObjectToSave;
+                try
+                {
+                    jsonObjectToSave = JsonConvert.DeserializeObject<Dictionary<string, object>>(jsonContent);
+                }
+                catch
+                {
+                    // Fallback: If it's an array (list), deserialize to List<object>
+                    jsonObjectToSave = JsonConvert.DeserializeObject<List<object>>(jsonContent);
+                }
+
+                // ---------------------------------------------------------
+                // 4. SAVE TO STORAGE (Backup File)
+                // ---------------------------------------------------------
+                var fileName = $"{sId}/market_research_{DateTime.UtcNow.Ticks}.json";
+                var fileBytes = System.Text.Encoding.UTF8.GetBytes(jsonContent);
+                string publicUrl = "";
+
+                try
+                {
+                    await _supabase.Storage.From("startup-docs").Upload(fileBytes, fileName);
+                    publicUrl = _supabase.Storage.From("startup-docs").GetPublicUrl(fileName);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[MarketResearch] ⚠️ Storage upload skipped: {ex.Message}");
+                }
+
+                // ---------------------------------------------------------
+                // 5. SAVE TO DATABASE TABLE
+                // ---------------------------------------------------------
+                try
+                {
+                    // A. Find the currently active document
+                    var existingDocs = await _supabase.From<Document>()
+                        .Filter("startup_id", Supabase.Postgrest.Constants.Operator.Equals, sId.ToString())
+                        .Filter("type", Supabase.Postgrest.Constants.Operator.Equals, "Market Research")
+                        .Filter("is_current", Supabase.Postgrest.Constants.Operator.Equals, "true")
+                        .Get();
+
+                    var currentDoc = existingDocs.Models.FirstOrDefault();
+                    int nextVersion = 1;
+
+                    // B. Archive the old one (if exists)
+                    if (currentDoc != null)
+                    {
+                        Console.WriteLine($"[MarketResearch] 📂 Archiving version {currentDoc.CurrentVersion}...");
+
+                        // Mark old doc as NOT current
+                        currentDoc.IsCurrent = false;
+                        await _supabase.From<Document>().Update(currentDoc);
+
+                        // Increment version for the new doc
+                        nextVersion = currentDoc.CurrentVersion + 1;
+                    }
+
+                    // C. Insert the NEW document
+                    Console.WriteLine($"[MarketResearch] 🆕 Saving new version {nextVersion}...");
+
+                    var newDoc = new Document
+                    {
+                        StartupId = sId,
+                        DocumentName = $"Market Research Analysis v{nextVersion}",
+                        Type = "Market Research",
+                        CurrentPath = publicUrl,
+                        CurrentVersion = nextVersion,
+                        CanAccess = 1, // 1 = Private/Team only, change logic if needed
+                        UpdatedAt = DateTime.UtcNow,
+                        CreatedAt = DateTime.UtcNow,
+                        IsCurrent = true, // This is now the active one
+                        JsonResponse = jsonObjectToSave // Saving Dictionary
+                    };
+
+                    await _supabase.From<Document>().Insert(newDoc);
+                }
+                catch (Exception dbEx)
+                {
+                    Console.WriteLine($"[MarketResearch] ❌ DATABASE SAVE FAILED: {dbEx.Message}");
+                    return StatusCode(500, new { error = "Database Save Failed", details = dbEx.Message });
+                }
+
+                Console.WriteLine("[MarketResearch] 🎉 SUCCESS: New version saved.");
+
+                // Return raw JSON so frontend parses it automatically as an object
+                return Content(jsonContent, "application/json");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[MarketResearch] 💥 CRITICAL ERROR: {ex.Message}");
+                return StatusCode(500, new { error = "Internal Server Error", message = ex.Message });
+            }
+        }
     }
+
 }

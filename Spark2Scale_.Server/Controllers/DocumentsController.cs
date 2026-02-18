@@ -7,6 +7,8 @@ using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Collections.Generic;
+using Newtonsoft.Json.Linq;
+using System.Text.Json;
 
 namespace Spark2Scale_.Server.Controllers
 {
@@ -107,7 +109,11 @@ namespace Spark2Scale_.Server.Controllers
                         current_version = d.CurrentVersion,
                         canaccess = d.CanAccess,
                         updated_at = d.UpdatedAt,
-                        access_status = accessStatus
+                        access_status = accessStatus,
+                        // FIX: Convert Newtonsoft JToken (from Supabase) to System.Text.Json.JsonElement (for Controller return)
+                        json_response = d.JsonResponse is JToken token 
+                            ? JsonSerializer.Deserialize<JsonElement>(token.ToString()) 
+                            : d.JsonResponse
                     };
                 });
 

@@ -27,6 +27,10 @@ builder.Services.AddCors(options =>
     });
 });
 
+builder.Logging.ClearProviders();
+builder.Logging.AddConsole();
+builder.Logging.AddDebug();
+
 // Configure JSON options
 builder.Services.AddControllers()
     .AddJsonOptions(options =>

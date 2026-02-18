@@ -1,7 +1,8 @@
-﻿using Microsoft.AspNetCore.Http; // Required for IFormFile
+﻿using Microsoft.AspNetCore.Http;
 using Supabase.Postgrest.Attributes;
 using Supabase.Postgrest.Models;
 using System;
+using Newtonsoft.Json.Linq;
 
 namespace Spark2Scale_.Server.Models
 {
@@ -20,11 +21,9 @@ namespace Spark2Scale_.Server.Models
         [Column("type")]
         public string Type { get; set; }
 
-        // This stores the URL of the LATEST version
         [Column("current_path")]
         public string CurrentPath { get; set; }
 
-        // This tracks the LATEST version number
         [Column("current_version")]
         public int CurrentVersion { get; set; }
 
@@ -39,11 +38,14 @@ namespace Spark2Scale_.Server.Models
 
         [Column("is_current")]
         public bool IsCurrent { get; set; }
+
+        // --- NEW FIELD ---
+        // Maps to the jsonb column in Supabase
+        [Column("json_response")]
+        public object JsonResponse { get; set; }
     }
 
     // --- DTOs ---
-
-    // For the Frontend List
     public class DocumentResponseDto
     {
         public Guid did { get; set; }
@@ -53,6 +55,9 @@ namespace Spark2Scale_.Server.Models
         public string current_path { get; set; }
         public int current_version { get; set; }
         public DateTime updated_at { get; set; }
+
+        // Return this to the frontend
+        public object json_response { get; set; }
     }
 
     // For Uploading Files
