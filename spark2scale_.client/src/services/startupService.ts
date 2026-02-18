@@ -7,6 +7,7 @@ export interface CreateStartupDto {
     region?: string | null;
     startup_stage?: string | null;
     founder_id?: string | null;
+    json_response?: any; // Added this field
 }
 
 export interface StartupResponse {
@@ -30,7 +31,6 @@ export const startupService = {
         const response = await apiClient.post<StartupResponse>('/api/Startups/add', data);
         return response.data;
     },
-
     getByFounder: async (founderId: string) => {
         const response = await apiClient.get<StartupResponse[]>(`/api/Startups?founderId=${founderId}`);
         return response.data;

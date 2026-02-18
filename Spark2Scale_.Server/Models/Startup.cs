@@ -19,13 +19,17 @@ namespace Spark2Scale_.Server.Models
         [Column("idea_description")]
         public string? IdeaDescription { get; set; }
 
-        // --- NEW COLUMNS ---
         [Column("region")]
         public string? Region { get; set; }
 
         [Column("startup_stage")]
         public string? StartupStage { get; set; }
-        // -------------------
+
+        // --- ADD THIS PROPERTY ---
+        // This maps to the JSONB column in your database
+        [Column("json_response")]
+        public string? JsonResponse { get; set; }
+        // -------------------------
 
         [Column("founder_id")]
         public Guid? FounderId { get; set; }
@@ -41,7 +45,10 @@ namespace Spark2Scale_.Server.Models
         public string? idea_description { get; set; }
         public string? region { get; set; }
         public string? startup_stage { get; set; }
-        public Guid? founder_id { get; set; }
+        public Guid founder_id { get; set; }
+
+        // This accepts the raw object from Frontend
+        public object? json_response { get; set; }
     }
 
     public class StartupResponseDto
