@@ -92,8 +92,14 @@ namespace Spark2Scale_.Server.Controllers
                 return BadRequest($"Invalid Startup ID format: {request.StartupId}");
 
             // AUTH CHECK
-            if (!await _access.IsFounderOrOwner(GetToken(), sId))
+            var token = GetToken();
+            Console.WriteLine($"[WorkflowUpdate] Start update for StartupID: {sId}");
+            
+            if (!await _access.IsFounderOrOwner(token, sId))
+            {
+                Console.WriteLine($"[WorkflowUpdate] Auth failed for StartupID: {sId}");
                 return Unauthorized(new { message = "Only the startup founder can modify the workflow." });
+            }
 
             // 2. Check if Startup actually exists (Foreign Key Check)
             // This prevents adding a workflow for a non-existent startup

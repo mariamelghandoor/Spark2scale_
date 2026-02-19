@@ -156,5 +156,25 @@ namespace Spark2Scale_.Server.Controllers
                 return StatusCode(500, $"Error sending message: {ex.Message}");
             }
         }
+
+        // DELETE: api/Chat/session/{sessionId}
+        [HttpDelete("session/{sessionId}")]
+        public async Task<IActionResult> DeleteSession(string sessionId)
+        {
+            if (!Guid.TryParse(sessionId, out Guid sessId)) return BadRequest("Invalid ID");
+
+            try
+            {
+                await _supabase.From<ChatSession>()
+                    .Where(x => x.SessionId == sessId)
+                    .Delete();
+
+                return Ok(new { deleted = true, sessionId = sessId });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, $"Error deleting session: {ex.Message}");
+            }
+        }
     }
 }

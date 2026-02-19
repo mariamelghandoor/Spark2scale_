@@ -1,4 +1,4 @@
-import apiClient from '@/lib/apiClient';
+﻿import apiClient from '@/lib/apiClient';
 
 // --- Types ---
 
@@ -71,6 +71,9 @@ interface MessageApiResponse {
     Timestamp?: string;
 }
 
+// --- External AI API base URL ---
+const AI_API_BASE = 'https://spark2scale-ai-server.azurewebsites.net/api/v1';
+
 export const ideaCheckService = {
     // 1. Get Basic Startup Info
     async getStartupDetails(startupId: string): Promise<StartupDetails | null> {
@@ -85,7 +88,6 @@ export const ideaCheckService = {
 
     // 2. Workflow Management
     async getWorkflowStatus(startupId: string): Promise<WorkflowState> {
-        // Default state
         const defaultState: WorkflowState = {
             ideaCheck: false, marketResearch: false, evaluation: false,
             recommendation: false, documents: false, pitchDeck: false
@@ -95,7 +97,6 @@ export const ideaCheckService = {
             const response = await apiClient.get<WorkflowApiResponse>(`/api/StartupWorkflow/${startupId}`);
             const json = response.data;
 
-            // Normalize keys (handle PascalCase vs camelCase from API)
             return {
                 ideaCheck: json.ideaCheck || json.IdeaCheck || false,
                 marketResearch: json.marketResearch || json.MarketResearch || false,
@@ -107,16 +108,6 @@ export const ideaCheckService = {
         } catch (error) {
             console.error("Error fetching workflow:", error);
             return defaultState;
-        }
-    },
-
-    async updateWorkflow(payload: WorkflowUpdatePayload): Promise<boolean> {
-        try {
-            await apiClient.post('/api/StartupWorkflow/update', payload);
-            return true;
-        } catch (error) {
-            console.error("Error updating workflow:", error);
-            return false;
         }
     },
 
@@ -189,7 +180,18 @@ export const ideaCheckService = {
         }
     },
 
-    async sendMessage(sessionId: string, content: string): Promise<void> {
+    /**
+     * Sends a user message to the external AI chat API and returns the assistant reply.
+     * Also persists both messages to the local DB via the Chat/send endpoint.
+     */
+    async sendMessage(
+        sessionId: string,
+        content: string,
+        history: ChatMessage[],
+        startupId: string,
+        startupData: object
+    ): Promise<string> {
+        // 1. Persist user message to local DB
         try {
             await apiClient.post('/api/Chat/send', {
                 SessionId: sessionId,
@@ -197,7 +199,162 @@ export const ideaCheckService = {
                 Content: content
             });
         } catch (error) {
-            console.error("Error sending message:", error);
+            console.error("Error persisting user message:", error);
+        }
+
+        // 2. Call external AI chat API
+        let assistantReply = "";
+        try {
+            console.log("Calling AI API with:", { content, historyLength: history.length, startupData });
+
+            const aiResponse = await fetch(`${AI_API_BASE}/chat/chat`, {
+                method: 'POST',
+                headers: {
+                    'accept': 'application/json',
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    user_message: content,
+                    chat_history: history.map(m => ({
+                        role: m.role,
+                        content: m.content
+                    })),
+                    startup_data: startupData
+                })
+            });
+
+            console.log("AI response status:", aiResponse.status);
+            const rawText = await aiResponse.text(); // ← read as text first
+            console.log("AI raw response:", rawText);  // ← log raw text
+
+            if (!aiResponse.ok) {
+                console.error("AI API error:", rawText);
+                throw new Error(`AI API responded with ${aiResponse.status}`);
+            }
+
+            const aiData = JSON.parse(rawText); // ← then parse
+            console.log("AI parsed response keys:", Object.keys(aiData));
+
+            // Grab whichever field exists
+            assistantReply =
+                aiData.ai_reply ??        // ✅ THIS is the correct field
+                aiData.assistant_message ??
+                aiData.reply ??
+                aiData.response ??
+                aiData.content ??
+                aiData.message ??
+                aiData.output ??
+                aiData.result ??
+                (typeof aiData === "string" ? aiData : "");
+
+            console.log("Assistant reply extracted:", assistantReply);
+
+        } catch (error) {
+            console.error("Error calling AI chat API:", error);
+            assistantReply = "Sorry, I couldn't get a response. Please try again.";
+        }
+
+        // 3. Persist assistant reply to local DB
+        if (assistantReply) {
+            try {
+                await apiClient.post('/api/Chat/send', {
+                    SessionId: sessionId,
+                    Role: "assistant",
+                    Content: assistantReply
+                });
+            } catch (error) {
+                console.error("Error persisting assistant message:", error);
+            }
+        }
+
+        return assistantReply;
+    },
+
+    /**
+     * Calls the update-startup-data endpoint with the full chat history
+     * when the user marks the Idea Check phase as complete.
+     */
+    // Add this new method — saves the AI-updated startup data back to your DB
+    async updateStartupInDatabase(startupId: string, updatedData: object): Promise<boolean> {
+        try {
+            console.log("📝 Saving updated startup data to DB:", JSON.stringify(updatedData, null, 2));
+            await apiClient.put(`/api/startups/update-json/${startupId}`, { jsonResponse: updatedData });
+            console.log("✅ Startup data saved to DB successfully");
+            return true;
+        } catch (error: any) {
+            console.error("❌ Failed to save startup data to DB:", error.response?.data);
+            return false;
+        }
+    },
+
+    async updateStartupDataFromChat(
+        startupId: string,
+        chatHistory: ChatMessage[],
+        startupData: object
+    ): Promise<object | null> {  // ← now RETURNS the updated data
+        try {
+            console.log("📤 Sending to AI update endpoint...");
+            console.log("BEFORE startup_data:", JSON.stringify(startupData, null, 2));
+
+            const response = await fetch(`${AI_API_BASE}/chat/update-startup-data`, {
+                method: 'POST',
+                headers: {
+                    'accept': 'application/json',
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    chat_history: chatHistory.map(m => ({ role: m.role, content: m.content })),
+                    startup_data: startupData
+                })
+            });
+
+            const rawText = await response.text();
+
+            if (!response.ok) {
+                console.error("❌ update-startup-data API error:", rawText);
+                return null;
+            }
+
+            const rawData = JSON.parse(rawText);
+
+            // Unwrap whichever key the AI returns, then wrap it as "startup_evaluation"
+            const innerData = rawData.updated_startup_data ?? rawData.startup_evaluation ?? rawData;
+
+            const updatedData = { startup_evaluation: innerData };
+
+            console.log("AFTER startup_data (from AI):", JSON.stringify(updatedData, null, 2));
+
+            return updatedData;
+
+        } catch (error) {
+            console.error("❌ Error calling update-startup-data:", error);
+            return null;
+        }
+    },
+
+    async updateWorkflow(payload: WorkflowUpdatePayload): Promise<boolean> {
+        try {
+            // Explicitly attach token to bypass any interceptor issues
+            const token = localStorage.getItem('auth_token');
+            await apiClient.post('/api/StartupWorkflow/update', payload, {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+            console.log("✅ Workflow updated successfully");
+            return true;
+        } catch (error: any) {
+            console.error("❌ updateWorkflow failed:", error.response?.status, error.response?.data);
+            return false;
+        }
+    },
+    // Add inside the ideaCheckService object, e.g. after startNewSession
+    async deleteSession(sessionId: string): Promise<boolean> {
+        try {
+            await apiClient.delete(`/api/Chat/session/${sessionId}`);
+            console.log("✅ Session deleted:", sessionId);
+            return true;
+        } catch (error: any) {
+            console.error("❌ Failed to delete session:", error.response?.data);
+            return false;
         }
     }
 };

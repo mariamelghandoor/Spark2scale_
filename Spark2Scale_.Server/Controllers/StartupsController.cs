@@ -353,5 +353,51 @@ namespace Spark2Scale_.Server.Controllers
                 return StatusCode(500, $"Error updating idea: {ex.Message}");
             }
         }
+
+        [HttpPut("update-json/{id}")]
+        public async Task<IActionResult> UpdateJsonResponse(string id, [FromBody] JsonUpdateDto input)
+        {
+            if (!Guid.TryParse(id, out Guid sId))
+                return BadRequest("Invalid ID format");
+
+            try
+            {
+                var supabaseUrl = Environment.GetEnvironmentVariable("URL") ?? Environment.GetEnvironmentVariable("SUPABASE_URL");
+                var supabaseKey = Environment.GetEnvironmentVariable("KEY") ?? Environment.GetEnvironmentVariable("SUPABASE_KEY");
+
+                var row = new JsonObject
+                {
+                    ["json_response"] = JsonNode.Parse(JsonSerializer.Serialize(input.JsonResponse))
+                };
+
+                using var http = new HttpClient();
+                http.DefaultRequestHeaders.Add("apikey", supabaseKey);
+                http.DefaultRequestHeaders.Add("Authorization", $"Bearer {supabaseKey}");
+                http.DefaultRequestHeaders.Add("Prefer", "return=representation");
+
+                var content = new StringContent(row.ToJsonString(), Encoding.UTF8, "application/json");
+                var resp = await http.PatchAsync($"{supabaseUrl}/rest/v1/startups?sid=eq.{sId}", content);
+
+                if (!resp.IsSuccessStatusCode)
+                {
+                    var err = await resp.Content.ReadAsStringAsync();
+                    return StatusCode((int)resp.StatusCode, $"Failed to update: {err}");
+                }
+
+                return Ok(new { message = "Startup JSON updated successfully", id = sId });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, $"Error: {ex.Message}");
+            }
+        }
+
+        // DTO
+        public class JsonUpdateDto
+        {
+            public object JsonResponse { get; set; }
+        }
     }
+
+
 }
