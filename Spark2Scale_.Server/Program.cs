@@ -6,50 +6,50 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using System.Text.Json;
 using System;
+using Microsoft.OpenApi.Models;
+using Swashbuckle.AspNetCore.SwaggerUI;
 
-// Load .env for local development
-Env.Load();
+
+// 1. Load environment variables
+DotNetEnv.Env.Load();
 
 var builder = WebApplication.CreateBuilder(args);
 
-// CORS policy name
+// 2. CORS configuration
 var MyAllowSpecificOrigins = "_myAllowSpecificOrigins";
-
-// CORS configuration
 builder.Services.AddCors(options =>
 {
     options.AddPolicy(name: MyAllowSpecificOrigins, policy =>
     {
-        // Allows localhost for dev and your future Azure Static Web App URL
         policy.SetIsOriginAllowed(origin => new Uri(origin).Host == "localhost" || origin.Contains("azurestaticapps.net"))
               .AllowAnyHeader()
               .AllowAnyMethod();
     });
 });
 
-// Configure JSON options
+// 3. Controllers and JSON
 builder.Services.AddControllers()
     .AddJsonOptions(options =>
     {
         options.JsonSerializerOptions.PropertyNameCaseInsensitive = true;
-        options.JsonSerializerOptions.PropertyNamingPolicy = null; 
+        options.JsonSerializerOptions.PropertyNamingPolicy = null;
     });
 
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
+builder.Services.AddHttpClient();
 
-// Services
+// 4. Custom Services
 builder.Services.AddTransient<EmailService>();
 builder.Services.AddTransient<AccessControlService>();
 
-// Supabase Configuration
-// This will check your Azure Environment Variables first, then your .env file
+// 5. Supabase Configuration
 var url = Environment.GetEnvironmentVariable("SUPABASE_URL") ?? builder.Configuration["SUPABASE_URL"];
 var key = Environment.GetEnvironmentVariable("SUPABASE_KEY") ?? builder.Configuration["SUPABASE_KEY"];
 
 if (string.IsNullOrEmpty(url) || string.IsNullOrEmpty(key))
 {
-    Console.WriteLine("FATAL: SUPABASE_URL or SUPABASE_KEY missing. Ensure they are set in Azure App Settings.");
+    Console.WriteLine("FATAL: SUPABASE_URL or SUPABASE_KEY missing.");
     throw new InvalidOperationException("Supabase credentials must be set.");
 }
 
@@ -61,7 +61,7 @@ var supabaseOptions = new SupabaseOptions
 
 var supabaseClient = new Supabase.Client(url, key, supabaseOptions);
 
-// Initialize Supabase
+// Initialize Supabase before the app starts
 try
 {
     await supabaseClient.InitializeAsync();
@@ -78,17 +78,15 @@ var app = builder.Build();
 
 // --- MIDDLEWARE PIPELINE ---
 
-// Apply CORS before Swagger or Controllers
 app.UseCors(MyAllowSpecificOrigins);
 
-// FIXED: Swagger enabled for both Development and Production (Azure)
 if (app.Environment.IsDevelopment() || app.Environment.IsProduction())
 {
     app.UseSwagger();
     app.UseSwaggerUI(options =>
     {
         options.SwaggerEndpoint("/swagger/v1/swagger.json", "v1");
-        options.RoutePrefix = "swagger"; // Access via /swagger
+        options.RoutePrefix = "swagger";
     });
 }
 

@@ -32,6 +32,12 @@ namespace Spark2Scale_.Server.Models
 
         [Column("created_at")]
         public DateTime? CreatedAt { get; set; }
+
+        [Column("json_response")]
+        public object? json_response { get; set; }
+
+        [Column("logo_path")]
+        public string? LogoPath { get; set; }
     }
 
     public class StartupInsertDto
