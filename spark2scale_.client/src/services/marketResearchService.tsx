@@ -104,8 +104,18 @@ export const marketResearchService = {
             });
 
             // The backend returns Content(json, "application/json")
-            // So response.data IS the JSON object. No need to parse.
-            return response.data;
+            // So response.data IS the JSON object.
+            let result = response.data;
+
+            // FIX: Unwrap 'data' property if present (consistency with getCurrentResearch)
+            if (result && typeof result === 'object' && 'data' in result && result.data) {
+                console.log("[generateResearch] Unwrapping 'data' property...");
+                if (!Array.isArray(result.data) && typeof result.data === 'object') {
+                    result = result.data;
+                }
+            }
+
+            return result;
 
         } catch (error) {
             console.error("Error generating research:", error);

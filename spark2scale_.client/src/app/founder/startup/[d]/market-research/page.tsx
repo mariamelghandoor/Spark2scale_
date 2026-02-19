@@ -18,6 +18,7 @@ import { generateMarketResearchPDF } from "@/pdf-formats/marketResearchPdf";
 
 // Import your custom LegoLoader
 import LegoLoader from "@/components/lego/LegoLoader";
+import LegoResearchLoader from "@/components/lego/LegoResearchLoader";
 
 export default function MarketResearchPage() {
     const params = useParams();
@@ -71,6 +72,7 @@ export default function MarketResearchPage() {
             if (jsonResult) {
                 setResearchData(jsonResult);
                 setIsWorkflowComplete(false);
+
                 // Optional: Automatically trigger PDF download
                 // generateMarketResearchPDF(jsonResult);
             }
@@ -94,7 +96,33 @@ export default function MarketResearchPage() {
         if (!text) return null;
 
         // Simple parser for headers, bold, and paragraphs
-        return text.split('\n').map((line, index) => {
+        const lines = text.split('\n');
+        const filteredLines = lines.filter(line => {
+            const trimmed = line.trim();
+            // Filter out standard headers that are redundant
+            if (/^(\*\*|#+\s*)?Investment Memo/i.test(trimmed)) return false;
+            // Filter out "Executive Summary" only if it's a header, to avoid removing it from text body if pertinent
+            if (/^(\*\*|#+\s*)?Executive Summary/i.test(trimmed)) return false;
+            if (/^(\*\*|#+\s*)?1\.\s*Executive Summary/i.test(trimmed)) return false;
+            return true;
+        });
+
+        // 2. Reduce multiple empty lines to single
+        const reducedLines: string[] = [];
+        let lastWasEmpty = false;
+        for (const line of filteredLines) {
+            const isEmpty = line.trim().length === 0;
+            if (isEmpty && lastWasEmpty) continue;
+            reducedLines.push(line);
+            lastWasEmpty = isEmpty;
+        }
+
+        // 3. Remove leading empty lines
+        while (reducedLines.length > 0 && reducedLines[0].trim().length === 0) {
+            reducedLines.shift();
+        }
+
+        return reducedLines.map((line, index) => {
             // Headers
             if (line.startsWith('### ')) {
                 return <h3 key={index} className="text-lg font-bold mt-4 mb-2 text-[#576238]">{line.replace('### ', '')}</h3>;
@@ -116,10 +144,10 @@ export default function MarketResearchPage() {
 
             const parts = line.split(/(\*\*.*?\*\*)/g);
             return (
-                <p key={index} className="mb-2">
+                <p key={index} className="mb-2 text-gray-800 leading-relaxed">
                     {parts.map((part, i) => {
                         if (part.startsWith('**') && part.endsWith('**')) {
-                            return <strong key={i} className="text-gray-900">{part.slice(2, -2)}</strong>;
+                            return <strong key={i} className="font-semibold text-gray-900">{part.slice(2, -2)}</strong>;
                         }
                         return part;
                     })}
@@ -166,10 +194,10 @@ export default function MarketResearchPage() {
 
             <main className="container mx-auto px-4 py-8 max-w-5xl">
 
-                {/* 1. Generating State: Show Lego Loader */}
+                {/* 1. Generating State: Show Lego Research Loader */}
                 {isGenerating && (
-                    <div className="py-20 flex justify-center">
-                        <LegoLoader />
+                    <div className="flex justify-center w-full">
+                        <LegoResearchLoader />
                     </div>
                 )}
 
@@ -249,7 +277,7 @@ export default function MarketResearchPage() {
 
                         {/* Executive Summary */}
                         <Card>
-                            <CardHeader><CardTitle>Executive Summary</CardTitle></CardHeader>
+                            <CardHeader><CardTitle className="text-[#576238] font-bold">Executive Summary</CardTitle></CardHeader>
                             <CardContent className="text-gray-700 leading-relaxed">
                                 {renderMarkdown(researchData.executive_summary)}
                             </CardContent>

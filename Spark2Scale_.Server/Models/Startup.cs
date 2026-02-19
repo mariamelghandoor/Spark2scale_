@@ -55,6 +55,11 @@ namespace Spark2Scale_.Server.Models
         public Guid? founder_id { get; set; }
         public DateTime? created_at { get; set; }
         public string? current_role { get; set; }
+        
+        // --- NEW DASHBOARD METRICS ---
+        public int total_likes { get; set; }
+        public int progress_count { get; set; }
+        public bool progress_has_gap { get; set; }
     }
 
     public class IdeaUpdateDto

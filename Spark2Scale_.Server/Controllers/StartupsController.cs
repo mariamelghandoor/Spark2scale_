@@ -85,51 +85,129 @@ namespace Spark2Scale_.Server.Controllers
         {
             try
             {
-                // If founderId is provided, filter by it
+                // 1. DETERMINE DATA SOURCE
+                List<Startup> startupsList = new List<Startup>();
+
                 if (!string.IsNullOrEmpty(founderId) && Guid.TryParse(founderId, out Guid fId))
                 {
-                    var result = await _supabase.From<Startup>()
-                        .Where(s => s.FounderId == fId)
-                        .Get();
-
-                    var dtos = result.Models.Select(s => new StartupResponseDto
-                    {
-                        sid = s.Sid,
-                        startupname = s.StartupName,
-                        field = s.Field,
-                        idea_description = s.IdeaDescription,
-                        region = s.Region,
-                        startup_stage = s.StartupStage,
-                        founder_id = s.FounderId,
-                        created_at = s.CreatedAt
-                    }).ToList();
-
-                    return Ok(dtos);
+                    var result = await _supabase.From<Startup>().Where(s => s.FounderId == fId).Get();
+                    startupsList = result.Models;
                 }
-                // If contributorId is provided, filter by it
                 else if (!string.IsNullOrEmpty(contributorId) && Guid.TryParse(contributorId, out Guid cId))
                 {
-                    // 1. AUTO-ACCEPT LOGIC REMOVED - Managed via InvitationController
-
-                    // 2. FETCH STARTUPS (Existing Logic)
-                    // Query the 'contributors' table directly using user_id
                     var links = await _supabase.From<Contributor>()
                        .Filter("user_id", Supabase.Postgrest.Constants.Operator.Equals, cId.ToString())
                        .Get();
 
-                    var startupIds = links.Models
-                        .Where(x => x.startup_id != null) // Ensure we don't grab nulls
+                    var ids = links.Models
+                        .Where(x => x.startup_id != null)
                         .Select(x => x.startup_id.Value.ToString())
                         .ToList();
 
-                    if (!startupIds.Any()) return Ok(new List<StartupResponseDto>());
+                    if (ids.Any())
+                    {
+                        var result = await _supabase.From<Startup>()
+                           .Filter("sid", Supabase.Postgrest.Constants.Operator.In, ids)
+                           .Get();
+                        startupsList = result.Models;
+                    }
+                }
+                else
+                {
+                    // Fallback: Get All (e.g. Investor Feed)
+                    var result = await _supabase.From<Startup>().Get();
+                    startupsList = result.Models;
+                }
 
-                    var result = await _supabase.From<Startup>()
-                       .Filter("sid", Supabase.Postgrest.Constants.Operator.In, startupIds)
-                       .Get();
+                // 2. PREPARE ENRICHMENT DATA (Batch Fetching)
+                var startupIds = startupsList.Select(x => x.Sid.ToString()).ToList();
+                var workflows = new List<StartupWorkflow>();
+                var pitchDecks = new List<PitchDeck>();
 
+                if (startupIds.Any())
+                {
+                    try
+                    {
+                        // Workflows
+                        var wfResult = await _supabase.From<StartupWorkflow>()
+                            .Filter("startup_id", Supabase.Postgrest.Constants.Operator.In, startupIds)
+                            .Get();
+                        workflows = wfResult.Models;
 
-                    var dtos = result.Models.Select(s => new StartupResponseDto
+                        // Pitch Decks (for Likes)
+                        var pdResult = await _supabase.From<PitchDeck>()
+                            .Filter("startup_id", Supabase.Postgrest.Constants.Operator.In, startupIds)
+                            .Get();
+                        pitchDecks = pdResult.Models;
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"[Dashboard] ⚠️ Enrichment fetch failed: {ex.Message}");
+                    }
+                }
+
+                // 3. IDENTIFY CURRENT USER (For Role)
+                Guid? currentUserId = null;
+                var authHeader = Request.Headers["Authorization"].FirstOrDefault();
+                if (!string.IsNullOrEmpty(authHeader) && authHeader.StartsWith("Bearer "))
+                {
+                    var token = authHeader.Substring("Bearer ".Length).Trim();
+                    try
+                    {
+                        var user = await _supabase.Auth.GetUser(token);
+                        if (user != null && Guid.TryParse(user.Id, out Guid uid))
+                            currentUserId = uid;
+                    }
+                    catch { }
+                }
+
+                // 4. MAP TO DTO
+                var dtos = new List<StartupResponseDto>();
+
+                foreach (var s in startupsList)
+                {
+                    // A. Determine Role
+                    string? role = null;
+                    if (currentUserId.HasValue)
+                    {
+                        if (s.FounderId == currentUserId.Value) role = "Founder";
+                        else
+                        {
+                            var contrib = await _supabase.From<StartupContributor>()
+                                .Match(new Dictionary<string, string> {
+                                    { "startup_id", s.Sid.ToString() },
+                                    { "contributor_id", currentUserId.Value.ToString() }
+                                }).Get();
+                            if (contrib.Models.Any()) role = contrib.Models.First().Role ?? "Contributor";
+                        }
+                    }
+
+                    // B. Calculate Metrics
+                    int progressCount = 0;
+                    int totalLikes = 0;
+                    bool hasGap = false;
+
+                    var wf = workflows.FirstOrDefault(w => w.StartupId == s.Sid);
+                    if (wf != null)
+                    {
+                        bool[] steps = { wf.IdeaCheck, wf.MarketResearch, wf.Evaluation, wf.Recommendation, wf.Documents, wf.PitchDeck };
+                        progressCount = steps.Count(step => step);
+
+                        bool foundFalse = false;
+                        foreach (var step in steps)
+                        {
+                            if (!step) foundFalse = true;
+                            else if (foundFalse && step) hasGap = true;
+                        }
+                    }
+
+                    var decks = pitchDecks.Where(p => p.startup_id == s.Sid);
+                    if (decks.Any())
+                    {
+                        totalLikes = decks.Sum(d => d.countlikes);
+                    }
+
+                    dtos.Add(new StartupResponseDto
                     {
                         sid = s.Sid,
                         startupname = s.StartupName,
@@ -138,67 +216,15 @@ namespace Spark2Scale_.Server.Controllers
                         region = s.Region,
                         startup_stage = s.StartupStage,
                         founder_id = s.FounderId,
-                        created_at = s.CreatedAt
-                    }).ToList();
-
-                    return Ok(dtos);
+                        created_at = s.CreatedAt,
+                        current_role = role,
+                        progress_count = progressCount,
+                        total_likes = totalLikes,
+                        progress_has_gap = hasGap
+                    });
                 }
-                else
-                {
-                    // Otherwise return all (e.g. for investors feed)
-                    var result = await _supabase.From<Startup>().Get();
 
-                    var dtos = new List<StartupResponseDto>();
-                    
-                    // Retrieve User ID from Token for Role Check (if available)
-                    Guid? currentUserId = null;
-                    var authHeader = Request.Headers["Authorization"].FirstOrDefault();
-                    if (!string.IsNullOrEmpty(authHeader) && authHeader.StartsWith("Bearer "))
-                    {
-                        var token = authHeader.Substring("Bearer ".Length).Trim();
-                        try {
-                            var user = await _supabase.Auth.GetUser(token);
-                            if (user != null && Guid.TryParse(user.Id, out Guid uid))
-                            {
-                                currentUserId = uid;
-                            }
-                        } catch {}
-                    }
-
-                    foreach(var s in result.Models)
-                    {
-                        string? role = null;
-                        if (currentUserId.HasValue)
-                        {
-                            if (s.FounderId == currentUserId.Value) role = "Founder";
-                            else 
-                            {
-                                // Check Contributor
-                                var contrib = await _supabase.From<StartupContributor>()
-                                    .Match(new Dictionary<string, string> {
-                                        { "startup_id", s.Sid.ToString() },
-                                        { "contributor_id", currentUserId.Value.ToString() }
-                                    }).Get();
-                                if (contrib.Models.Any()) role = contrib.Models.First().Role ?? "Contributor";
-                            }
-                        }
-
-                        dtos.Add(new StartupResponseDto
-                        {
-                            sid = s.Sid,
-                            startupname = s.StartupName,
-                            field = s.Field,
-                            idea_description = s.IdeaDescription,
-                            region = s.Region,
-                            startup_stage = s.StartupStage,
-                            founder_id = s.FounderId,
-                            created_at = s.CreatedAt,
-                            current_role = role
-                        });
-                    }
-
-                    return Ok(dtos);
-                }
+                return Ok(dtos);
             }
             catch (Exception ex)
             {
@@ -258,6 +284,48 @@ namespace Spark2Scale_.Server.Controllers
                     }
                 }
 
+                // --- Calculate Metrics ---
+                int progressCount = 0;
+                int totalLikes = 0;
+                bool hasGap = false;
+
+                try 
+                {
+                    // 1. Progress
+                    var wfResult = await _supabase.From<StartupWorkflow>()
+                        .Where(w => w.StartupId == sId)
+                        .Get();
+                    var wf = wfResult.Models.FirstOrDefault();
+
+                    if (wf != null)
+                    {
+                        bool[] steps = { wf.IdeaCheck, wf.MarketResearch, wf.Evaluation, wf.Recommendation, wf.Documents, wf.PitchDeck };
+                        progressCount = steps.Count(step => step);
+
+                        bool foundFalse = false;
+                        foreach (var step in steps)
+                        {
+                            if (!step) foundFalse = true;
+                            else if (foundFalse && step) hasGap = true;
+                        }
+                    }
+
+                    // 2. Likes
+                    // Check if PitchDeck exists for this startup
+                    var pdResult = await _supabase.From<PitchDeck>()
+                        .Where(p => p.startup_id == sId)
+                        .Get();
+                    
+                    if (pdResult.Models.Any())
+                    {
+                        totalLikes = pdResult.Models.Sum(d => d.countlikes);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[GetStartupById] Metric fetch failed: {ex.Message}");
+                }
+
                 var response = new StartupResponseDto
                 {
                     sid = startup.Sid,
@@ -268,7 +336,11 @@ namespace Spark2Scale_.Server.Controllers
                     startup_stage = startup.StartupStage,
                     founder_id = startup.FounderId,
                     created_at = startup.CreatedAt,
-                    current_role = role
+                    current_role = role,
+                    // Metrics
+                    progress_count = progressCount,
+                    total_likes = totalLikes,
+                    progress_has_gap = hasGap
                 };
 
                 return Ok(response);
