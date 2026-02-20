@@ -383,5 +383,78 @@ namespace Spark2Scale_.Server.Controllers
                  return StatusCode(500, $"Delete failed: {ex.Message}");
             }
         }
+
+        [HttpPost("save-ai-evaluations")]
+        public async Task<IActionResult> SaveAiEvaluations([FromForm] SaveAiEvaluationsFormDto input)
+        {
+            if (!Guid.TryParse(input.StartupId, out Guid sId)) return BadRequest("Invalid Startup ID.");
+
+            try
+            {
+                var now = DateTime.UtcNow;
+
+                // 1. Helper Function: Upload file directly to Supabase from C#
+                async Task<string> UploadToSupabase(IFormFile file, string prefix)
+                {
+                    var fileName = $"{sId}/{DateTime.Now.Ticks}_{prefix}.pdf";
+                    using var ms = new MemoryStream();
+                    await file.CopyToAsync(ms);
+                    var fileBytes = ms.ToArray();
+
+                    await _supabase.Storage.From("startup-docs").Upload(fileBytes, fileName);
+                    return _supabase.Storage.From("startup-docs").GetPublicUrl(fileName);
+                }
+
+                // Upload both files and get their secure URLs
+                string founderUrl = await UploadToSupabase(input.FounderFile, "Founder_Report");
+                string investorUrl = await UploadToSupabase(input.InvestorFile, "Investor_Memo");
+
+                // 2. Helper Function: Save to Database
+                async Task CreateDocumentAndVersion(string docName, string docType, string url, int accessLvl, string jsonContent)
+                {
+                    var newDoc = new Document
+                    {
+                        Did = Guid.NewGuid(),
+                        StartupId = sId,
+                        DocumentName = docName,
+                        Type = docType,
+                        CurrentPath = url,
+                        CurrentVersion = 1,
+                        CanAccess = accessLvl,
+                        UpdatedAt = now,
+                        CreatedAt = now,
+                        IsCurrent = true,
+                        JsonResponse = jsonContent
+                    };
+
+                    var insertOptions = new Supabase.Postgrest.QueryOptions { Returning = Supabase.Postgrest.QueryOptions.ReturnType.Representation };
+                    var inserted = await _supabase.From<Document>().Insert(newDoc, insertOptions);
+                    var createdDoc = inserted.Models.FirstOrDefault();
+
+                    if (createdDoc != null)
+                    {
+                        await _supabase.From<DocumentVersion>().Insert(new DocumentVersion
+                        {
+                            DocumentId = createdDoc.Did,
+                            StartupId = sId,
+                            VersionNumber = 1,
+                            Path = url,
+                            CreatedAt = now,
+                            GeneratedBy = "AI"
+                        });
+                    }
+                }
+
+                // 3. Save both database records
+                await CreateDocumentAndVersion("Founder_Report.pdf", "Founder Evaluation", founderUrl, 0, input.JsonResponse);
+                await CreateDocumentAndVersion("Investor_Memo.pdf", "Investor Evaluation", investorUrl, 1, input.JsonResponse);
+
+                return Ok(new { success = true, message = "Evaluations saved successfully" });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, $"Failed to save evaluations: {ex.Message}");
+            }
+        }
     }
 }

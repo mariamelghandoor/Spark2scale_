@@ -1,4 +1,5 @@
-import apiClient from "@/lib/apiClient";
+﻿import apiClient from "@/lib/apiClient";
+import JSZip from "jszip";
 
 export interface EvaluationDocument {
     did: string;
@@ -32,7 +33,9 @@ export const evaluationService = {
         try {
             const response = await apiClient.get<EvaluationDocument[]>(`/api/Documents?startupId=${startupId}`);
             const docs = response.data;
-            const evalDoc = docs.find(d => d.type.toLowerCase() === "evaluation");
+
+            // 👇 CRITICAL FIX: Look for "founder evaluation" instead of "evaluation"
+            const evalDoc = docs.find(d => d.type.toLowerCase() === "founder evaluation");
 
             return evalDoc || null;
         } catch (error) {
@@ -85,13 +88,94 @@ export const evaluationService = {
     // 4. Trigger Generation
     async generateEvaluation(startupId: string): Promise<boolean> {
         try {
-            await apiClient.post(`/api/Documents/generate-mock`, {
-                startupId: startupId,
-                type: "Evaluation"
+            console.log("🚀 Step 1: Fetching startup data...");
+            const startupRes = await apiClient.get(`/api/Startups/${startupId}`);
+            const startupData = startupRes.data;
+
+            const parsedForm = typeof startupData.json_response === 'string'
+                ? JSON.parse(startupData.json_response)
+                : startupData.json_response;
+
+            const payload = {
+                data: parsedForm
+            };
+
+            console.log("🚀 Step 2: Starting AI Job on Azure...", payload);
+            const startJobRes = await fetch('https://spark2scale-ai-server.azurewebsites.net/api/v1/evaluation/evaluate/all', {
+                method: 'POST',
+                headers: {
+                    'accept': 'application/json',
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(payload)
             });
+
+            const startJobData = await startJobRes.json();
+            const jobId = startJobData.job_id;
+
+            if (!jobId) {
+                throw new Error("No Job ID returned from AI server. Check the payload format.");
+            }
+
+            console.log(`⏳ Step 3: Polling AI Server for Job ${jobId}...`);
+            let finalResult = null;
+
+            while (true) {
+                const statusRes = await fetch(`https://spark2scale-ai-server.azurewebsites.net/api/v1/evaluation/status/${jobId}`);
+                const statusData = await statusRes.json();
+
+                if (statusData.status === 'completed') {
+                    finalResult = statusData.result;
+                    console.log("✅ AI Evaluation Finished!", finalResult);
+                    break;
+                } else if (statusData.status === 'failed') {
+                    console.error("❌ AI Job Failed:", statusData.error);
+                    return false;
+                }
+
+                await new Promise(resolve => setTimeout(resolve, 5000));
+            }
+
+            console.log("📦 Step 4: Requesting PDFs from Python server...");
+            const pdfRes = await fetch('https://spark2scale-ai-server.azurewebsites.net/api/v1/evaluation/generate-report', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(finalResult)
+            });
+
+            if (!pdfRes.ok) throw new Error("Failed to generate PDFs");
+
+            const zipBlob = await pdfRes.blob();
+
+            console.log("🗜️ Step 5: Unzipping the package...");
+            const zip = new JSZip();
+            const unzipped = await zip.loadAsync(zipBlob);
+
+            const founderFileKey = Object.keys(unzipped.files).find(name => name.includes("Founder_Report"));
+            const investorFileKey = Object.keys(unzipped.files).find(name => name.includes("Investor_Memo"));
+
+            if (!founderFileKey || !investorFileKey) throw new Error("ZIP did not contain expected PDFs");
+
+            // Extract them as Blobs
+            const founderPdfBlob = await unzipped.files[founderFileKey].async("blob");
+            const investorPdfBlob = await unzipped.files[investorFileKey].async("blob");
+
+            console.log("☁️ Step 6: Sending files and JSON to C# Backend...");
+
+            // Package everything into a FormData object
+            const formData = new FormData();
+            formData.append("StartupId", startupId);
+            formData.append("JsonResponse", JSON.stringify(finalResult)); // Convert JSON object to string
+            formData.append("FounderFile", founderPdfBlob, "Founder_Report.pdf");
+            formData.append("InvestorFile", investorPdfBlob, "Investor_Memo.pdf");
+
+            // Send to your newly updated C# endpoint
+            // (Axios/apiClient will automatically set the correct multipart/form-data headers)
+            await apiClient.post(`/api/Documents/save-ai-evaluations`, formData);
+
             return true;
         } catch (error) {
-            console.error("Error generating evaluation:", error);
+            console.error("Error in AI Evaluation workflow:", error);
             return false;
         }
     }

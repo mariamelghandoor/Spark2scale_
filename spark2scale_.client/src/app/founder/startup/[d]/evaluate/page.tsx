@@ -140,7 +140,7 @@ export default function EvaluatePage() {
                                         <Button
                                             onClick={handleRunEvaluation}
                                             disabled={isGenerating}
-                                            className="bg-[#576238] hover:bg-[#6b7c3f]"
+                                            className="bg-[#576238] hover:bg-[#6b7c3f] min-w-[250px]"
                                             size="lg"
                                         >
                                             {isGenerating ? (
@@ -148,8 +148,20 @@ export default function EvaluatePage() {
                                             ) : (
                                                 <PlayCircle className="mr-2 h-5 w-5" />
                                             )}
-                                            {isGenerating ? "Analyzing..." : "Run Evaluation"}
+                                            {isGenerating ? "Analyzing Data..." : "Run Evaluation"}
                                         </Button>
+
+                                        {/* Warning text for the 150-second wait time */}
+                                        {isGenerating && (
+                                            <motion.p
+                                                initial={{ opacity: 0 }}
+                                                animate={{ opacity: 1 }}
+                                                className="text-sm text-amber-600 font-medium mt-4 animate-pulse"
+                                            >
+                                                This process takes about 2 to 3 minutes. <br />
+                                                Please do not refresh or close this page.
+                                            </motion.p>
+                                        )}
                                     </div>
                                 </CardContent>
                             </Card>
@@ -163,15 +175,22 @@ export default function EvaluatePage() {
                             animate={{ opacity: 1, y: 0 }}
                         >
                             {/* Regenerate Option */}
-                            <div className="flex justify-end mb-4">
+                            <div className="flex flex-col items-end mb-4">
                                 <Button
                                     variant="outline"
                                     onClick={handleRunEvaluation}
                                     disabled={isGenerating || userRole !== 'Founder'}
                                 >
                                     {isGenerating ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <PlayCircle className="w-4 h-4 mr-2" />}
-                                    Regenerate Evaluation
+                                    {isGenerating ? "Regenerating..." : "Regenerate Evaluation"}
                                 </Button>
+
+                                {/* Warning text for regenerating */}
+                                {isGenerating && (
+                                    <p className="text-xs text-amber-600 mt-2 animate-pulse">
+                                        Generating new AI reports (~2 mins). Do not refresh.
+                                    </p>
+                                )}
                             </div>
 
                             <Card className="border-2 border-[#576238]/20">

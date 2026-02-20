@@ -2,6 +2,7 @@
 using Supabase.Postgrest.Attributes;
 using Supabase.Postgrest.Models;
 using System;
+using System.Text.Json;
 
 namespace Spark2Scale_.Server.Models
 {
@@ -39,6 +40,9 @@ namespace Spark2Scale_.Server.Models
 
         [Column("is_current")]
         public bool IsCurrent { get; set; }
+
+        [Column("json_response")]
+        public string JsonResponse { get; set; }
     }
 
     // --- DTOs ---
@@ -70,5 +74,13 @@ namespace Spark2Scale_.Server.Models
     {
         public Guid StartupId { get; set; }
         public string Type { get; set; } // e.g. "Cap Table"
+    }
+
+    public class SaveAiEvaluationsFormDto
+    {
+        public string StartupId { get; set; }
+        public string JsonResponse { get; set; } // We receive it as a string now!
+        public IFormFile FounderFile { get; set; }
+        public IFormFile InvestorFile { get; set; }
     }
 }

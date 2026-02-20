@@ -40,7 +40,8 @@ namespace Spark2Scale_.Server.Controllers
                 version_number = v.VersionNumber,
                 path = v.Path,
                 created_at = v.CreatedAt,
-                is_public = v.IsPublic
+                is_public = v.IsPublic,
+                generated_by = v.GeneratedBy 
             });
 
             return Ok(dtos);
