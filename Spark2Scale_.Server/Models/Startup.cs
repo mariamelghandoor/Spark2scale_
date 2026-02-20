@@ -62,6 +62,7 @@ namespace Spark2Scale_.Server.Models
         public Guid? founder_id { get; set; }
         public DateTime? created_at { get; set; }
         public string? current_role { get; set; }
+        public object json_response { get; set; }
     }
 
     public class IdeaUpdateDto

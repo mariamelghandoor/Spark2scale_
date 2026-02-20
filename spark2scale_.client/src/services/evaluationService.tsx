@@ -121,7 +121,7 @@ export const evaluationService = {
             let finalResult = null;
 
             while (true) {
-                const statusRes = await fetch(`https://spark2scale-ai-server.azurewebsites.net/api/v1/evaluation/status/${jobId}`);
+                const statusRes = await fetch(`https://spark2scale-ai-server.azurewebsites.net/api/v1/evaluation/evaluate/status/${jobId}`);
                 const statusData = await statusRes.json();
 
                 if (statusData.status === 'completed') {
@@ -160,18 +160,19 @@ export const evaluationService = {
             const founderPdfBlob = await unzipped.files[founderFileKey].async("blob");
             const investorPdfBlob = await unzipped.files[investorFileKey].async("blob");
 
-            console.log("☁️ Step 6: Sending files and JSON to C# Backend...");
-
-            // Package everything into a FormData object
+            console.log("☁️ Step 6: Sending files to C# Backend...");
             const formData = new FormData();
             formData.append("StartupId", startupId);
-            formData.append("JsonResponse", JSON.stringify(finalResult)); // Convert JSON object to string
+            formData.append("JsonResponse", JSON.stringify(finalResult));
             formData.append("FounderFile", founderPdfBlob, "Founder_Report.pdf");
             formData.append("InvestorFile", investorPdfBlob, "Investor_Memo.pdf");
 
-            // Send to your newly updated C# endpoint
-            // (Axios/apiClient will automatically set the correct multipart/form-data headers)
-            await apiClient.post(`/api/Documents/save-ai-evaluations`, formData);
+            // FIX: Explicitly tell Axios to send this as a Form with files, NOT as JSON
+            await apiClient.post(`/api/Documents/save-ai-evaluations`, formData, {
+                headers: {
+                    'Content-Type': 'multipart/form-data'
+                }
+            });
 
             return true;
         } catch (error) {

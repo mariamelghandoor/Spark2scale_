@@ -1,4 +1,4 @@
-import apiClient from '@/lib/apiClient';
+﻿import apiClient from '@/lib/apiClient';
 
 export interface CreateStartupDto {
     startupname: string;
@@ -24,6 +24,9 @@ export interface StartupResponse {
     total_likes: number;
     progress_count: number;
     progress_has_gap: boolean;
+
+    // 👈 ADD THIS LINE:
+    json_response?: any;
 }
 
 export const startupService = {
