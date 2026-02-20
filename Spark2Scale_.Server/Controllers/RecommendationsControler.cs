@@ -63,37 +63,62 @@ namespace Spark2Scale_.Server.Controllers
 
         // POST: api/Recommendations/save
         // Each call deletes the previous report and inserts a fresh one.
-        // No versioning or iteration tracking — always a single current report per startup+type.
+        // Uses raw HTTP (same as GET) so that the JsonElement content is serialised
+        // directly by System.Text.Json — this is the key fix: the Postgrest C# library
+        // does NOT reliably store JsonElement as JSONB (it can come back as null).
         [HttpPost("save")]
         public async Task<IActionResult> SaveRecommendation([FromBody] RecommendationInsertDto input)
         {
             try
             {
-                // 1. Delete the previous report for this startup + type (replace, don't archive)
-                await _supabase.From<Recommendation>()
-                    .Where(x => x.StartupId == input.StartupId && x.Type == input.Type)
-                    .Delete();
+                var supabaseUrl = Environment.GetEnvironmentVariable("SUPABASE_URL");
+                var supabaseKey = Environment.GetEnvironmentVariable("SUPABASE_KEY");
 
-                // 2. Insert the new recommendation (always version 1, always current)
-                var rec = new Recommendation
+                var client = _httpClientFactory.CreateClient();
+                client.DefaultRequestHeaders.Add("apikey", supabaseKey);
+                client.DefaultRequestHeaders.Add("Authorization", $"Bearer {supabaseKey}");
+
+                // 1. Delete the previous report for this startup + type via raw HTTP
+                var deleteUrl = $"{supabaseUrl}/rest/v1/recommendations" +
+                                $"?startup_id=eq.{input.StartupId}" +
+                                $"&type=eq.{Uri.EscapeDataString(input.Type)}";
+                await client.DeleteAsync(deleteUrl);
+
+                // 2. Insert the new recommendation via raw HTTP.
+                //    System.Text.Json serialises JsonElement as its raw JSON value,
+                //    so the 'content' column receives a proper JSONB object — not null.
+                var insertPayload = new
                 {
-                    StartupId = input.StartupId,
-                    Type      = input.Type,
-                    Content   = input.Content,
-                    Version   = 1,
-                    CreatedAt = DateTime.UtcNow,
-                    IsCurrent = true
+                    startup_id = input.StartupId,
+                    type       = input.Type,
+                    content    = input.Content,   // JsonElement → serialised as raw JSON inline
+                    version    = 1,
+                    created_at = DateTime.UtcNow.ToString("o"),
+                    is_current = true
                 };
 
-                await _supabase.From<Recommendation>().Insert(rec);
+                var bodyJson    = JsonSerializer.Serialize(insertPayload);
+                var httpContent = new System.Net.Http.StringContent(
+                                        bodyJson,
+                                        System.Text.Encoding.UTF8,
+                                        "application/json");
 
-                // 3. Sync json_response + current_iteration on the startups row so the
-                //    frontend can read the latest output directly from the startup record.
-                //    current_iteration is tracked in the DB (incremented on each save)
-                //    but is not displayed as a visible version number in the UI.
+                client.DefaultRequestHeaders.TryAddWithoutValidation("Prefer", "return=minimal");
+
+                var insertUrl      = $"{supabaseUrl}/rest/v1/recommendations";
+                var insertResponse = await client.PostAsync(insertUrl, httpContent);
+
+                if (!insertResponse.IsSuccessStatusCode)
+                {
+                    var errBody = await insertResponse.Content.ReadAsStringAsync();
+                    return StatusCode((int)insertResponse.StatusCode,
+                                     $"Failed to insert recommendation: {errBody}");
+                }
+
+                // 3. Sync json_response + current_iteration on the startups row.
+                //    Non-fatal — log a warning but never fail the whole request.
                 try
                 {
-                    // Read the current iteration value so we can increment it
                     var startupRow = await _supabase.From<Spark2Scale_.Server.Models.Startup>()
                         .Where(s => s.Sid == input.StartupId)
                         .Get();
@@ -108,7 +133,6 @@ namespace Spark2Scale_.Server.Controllers
                 }
                 catch (Exception syncEx)
                 {
-                    // Non-fatal: log but don't fail the whole request
                     Console.WriteLine($"[Recommendations/save] Warning – could not sync startup row: {syncEx.Message}");
                 }
 
