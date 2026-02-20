@@ -31,6 +31,29 @@ namespace Spark2Scale_.Server.Controllers
             _environment = environment;
         }
 
+        // GET: api/users
+        [HttpGet]
+        public async Task<IActionResult> GetAllUsers()
+        {
+            try
+            {
+                var result = await _supabase.From<User>().Get();
+                var users = result.Models.Select(u => new
+                {
+                    uid = u.uid,
+                    fname = u.fname,
+                    lname = u.lname,
+                    email = u.email
+                }).ToList();
+
+                return Ok(users);
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, $"Error fetching users: {ex.Message}");
+            }
+        }
+
         // GET: api/users/get-profile/{userId}
         [HttpGet("get-profile/{userId}")]
         public async Task<IActionResult> GetProfile(string userId)
@@ -201,6 +224,18 @@ namespace Spark2Scale_.Server.Controllers
                 if (investorCheck.Models.Any())
                 {
                     detectedRole = "investor";
+                }
+                else
+                {
+                    // 3. Check StartupContributor Table
+                    var contributorCheck = await _supabase.From<StartupContributor>()
+                        .Filter("user_id", Supabase.Postgrest.Constants.Operator.Equals, id.ToString())
+                        .Get();
+
+                    if (contributorCheck.Models.Any())
+                    {
+                        detectedRole = "contributor";
+                    }
                 }
             }
 

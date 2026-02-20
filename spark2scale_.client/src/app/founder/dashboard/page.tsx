@@ -298,8 +298,16 @@ export default function FounderDashboard() {
     );
 }
 
+interface NewStartupData {
+    name: string;
+    field: string;
+    region: string;
+    stage: string;
+    description: string;
+}
+
 // --- SEPARATE COMPONENT TO FIX FOCUS BUG & IMPROVE LAYOUT ---
-function StartupForm({ data, setData, loading, onSubmit }: { data: any, setData: any, loading: boolean, onSubmit: () => void }) {
+function StartupForm({ data, setData, loading, onSubmit }: { data: NewStartupData, setData: (data: NewStartupData) => void, loading: boolean, onSubmit: () => void }) {
     return (
         <div className="space-y-4 mt-2">
             <div className="space-y-1">

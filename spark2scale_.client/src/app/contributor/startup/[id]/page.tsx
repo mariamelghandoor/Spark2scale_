@@ -16,6 +16,8 @@ import { useParams, useRouter } from "next/navigation";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useAuth } from "@/context/AuthContext";
 import { startupDashboardService, WorkflowData, Meeting } from "@/services/startupDashboardService";
+import { startupService, StartupResponse } from "@/services/startupService";
+import ContributorHeader from "@/components/contributor/ContributorHeader";
 
 export default function ContributorStartupPage() {
     const params = useParams();
@@ -24,6 +26,7 @@ export default function ContributorStartupPage() {
 
     // --- State ---
     const [startupName, setStartupName] = useState("Loading...");
+    const [startupDetails, setStartupDetails] = useState<StartupResponse | null>(null);
     const [workflowData, setWorkflowData] = useState<WorkflowData | null>(null);
     const [docCount, setDocCount] = useState(0);
     const [videoCount, setVideoCount] = useState(0);
@@ -45,12 +48,21 @@ export default function ContributorStartupPage() {
             if (!cleanId || loading || !user?.id) return;
 
             try {
-                const data = await startupDashboardService.getDashboardData(cleanId, user.id);
-                setWorkflowData(data.workflow);
-                setStartupName(data.startupName);
-                setDocCount(data.docCount);
-                setVideoCount(data.videoCount);
-                setMeetings(data.meetings);
+                // Parallel fetch for speed
+                const [dashboardData, startupInfo] = await Promise.all([
+                    startupDashboardService.getDashboardData(cleanId, user.id),
+                    startupService.getById(cleanId)
+                ]);
+
+                setWorkflowData(dashboardData.workflow);
+                setStartupName(dashboardData.startupName);
+                setDocCount(dashboardData.docCount);
+                setVideoCount(dashboardData.videoCount);
+                setMeetings(dashboardData.meetings);
+
+                // Set full details
+                setStartupDetails(startupInfo);
+
             } catch (error) {
                 console.error("Dashboard load failed", error);
             } finally {
@@ -68,7 +80,8 @@ export default function ContributorStartupPage() {
     // ---------------------------------------------------------
 
     // Workflow Stages
-    const currentData = workflowData || {
+    const currentData: WorkflowData = workflowData || {
+        startupId: "",
         ideaCheck: false, marketResearch: false, evaluation: false,
         recommendation: false, documents: false, pitchDeck: false
     };
@@ -89,7 +102,7 @@ export default function ContributorStartupPage() {
             icon: BarChart3,
             completed: currentData.marketResearch,
             hasError: false,
-            path: null, // No read-only page yet
+            path: `/contributor/startup/${cleanId}/market-research`,
             isReadOnly: true
         },
         {
@@ -98,7 +111,7 @@ export default function ContributorStartupPage() {
             icon: Target,
             completed: currentData.evaluation,
             hasError: false,
-            path: null, // No read-only page yet
+            path: `/contributor/startup/${cleanId}/evaluate`,
             isReadOnly: true
         },
         {
@@ -107,7 +120,7 @@ export default function ContributorStartupPage() {
             icon: RefreshCw,
             completed: currentData.recommendation,
             hasError: false,
-            path: null, // No read-only page yet
+            path: `/contributor/startup/${cleanId}/recommendations`,
             isReadOnly: true
         },
         {
@@ -117,7 +130,7 @@ export default function ContributorStartupPage() {
             completed: currentData.documents,
             hasError: false,
             path: `/contributor/startup/${cleanId}/documents`,
-            isReadOnly: false // Accessible
+            isReadOnly: false
         },
         {
             id: 6,
@@ -126,7 +139,7 @@ export default function ContributorStartupPage() {
             completed: currentData.pitchDeck,
             hasError: false,
             path: `/contributor/startup/${cleanId}/pitches`,
-            isReadOnly: false // Accessible
+            isReadOnly: false
         },
     ];
 
@@ -207,35 +220,34 @@ export default function ContributorStartupPage() {
     return (
         <div className="min-h-screen bg-gradient-to-br from-[#F0EADC] via-[#fff] to-[#FFD95D]/20">
             {/* Top Navigation Bar */}
-            <div className="border-b bg-white/80 backdrop-blur-lg">
-                <div className="container mx-auto px-4 py-4 flex justify-between items-center">
-                    <div className="flex items-center gap-4">
-                        <Link href="/contributor/dashboard">
-                            <Button variant="ghost" size="icon">
-                                <ArrowLeft className="h-5 w-5" />
-                            </Button>
-                        </Link>
-                        <div>
-                            <h1 className="text-xl font-bold text-[#576238]">
-                                Hello {userName} 👋
-                            </h1>
-                            <p className="text-sm text-muted-foreground">{startupName} • Contributor View</p>
+            <ContributorHeader
+                backLink="/contributor/dashboard"
+                title={startupName}
+                subtitle={
+                    <div className="flex flex-col gap-1">
+                        <p>
+                            {startupDetails?.idea_description || "Welcome to the contributor dashboard."}
+                        </p>
+                        <div className="flex gap-2 text-xs">
+                            {startupDetails?.field && (
+                                <span className="bg-[#576238]/10 text-[#576238] px-2 py-0.5 rounded-full">
+                                    {startupDetails.field}
+                                </span>
+                            )}
+                            {startupDetails?.startup_stage && (
+                                <span className="bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full">
+                                    {startupDetails.startup_stage}
+                                </span>
+                            )}
+                            {startupDetails?.region && (
+                                <span className="bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">
+                                    {startupDetails.region}
+                                </span>
+                            )}
                         </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                        <Link href="/contributor/schedule">
-                            <Button variant="outline" size="icon" className="relative">
-                                <CalendarIcon className="h-5 w-5" />
-                            </Button>
-                        </Link>
-                        <Link href="/profile">
-                            <Button variant="outline" size="icon">
-                                <User className="h-5 w-5" />
-                            </Button>
-                        </Link>
-                    </div>
-                </div>
-            </div>
+                }
+            />
 
             <main className="container mx-auto px-4 py-8">
                 <div className="grid lg:grid-cols-5 gap-8">

@@ -41,6 +41,9 @@ export interface PitchDeck {
     created_at: string;
     tags?: string[];
     countlikes?: number;
+    format?: string;
+    size?: string;
+    uploadedBy?: string;
 }
 
 export const pitchDeckService = {
@@ -60,7 +63,7 @@ export const pitchDeckService = {
         } catch (error: unknown) {
             let errorText = "Failed to upload video";
             if (error && typeof error === 'object' && 'response' in error) {
-                const errResponse = (error as any).response?.data;
+                const errResponse = (error as { response?: { data?: string } }).response?.data;
                 if (errResponse) errorText = errResponse;
             }
             throw new Error(typeof errorText === 'string' ? errorText : JSON.stringify(errorText));
@@ -95,7 +98,7 @@ export const pitchDeckService = {
         } catch (error: unknown) {
             let errorText = "Failed to update pitch name";
             if (error && typeof error === 'object' && 'response' in error) {
-                const errResponse = (error as any).response?.data;
+                const errResponse = (error as { response?: { data?: string } }).response?.data;
                 if (errResponse) errorText = errResponse;
             }
             throw new Error(typeof errorText === 'string' ? errorText : JSON.stringify(errorText));
@@ -109,7 +112,7 @@ export const pitchDeckService = {
         } catch (error: unknown) {
             let errorText = "Failed to update visibility";
             if (error && typeof error === 'object' && 'response' in error) {
-                const errResponse = (error as any).response?.data;
+                const errResponse = (error as { response?: { data?: string } }).response?.data;
                 if (errResponse) errorText = errResponse;
             }
             throw new Error(typeof errorText === 'string' ? errorText : JSON.stringify(errorText));

@@ -9,6 +9,7 @@ import { useParams, useRouter } from "next/navigation";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { pitchDeckService, PitchDeck } from "@/services/pitchDeckService";
+import ContributorHeader from "@/components/contributor/ContributorHeader";
 
 export default function ContributorPitchesPage() {
     const params = useParams();
@@ -34,7 +35,7 @@ export default function ContributorPitchesPage() {
             setIsLoading(true);
             const data = await pitchDeckService.getPitches(startupId);
             setPitches(data);
-            
+
             // Set default selected version to latest (is_current) for each pitch
             const defaultSelections: { [key: string]: string } = {};
             data.forEach((pitch) => {
@@ -100,21 +101,11 @@ export default function ContributorPitchesPage() {
     return (
         <div className="min-h-screen bg-gradient-to-br from-[#F0EADC] via-[#fff] to-[#FFD95D]/20">
             {/* Header */}
-            <div className="border-b bg-white/80 backdrop-blur-lg">
-                <div className="container mx-auto px-4 py-4">
-                    <div className="flex items-center gap-4">
-                        <Link href={`/contributor/startup/${params.id}`}>
-                            <Button variant="ghost" size="icon">
-                                <ArrowLeft className="h-5 w-5" />
-                            </Button>
-                        </Link>
-                        <div>
-                            <h1 className="text-xl font-bold text-[#576238]">Pitch Decks</h1>
-                            <p className="text-sm text-muted-foreground">View pitch videos and presentations</p>
-                        </div>
-                    </div>
-                </div>
-            </div>
+            <ContributorHeader
+                backLink={`/contributor/startup/${params.id}`}
+                title="Pitch Decks"
+                subtitle="View pitch videos and presentations"
+            />
 
             <main className="container mx-auto px-4 py-8">
                 <div className="max-w-6xl mx-auto">
@@ -147,71 +138,71 @@ export default function ContributorPitchesPage() {
                         <div className="grid md:grid-cols-2 gap-6">
                             {pitches.map((pitch) => (
                                 <Card key={pitch.pitchdeckid} className="border-2 hover:border-[#FFD95D] transition-all">
-                                <CardHeader>
-                                    <div className="relative mb-4 rounded-lg overflow-hidden group bg-gray-200 aspect-video flex items-center justify-center">
-                                        {pitch.video_url ? (
-                                            <>
-                                                <video
-                                                    src={pitch.video_url}
-                                                    className="w-full h-full object-cover"
-                                                    preload="metadata"
-                                                />
-                                                <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                                                    <Play className="h-16 w-16 text-white" />
+                                    <CardHeader>
+                                        <div className="relative mb-4 rounded-lg overflow-hidden group bg-gray-200 aspect-video flex items-center justify-center">
+                                            {pitch.video_url ? (
+                                                <>
+                                                    <video
+                                                        src={pitch.video_url}
+                                                        className="w-full h-full object-cover"
+                                                        preload="metadata"
+                                                    />
+                                                    <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                                                        <Play className="h-16 w-16 text-white" />
+                                                    </div>
+                                                </>
+                                            ) : (
+                                                <div className="text-gray-400">
+                                                    <Play className="h-16 w-16 mx-auto" />
                                                 </div>
-                                            </>
-                                        ) : (
-                                            <div className="text-gray-400">
-                                                <Play className="h-16 w-16 mx-auto" />
-                                            </div>
-                                        )}
-                                    </div>
-                                    <CardTitle className="text-[#576238]">
-                                        {pitch.pitchname || `Pitch ${pitch.pitchdeckid.substring(0, 8)}`}
-                                    </CardTitle>
-                                    <CardDescription>
-                                        {pitch.format} � {pitch.size} � Uploaded by {pitch.uploadedBy}
-                                    </CardDescription>
-                                </CardHeader>
-                                <CardContent className="space-y-3">
-                                    {/* Version Selection */}
-                                    <Select
-                                        value={selectedVersions[pitch.pitchdeckid] || pitch.pitchdeckid}
-                                        onValueChange={(value) => handleVersionChange(pitch.pitchdeckid, value)}
-                                    >
-                                        <SelectTrigger className="border-[#576238]/30">
-                                            <SelectValue placeholder="Select version" />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            <SelectItem value={pitch.pitchdeckid}>
-                                                {pitch.is_current ? "Current (Latest)" : "This Version"} - {formatDate(pitch.created_at)}
-                                            </SelectItem>
-                                        </SelectContent>
-                                    </Select>
-
-                                    {/* Action Buttons */}
-                                    <div className="flex gap-2">
-                                        <Button
-                                            variant="default"
-                                            size="sm"
-                                            onClick={() => handleView(pitch.pitchdeckid)}
-                                            className="flex-1 bg-[#576238] hover:bg-[#6b7c3f] gap-2"
+                                            )}
+                                        </div>
+                                        <CardTitle className="text-[#576238]">
+                                            {pitch.pitchname || `Pitch ${pitch.pitchdeckid.substring(0, 8)}`}
+                                        </CardTitle>
+                                        <CardDescription>
+                                            {pitch.format} � {pitch.size} � Uploaded by {pitch.uploadedBy}
+                                        </CardDescription>
+                                    </CardHeader>
+                                    <CardContent className="space-y-3">
+                                        {/* Version Selection */}
+                                        <Select
+                                            value={selectedVersions[pitch.pitchdeckid] || pitch.pitchdeckid}
+                                            onValueChange={(value) => handleVersionChange(pitch.pitchdeckid, value)}
                                         >
-                                            <Play className="h-4 w-4" />
-                                            Watch
-                                        </Button>
-                                        <Button
-                                            variant="outline"
-                                            size="sm"
-                                            onClick={() => handleDownload(pitch)}
-                                            className="gap-2"
-                                        >
-                                            <Download className="h-4 w-4" />
-                                            Download
-                                        </Button>
-                                    </div>
+                                            <SelectTrigger className="border-[#576238]/30">
+                                                <SelectValue placeholder="Select version" />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value={pitch.pitchdeckid}>
+                                                    {pitch.is_current ? "Current (Latest)" : "This Version"} - {formatDate(pitch.created_at)}
+                                                </SelectItem>
+                                            </SelectContent>
+                                        </Select>
 
-                                    {/* View Details Button */}
+                                        {/* Action Buttons */}
+                                        <div className="flex gap-2">
+                                            <Button
+                                                variant="default"
+                                                size="sm"
+                                                onClick={() => handleView(pitch.pitchdeckid)}
+                                                className="flex-1 bg-[#576238] hover:bg-[#6b7c3f] gap-2"
+                                            >
+                                                <Play className="h-4 w-4" />
+                                                Watch
+                                            </Button>
+                                            <Button
+                                                variant="outline"
+                                                size="sm"
+                                                onClick={() => handleDownload(pitch)}
+                                                className="gap-2"
+                                            >
+                                                <Download className="h-4 w-4" />
+                                                Download
+                                            </Button>
+                                        </div>
+
+                                        {/* View Details Button */}
                                         <Button
                                             variant="outline"
                                             size="sm"
@@ -221,7 +212,7 @@ export default function ContributorPitchesPage() {
                                             <Eye className="h-4 w-4" />
                                             View Details
                                         </Button>
-                                </CardContent>
+                                    </CardContent>
                                 </Card>
                             ))}
                         </div>

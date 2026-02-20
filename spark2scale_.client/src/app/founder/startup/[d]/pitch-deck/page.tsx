@@ -6,12 +6,13 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { ArrowLeft, Upload, Loader2, BarChart3, CheckCheck } from "lucide-react";
 import Link from "next/link";
 import { motion } from "framer-motion";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { pitchDeckService, PitchDeck } from "@/services/pitchDeckService";
 import { startupService } from "@/services/startupService";
 
 export default function PitchDeckPage() {
     const params = useParams();
+    const router = useRouter();
 
     const rawId = params?.d || params?.id;
     const startupId = rawId
@@ -114,6 +115,7 @@ export default function PitchDeckPage() {
             const success = await pitchDeckService.completeStage(startupId);
             if (success) {
                 setIsStageDone(true);
+                router.push(`/founder/startup/${startupId}`);
             } else {
                 alert("Failed to update status.");
             }
@@ -334,18 +336,18 @@ export default function PitchDeckPage() {
                             {isStageDone ? (
                                 <div className="flex flex-col items-center gap-2">
                                     <Button
-                                        disabled
-                                        className="bg-[#576238] text-white font-semibold opacity-100 cursor-not-allowed"
+                                        size="lg"
+                                        variant="outline"
+                                        className="font-semibold"
+                                        asChild
                                     >
-                                        <CheckCheck className="mr-2 h-4 w-4" />
-                                        Stage Completed!
+                                        <Link href={`/founder/startup/${startupId}`}>
+                                            Return to Dashboard
+                                        </Link>
                                     </Button>
                                     <p className="text-sm text-muted-foreground font-medium mt-1">
-                                        Great job! You have finalized this step.
+                                        Great job! You have finalized the workflow.
                                     </p>
-                                    <Link href={`/founder/startup/${startupId}`} className="text-sm text-[#576238] hover:underline mt-1 block">
-                                        Return to Dashboard →
-                                    </Link>
                                 </div>
                             ) : (
                                 <>
@@ -361,13 +363,11 @@ export default function PitchDeckPage() {
                                                 Updating...
                                             </>
                                         ) : (
-                                            <>
-                                                🎉 Complete All Stages!
-                                            </>
+                                            "Mark as Complete & Finish"
                                         )}
                                     </Button>
                                     <p className="text-sm text-muted-foreground mt-3">
-                                        Click this to mark the Pitch Deck stage as done in your workflow.
+                                        Click this to complete the final stage of your workflow.
                                     </p>
                                 </>
                             )}

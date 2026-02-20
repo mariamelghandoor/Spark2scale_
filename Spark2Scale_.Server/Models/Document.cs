@@ -39,6 +39,9 @@ namespace Spark2Scale_.Server.Models
 
         [Column("is_current")]
         public bool IsCurrent { get; set; }
+
+        [Column("json_response")]
+        public object JsonResponse { get; set; }
     }
 
     // --- DTOs ---

@@ -1,21 +1,38 @@
 'use client';
 
-import { useState, Suspense } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import Image from 'next/image'; // Assuming generic image for now or use one from assets
-// import { inviteAuthService } from '@/services/authService'; // Removed invalid import
+import Image from 'next/image';
 import apiClient from '@/lib/apiClient';
+import { useAuth } from '@/context/AuthContext';
+import { User } from '@/lib/auth';
 
 // Helper to wrap useSearchParams in Suspense boundary
 function SignUpForm() {
     const router = useRouter();
     const searchParams = useSearchParams();
+    const { login } = useAuth();
 
-    // Auto-fill from Invitation
-    const email = searchParams.get('email') || '';
-    const token = searchParams.get('token') || '';
-    const startupId = searchParams.get('startupId') || '';
+    // Check for pending invitation in sessionStorage first
+    const [invitationContext, setInvitationContext] = useState<any>(null);
+
+    useEffect(() => {
+        const pendingInvitationStr = localStorage.getItem('pendingInvitation');
+        if (pendingInvitationStr) {
+            try {
+                const invitation = JSON.parse(pendingInvitationStr);
+                setInvitationContext(invitation);
+            } catch (error) {
+                console.error('Failed to parse pending invitation:', error);
+            }
+        }
+    }, []);
+
+    // Auto-fill from Invitation context or URL params (fallback)
+    const email = invitationContext?.email || searchParams.get('email') || '';
+    const token = invitationContext?.token || searchParams.get('token') || '';
+    const startupId = invitationContext?.startupId || searchParams.get('startupId') || '';
 
     const [formData, setFormData] = useState({
         firstName: '',
@@ -29,6 +46,13 @@ function SignUpForm() {
 
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
+
+    // Update email when invitation context loads
+    useEffect(() => {
+        if (invitationContext?.email) {
+            setFormData(prev => ({ ...prev, email: invitationContext.email }));
+        }
+    }, [invitationContext]);
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
         setFormData({ ...formData, [e.target.name]: e.target.value });
@@ -46,10 +70,15 @@ function SignUpForm() {
         }
 
         try {
-            // 1. Sign Up User (Standard Auth but with Contributor type and StartupId)
-            // We need to match the backend 'FullSignUpRequest' structure:
-            // { Name, Email, Password, ConfirmPassword, Phone, AddressRegion, UserType, Tags[], StartupId }
+            console.log("Signup Debug - Invitation Context:", invitationContext);
 
+            if (!startupId || startupId === 'undefined' || startupId === 'null') {
+                setError("Critical Error: Invalid Invitation Link (Missing Startup ID). Please go back to the invitation email and click the link again.");
+                setLoading(false);
+                return;
+            }
+
+            // 1. Sign Up User (Standard Auth but with Contributor type and StartupId)
             const payload = {
                 Name: `${formData.firstName} ${formData.lastName}`.trim(),
                 Email: formData.email,
@@ -59,55 +88,60 @@ function SignUpForm() {
                 AddressRegion: formData.region,
                 UserType: 'contributor',
                 Tags: [],
-                StartupId: startupId ? startupId : null
+                StartupId: startupId,
+                RedirectUrl: window.location.origin + '/auth/callback'
             };
 
+            console.log("Sending Payload:", payload);
+
             const response = await apiClient.post('/api/Auth/signup', payload);
+            const data = response.data;
 
-            // 2. If successful, we need to finalize the invitation acceptance?
-            // Actually, the AuthController logic creates the User -> Profile -> Contributor record.
-            // BUT, the 'Invitation' status in the database is still 'Pending'.
-            // We need to update that locally or trigger it.
-            // However, the user needs to Verify Email first usually.
+            // 2. CHECK FOR AUTO-LOGIN (If Supabase Auto-Confirm is ON)
+            if (data.token && data.user) {
+                // Auto-login logic: If token is present, assume auto-confirmed
+                login(data.user as User, data.token);
 
-            // If the signup was successful, the backend might have created the contributor link.
-            // BUT the invitation status is separate.
-            // Ideally, we should call 'Respond' after verification. 
-            // OR, if the user is trusted because they came from a valid token link, maybe we auto-verify? 
-            // Unlikely without significant Auth changes.
+                // Clear pending invitation
+                localStorage.removeItem('pendingInvitation');
 
-            // Simple Flow: 
-            // User Signs up -> Email Verification Sent.
-            // User Verifies -> Logs In.
-            // User needs to go back to the invite link? Or we handle it?
+                // Redirect directly to the startup dashboard
+                router.push(`/contributor/startup/${startupId}`);
+                console.log("Redirecting to dashboard...");
+                return;
+            }
 
-            // BETTER APPROACH:
-            // 1. User Signs Up.
-            // 2. We tell them to check email.
-            // 3. (Optional) We could call `invitationService.respond` HERE if we had the user ID, 
-            //    but we might not have it if email confirmation is required (Auth.User is null).
+            // 3. FALLBACK: Store invitation context for post-verification acceptance
+            if (startupId) {
+                localStorage.setItem('postVerificationInvitation', JSON.stringify({
+                    token: token || '',
+                    startupId: startupId,
+                    email: formData.email
+                }));
+            }
 
-            // So: Just proceed with Signup.
-            // The user will verify email, then log in.
-            // Upon login, we can't easily auto-redirect back to 'respond' unless we store state.
-            // But wait, the `StartupContributor` record is created in `AuthController.SignUp` if `StartupId` is passed!
-            // So they ARE added to the team.
-            // The only thing left is to mark Invitation as "Accepted" in `invitations` table.
-            // We can do this if we trust the flow, or just let it expire. 
-            // Best practice: Update it.
-            // We can call an endpoint to "Consume Token" if we don't have User ID yet? 
-            // Or just let the backend handle it?
-            // Since `AuthController` doesn't know about `Invitation` table (Token), it can't update it.
+            // Clear the pending invitation
+            localStorage.removeItem('pendingInvitation');
 
-            // Workaround: Call a separate endpoint to mark invitation as used? 
-            // Or just ignore it since `StartupContributor` is the source of truth.
-            // Let's just finish the signup.
+            // Redirect to verify page with email
+            router.push(`/signup/verify?email=${encodeURIComponent(formData.email)}`);
 
-            router.push('/signup/verify'); // Redirect to generic verification instruction page.
 
-        } catch (err: unknown) {
-            const errorObj = err as { response?: { data?: { message?: string } } };
-            setError(errorObj.response?.data?.message || 'Signup failed. Please try again.');
+        } catch (err: any) {
+            console.error("Signup Error:", err);
+            let msg = 'Signup failed. Please try again.';
+
+            if (err.response && err.response.data) {
+                console.log("Backend Error Data:", err.response.data);
+                if (err.response.data.message) msg = err.response.data.message;
+                else if (typeof err.response.data === 'string') msg = err.response.data;
+
+                if (err.response.data.errors) {
+                    console.error("Validation Errors:", err.response.data.errors);
+                }
+            }
+
+            setError(msg);
         } finally {
             setLoading(false);
         }
@@ -160,10 +194,10 @@ function SignUpForm() {
                         type="email"
                         name="email"
                         required
-                        readOnly={!!email} // Read-only if from invite
-                        value={formData.email}
+                        readOnly={!!email && email !== 'undefined'} // Read-only only if valid email exists
+                        value={formData.email === 'undefined' ? '' : formData.email}
                         onChange={handleChange}
-                        className={`w-full px-4 py-2 border border-gray-300 rounded-lg outline-none transition-all ${email ? 'bg-gray-100 text-gray-500 cursor-not-allowed' : 'focus:ring-2 focus:ring-[#576238] focus:border-transparent'}`}
+                        className={`w-full px-4 py-2 border border-gray-300 rounded-lg outline-none transition-all ${email && email !== 'undefined' ? 'bg-gray-100 text-gray-500 cursor-not-allowed' : 'focus:ring-2 focus:ring-[#576238] focus:border-transparent'}`}
                     />
                 </div>
 

@@ -13,6 +13,7 @@ import {
     SessionSummary,
     ChatMessage
 } from "@/services/ideaCheckService";
+import ContributorHeader from "@/components/contributor/ContributorHeader";
 
 export default function ContributorIdeaCheckPage() {
     const params = useParams();
@@ -100,28 +101,20 @@ export default function ContributorIdeaCheckPage() {
     return (
         <div className="min-h-screen bg-gradient-to-br from-[#F0EADC] via-[#fff] to-[#FFD95D]/20 flex flex-col">
             {/* Top Navigation Bar */}
-            <div className="border-b bg-white/80 backdrop-blur-lg sticky top-0 z-10">
-                <div className="container mx-auto px-4 py-4 flex justify-between items-center">
-                    <div className="flex items-center gap-4">
-
-                        <Link href={`/contributor/startup/${cleanId}`}>
-                            <Button variant="ghost" size="icon">
-                                <ArrowLeft className="h-5 w-5" />
-                            </Button>
-                        </Link>
-
-                        <div>
-                            <h1 className="text-xl font-bold text-[#576238]">💡 Idea Check (Read-Only)</h1>
-                            <p className="text-sm text-muted-foreground">{startupName}</p>
-                        </div>
+            <ContributorHeader
+                backLink={`/contributor/startup/${cleanId}`}
+                title="💡 Idea Check (Read-Only)"
+                subtitle={
+                    <div className="flex items-center gap-2">
+                        <span>{startupName}</span>
+                        {isStageCompleted && (
+                            <span className="px-2 py-0.5 bg-green-100 text-green-700 rounded-full text-xs font-medium border border-green-200">
+                                ✓ Verified & Completed
+                            </span>
+                        )}
                     </div>
-                    {isStageCompleted && (
-                        <div className="px-3 py-1 bg-green-100 text-green-700 rounded-full text-sm font-medium border border-green-200">
-                            ✓ Verified & Completed
-                        </div>
-                    )}
-                </div>
-            </div>
+                }
+            />
 
             <main className="flex-1 container mx-auto px-4 py-8 flex gap-6">
 

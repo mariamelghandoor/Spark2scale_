@@ -383,5 +383,52 @@ namespace Spark2Scale_.Server.Controllers
                  return StatusCode(500, $"Delete failed: {ex.Message}");
             }
         }
+        [HttpPost("save-ai-response")]
+        public async Task<IActionResult> SaveAIResponse([FromBody] SaveAIResponseDto input)
+        {
+            if (input.StartupId == Guid.Empty) return BadRequest("Invalid Startup ID.");
+
+            // AUTH CHECK (Optional: Add token check here if strictly required)
+            // if (!await _access.IsFounderOrOwner(GetToken(), input.StartupId)) ...
+
+            try
+            {
+                var docName = $"{input.Type} (AI Analysis)";
+                var now = DateTime.UtcNow;
+
+                // 1. Create new Document record
+                var newDoc = new Document
+                {
+                    Did = Guid.NewGuid(),
+                    StartupId = input.StartupId,
+                    DocumentName = docName,
+                    Type = input.Type, // e.g., "Recommendation"
+                    CurrentPath = "", // No file path for JSON-only responses
+                    CurrentVersion = 1,
+                    CanAccess = 1, // Founder only or Restricted? 1=Public/Shared usually. Let's use 1.
+                    UpdatedAt = now,
+                    CreatedAt = now,
+                    IsCurrent = true,
+                    JsonResponse = input.Content // Save the JSON blob
+                };
+
+                // 2. Insert into Supabase
+                // Using Representation to get back the inserted ID if needed, though we set GUID manually.
+                var inserted = await _supabase.From<Document>().Insert(newDoc);
+                
+                return Ok(new { message = "AI Response Saved", docId = newDoc.Did });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, $"Save failed: {ex.Message}");
+            }
+        }
+    }
+
+    public class SaveAIResponseDto
+    {
+        public Guid StartupId { get; set; }
+        public string? Type { get; set; }
+        public object? Content { get; set; }
     }
 }

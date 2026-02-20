@@ -6,7 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { ArrowLeft, Download, Filter, Sparkles, Eye, CheckCircle, RotateCcw, Loader2, FileText } from "lucide-react";
 import Link from "next/link";
 import { motion } from "framer-motion";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { marketResearchService, MarketResearchDoc } from "@/services/marketResearchService"; // Adjust import path
@@ -14,6 +14,7 @@ import { startupService } from "@/services/startupService";
 
 export default function MarketResearchPage() {
     const params = useParams();
+    const router = useRouter();
     const startupId = params.d as string;
 
     // State
@@ -81,6 +82,7 @@ export default function MarketResearchPage() {
         const success = await marketResearchService.completeStage(startupId);
         if (success) {
             setIsWorkflowComplete(true);
+            router.push(`/founder/startup/${startupId}`);
         }
     };
 
@@ -285,12 +287,25 @@ export default function MarketResearchPage() {
                                     `}
                                 >
                                     {isWorkflowComplete ? (
-                                        <>
-                                            <CheckCircle className="mr-2 h-5 w-5" />
-                                            Research Completed
-                                        </>
+                                        <Button
+                                            size="lg"
+                                            variant="outline"
+                                            className="font-semibold"
+                                            asChild
+                                        >
+                                            <Link href={`/founder/startup/${startupId}`}>
+                                                Continue to Dashboard
+                                            </Link>
+                                        </Button>
                                     ) : (
-                                        "Complete Research Stage"
+                                        <Button
+                                            size="lg"
+                                            className="bg-[#FFD95D] hover:bg-[#ffe89a] text-black font-semibold"
+                                            onClick={handleComplete}
+                                            disabled={userRole !== 'Founder'}
+                                        >
+                                            Mark as Complete & Continue
+                                        </Button>
                                     )}
                                 </Button>
                             </motion.div>

@@ -197,11 +197,30 @@ namespace Spark2Scale_.Server.Controllers
             var sentTask = _supabase.From<Meeting>().Filter("sender_id", Supabase.Postgrest.Constants.Operator.Equals, userId.Value.ToString()).Get();
             var receivedTask = _supabase.From<Meeting>().Filter("receiver_id", Supabase.Postgrest.Constants.Operator.Equals, userId.Value.ToString()).Get();
 
+            // Fetch meetings associated with the user's startups (for contributors)
+            var startupLinks = await _supabase.From<StartupContributor>()
+                .Filter("user_id", Supabase.Postgrest.Constants.Operator.Equals, userId.Value.ToString())
+                .Get();
+            
+            var startupIds = startupLinks.Models.Select(l => l.StartupId.ToString()).Distinct().ToList();
+            var startupMeetings = new List<Meeting>();
+            if (startupIds.Any())
+            {
+                var sMeetingsRes = await _supabase.From<Meeting>()
+                    .Filter("startup_id", Supabase.Postgrest.Constants.Operator.In, startupIds)
+                    .Get();
+                startupMeetings = sMeetingsRes.Models;
+            }
+
             await Task.WhenAll(sentTask, receivedTask);
 
-            var allMeetings = sentTask.Result.Models.Concat(receivedTask.Result.Models)
-                                                    .GroupBy(m => m.MeetingId).Select(g => g.First())
-                                                    .OrderBy(m => m.MeetingDate).ToList();
+            var allMeetings = sentTask.Result.Models
+                .Concat(receivedTask.Result.Models)
+                .Concat(startupMeetings)
+                .GroupBy(m => m.MeetingId)
+                .Select(g => g.First())
+                .OrderBy(m => m.MeetingDate)
+                .ToList();
 
             var userIdsToFetch = new List<string>();
             foreach (var m in allMeetings)

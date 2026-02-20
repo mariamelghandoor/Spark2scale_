@@ -145,7 +145,7 @@ namespace Spark2Scale_.Server.Controllers
                 // Assuming client runs on 5173 for now or whatever origin is configured.
                 
                 // TODO: Load this from config
-                var clientBaseUrl = "http://localhost:5173"; 
+                var clientBaseUrl = "http://localhost:3000"; 
                 var inviteLink = $"{clientBaseUrl}/invite/accept?token={token}";
 
                 await _emailService.SendInvitationEmailAsync(request.Email, startup.StartupName, inviteLink);
@@ -194,12 +194,24 @@ namespace Spark2Scale_.Server.Controllers
                     if (request.UserId == Guid.Empty)
                         return BadRequest(new { message = "User ID is required for acceptance." });
 
+                    // Verify User exists (proxy check via public.models.User)
+                    // If auth.users FK fails, it means user is deleted or ID is invalid.
+                    // We can't query auth.users directly easily, but we can query public.users
+                    var userCheck = await _supabase.From<Spark2Scale_.Server.Models.User>()
+                        .Filter("uid", Supabase.Postgrest.Constants.Operator.Equals, request.UserId.ToString())
+                        .Get();
+
+                    if (!userCheck.Models.Any())
+                    {
+                        return BadRequest(new { message = "User account not found. Please sign out and sign in again." });
+                    }
+
                     // 1. Add to Startup Contributors
                     _logger.LogInformation("Adding user {UserId} to startup {StartupId}", request.UserId, invite.StartupId);
 
                     var existingContrib = await _supabase.From<StartupContributor>()
                         .Match(new Dictionary<string, string> {
-                            { "contributor_id", request.UserId.ToString() },
+                            { "user_id", request.UserId.ToString() },
                             { "startup_id", invite.StartupId.ToString() }
                         }).Get();
 
@@ -214,8 +226,18 @@ namespace Spark2Scale_.Server.Controllers
                             InvitedAt = invite.InvitedAt
                         };
                         
-                        await _supabase.From<StartupContributor>().Insert(contributor);
-                        _logger.LogInformation("User {UserId} added as contributor to {StartupId}", request.UserId, invite.StartupId);
+                        try 
+                        {
+                            await _supabase.From<StartupContributor>().Insert(contributor);
+                            _logger.LogInformation("User {UserId} added as contributor to {StartupId} with Role {Role}", request.UserId, invite.StartupId, invite.Role);
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogError(ex, "FAILED to add contributor {UserId} to {StartupId}. This might be an RLS issue or constraint violation.", request.UserId, invite.StartupId);
+                            // We should probably NOT mark invitation as accepted if this fails? 
+                            // Or return error?
+                            throw; // Re-throw so we don't mark invitation as accepted
+                        }
                     }
                     else
                     {
@@ -230,7 +252,18 @@ namespace Spark2Scale_.Server.Controllers
                     
                     _logger.LogInformation("Invitation {InvitationId} marked as Accepted", invite.Id);
 
-                    return Ok(new { Message = "Invitation accepted.", StartupId = invite.StartupId });
+                    // 3. Fetch Startup Name for response
+                    var startupRes = await _supabase.From<Startup>()
+                        .Where(s => s.Sid == invite.StartupId)
+                        .Get();
+                    var startup = startupRes.Models.FirstOrDefault();
+                    var startupName = startup?.StartupName ?? "Unknown Startup";
+
+                    return Ok(new { 
+                        message = "Invitation accepted.", 
+                        startupId = invite.StartupId,
+                        startupName = startupName
+                    });
                 }
                 else
                 {
@@ -242,13 +275,60 @@ namespace Spark2Scale_.Server.Controllers
 
                     _logger.LogInformation("Invitation {InvitationId} marked as Rejected", invite.Id);
 
-                    return Ok(new { Message = "Invitation rejected." });
+                    return Ok(new { message = "Invitation rejected." });
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error processing invitation response for token {Token}", request.Token);
-                return StatusCode(500, new { Message = $"Error processing acceptance: {ex.Message}" });
+                return StatusCode(500, new { message = $"Error processing acceptance: {ex.Message}" });
+            }
+        }
+
+        [HttpGet("my-pending")]
+        public async Task<IActionResult> GetMyPendingInvitations()
+        {
+            var token = GetToken();
+            if (string.IsNullOrEmpty(token)) return Unauthorized("Missing token.");
+
+            try
+            {
+                var user = await _supabase.Auth.GetUser(token);
+                if (user == null) return Unauthorized("Invalid token.");
+
+                var email = user.Email;
+
+                var res = await _supabase.From<Invitation>()
+                    .Where(i => i.Email == email && i.Status == "Pending")
+                    .Get();
+
+                var invites = res.Models;
+                var dtos = new List<object>();
+
+                foreach (var invite in invites)
+                {
+                    // Fetch Startup Name
+                    var startupRes = await _supabase.From<Startup>()
+                        .Where(s => s.Sid == invite.StartupId)
+                        .Get();
+                    var startupName = startupRes.Models.FirstOrDefault()?.StartupName ?? "Unknown Startup";
+
+                    dtos.Add(new 
+                    {
+                        invitationId = invite.Id,
+                        startupId = invite.StartupId,
+                        startupName = startupName,
+                        role = invite.Role,
+                        expiresAt = invite.ExpiresAt,
+                        token = invite.Token
+                    });
+                }
+
+                return Ok(dtos);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error fetching pending invitations.");
+                return StatusCode(500, "Error fetching pending invitations.");
             }
         }
     }

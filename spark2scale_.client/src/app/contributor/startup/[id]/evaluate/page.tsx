@@ -1,27 +1,25 @@
-﻿"use client";
+"use client";
 
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { ArrowLeft, Download, PlayCircle, CheckCircle, FileText, Loader2 } from "lucide-react";
+import { ArrowLeft, Download, FileText, Loader2, CheckCircle } from "lucide-react";
 import Link from "next/link";
 import { motion } from "framer-motion";
-import { useParams, useRouter } from "next/navigation";
+import { useParams } from "next/navigation";
 import { Progress } from "@/components/ui/progress";
 import { evaluationService, EvaluationDocument } from "@/services/evaluationService";
 import { startupService } from "@/services/startupService";
+import ContributorHeader from "@/components/contributor/ContributorHeader";
 
-export default function EvaluatePage() {
+export default function ContributorEvaluatePage() {
     const params = useParams();
-    const router = useRouter();
-    const startupId = params.d as string;
+    const startupId = params?.id ? (Array.isArray(params.id) ? params.id[0] : params.id) : "";
 
     // State
     const [evalDoc, setEvalDoc] = useState<EvaluationDocument | null>(null);
     const [isWorkflowComplete, setIsWorkflowComplete] = useState(false);
     const [isLoading, setIsLoading] = useState(true);
-    const [isGenerating, setIsGenerating] = useState(false);
-    const [userRole, setUserRole] = useState<string>("Viewer");
 
     // Initial Data Fetch
     useEffect(() => {
@@ -29,15 +27,13 @@ export default function EvaluatePage() {
             if (!startupId) return;
             setIsLoading(true);
 
-            // Parallel fetch for speed
-            const [doc, isComplete, startupDetails] = await Promise.all([
+            // Parallel fetch
+            const [doc, isComplete] = await Promise.all([
                 evaluationService.getCurrentEvaluation(startupId),
-                evaluationService.getWorkflowStatus(startupId),
-                startupService.getById(startupId)
+                evaluationService.getWorkflowStatus(startupId)
             ]);
 
             setEvalDoc(doc);
-            if (startupDetails) setUserRole(startupDetails.current_role || "Viewer");
             setIsWorkflowComplete(isComplete);
             setIsLoading(false);
         };
@@ -45,36 +41,7 @@ export default function EvaluatePage() {
         loadData();
     }, [startupId]);
 
-    // Handle "Run Evaluation" (Generates the file)
-    const handleRunEvaluation = async () => {
-        setIsGenerating(true);
-        const success = await evaluationService.generateEvaluation(startupId);
-
-        if (success) {
-            // Refresh document
-            const newDoc = await evaluationService.getCurrentEvaluation(startupId);
-            setEvalDoc(newDoc);
-
-            // CRITICAL: Reset complete status so user can re-approve the new version
-            setIsWorkflowComplete(false);
-        }
-        setIsGenerating(false);
-    };
-
-    // Handle "Complete Evaluation" Button
-    const handleCompleteStage = async () => {
-        if (!startupId) return;
-
-        // Call the service to handle the data logic
-        const success = await evaluationService.markAsComplete(startupId);
-
-        if (success) {
-            setIsWorkflowComplete(true); // Update UI state
-            router.push(`/founder/startup/${startupId}`);
-        }
-    };
-
-    // Hardcoded demo data for visual score
+    // Hardcoded demo data for visual score (keeping consistent with Founder view)
     const demoScoreData = {
         overallScore: 85,
         categories: [
@@ -96,66 +63,20 @@ export default function EvaluatePage() {
     return (
         <div className="min-h-screen bg-gradient-to-br from-[#F0EADC] via-[#fff] to-[#FFD95D]/20">
             {/* Top Navigation Bar */}
-            <div className="border-b bg-white/80 backdrop-blur-lg">
-                <div className="container mx-auto px-4 py-4 flex justify-between items-center">
-                    <div className="flex items-center gap-4">
-                        <Link href={`/founder/startup/${startupId}`}>
-                            <Button variant="ghost" size="icon">
-                                <ArrowLeft className="h-5 w-5" />
-                            </Button>
-                        </Link>
-                        <div>
-                            <h1 className="text-xl font-bold text-[#576238]">🎯 Evaluate</h1>
-                            <p className="text-sm text-muted-foreground">
-                                Stage 4 of 6 - Get comprehensive evaluation • {userRole} View
-                            </p>
-                        </div>
-                    </div>
-                </div>
-            </div>
+            <ContributorHeader
+                backLink={`/contributor/startup/${startupId}`}
+                title="🎯 Evaluate"
+                subtitle="Stage 4 of 6 - Evaluation • Read-Only View"
+            />
 
             <main className="container mx-auto px-4 py-8">
                 <div className="max-w-4xl mx-auto">
 
-                    {/* SCENARIO 1: No Document Exists - Show "Run Evaluation" */}
-                    {!evalDoc && userRole === 'Founder' && (
-                        <motion.div
-                            initial={{ opacity: 0, y: 20 }}
-                            animate={{ opacity: 1, y: 0 }}
-                        >
-                            <Card className="mb-6 border-2 border-[#FFD95D]">
-                                <CardHeader className="bg-gradient-to-r from-[#FFD95D]/20 to-transparent">
-                                    <CardTitle className="text-[#576238]">
-                                        Run New Evaluation
-                                    </CardTitle>
-                                    <CardDescription>
-                                        Get an AI-powered assessment of your startup's current state
-                                    </CardDescription>
-                                </CardHeader>
-                                <CardContent className="pt-6">
-                                    <div className="text-center space-y-4">
-                                        <div className="text-6xl mb-4">🎯</div>
-                                        <p className="text-muted-foreground mb-6">
-                                            Our AI will analyze your documents, market research, and
-                                            business model to provide a comprehensive evaluation.
-                                        </p>
-                                        <Button
-                                            onClick={handleRunEvaluation}
-                                            disabled={isGenerating}
-                                            className="bg-[#576238] hover:bg-[#6b7c3f]"
-                                            size="lg"
-                                        >
-                                            {isGenerating ? (
-                                                <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-                                            ) : (
-                                                <PlayCircle className="mr-2 h-5 w-5" />
-                                            )}
-                                            {isGenerating ? "Analyzing..." : "Run Evaluation"}
-                                        </Button>
-                                    </div>
-                                </CardContent>
-                            </Card>
-                        </motion.div>
+                    {/* SCENARIO 1: No Document Exists */}
+                    {!evalDoc && (
+                        <div className="text-center p-12 bg-gray-50 rounded-lg border-2 border-dashed">
+                            <p className="text-gray-500">No evaluation generated yet.</p>
+                        </div>
                     )}
 
                     {/* SCENARIO 2: Document Exists - Show Report */}
@@ -164,17 +85,7 @@ export default function EvaluatePage() {
                             initial={{ opacity: 0, y: 20 }}
                             animate={{ opacity: 1, y: 0 }}
                         >
-                            {/* Regenerate Option */}
-                            <div className="flex justify-end mb-4">
-                                <Button
-                                    variant="outline"
-                                    onClick={handleRunEvaluation}
-                                    disabled={isGenerating || userRole !== 'Founder'}
-                                >
-                                    {isGenerating ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <PlayCircle className="w-4 h-4 mr-2" />}
-                                    Regenerate Evaluation
-                                </Button>
-                            </div>
+                            {/* No Regenerate Option */}
 
                             <Card className="border-2 border-[#576238]/20">
                                 <CardHeader>
@@ -246,7 +157,6 @@ export default function EvaluatePage() {
                                 </CardContent>
                             </Card>
 
-                            {/* COMPLETE BUTTON LOGIC */}
                             <motion.div
                                 initial={{ opacity: 0 }}
                                 animate={{ opacity: 1 }}
@@ -254,29 +164,13 @@ export default function EvaluatePage() {
                                 className="mt-6 text-center"
                             >
                                 {isWorkflowComplete ? (
-                                    <Button
-                                        size="lg"
-                                        variant="outline"
-                                        className="font-semibold"
-                                        asChild
-                                    >
-                                        <Link href={`/founder/startup/${startupId}`}>
-                                            Continue to Dashboard
-                                        </Link>
-                                    </Button>
+                                    <div className="inline-flex items-center px-4 py-2 rounded-full bg-green-100 text-green-700 font-medium text-sm">
+                                        <CheckCircle className="mr-2 h-4 w-4" />
+                                        Evaluation Stage Completed
+                                    </div>
                                 ) : (
-                                    <Button
-                                        size="lg"
-                                        className="bg-[#FFD95D] hover:bg-[#ffe89a] text-black font-semibold"
-                                        onClick={handleCompleteStage}
-                                        disabled={userRole !== 'Founder'}
-                                    >
-                                        Mark as Complete & Continue
-                                    </Button>
-                                )}
-                                {isWorkflowComplete && (
-                                    <p className="text-xs text-muted-foreground mt-2">
-                                        Stage marked as complete. Regenerate to unlock.
+                                    <p className="text-sm text-muted-foreground italic">
+                                        Evaluation in progress.
                                     </p>
                                 )}
                             </motion.div>

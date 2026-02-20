@@ -8,6 +8,7 @@ import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { meetingService, MeetingDto } from "@/services/meetingService";
 import { motion } from "framer-motion";
+import ContributorHeader from "@/components/contributor/ContributorHeader";
 
 export default function ContributorSchedulePage() {
     // Initialize user data from localStorage
@@ -75,28 +76,11 @@ export default function ContributorSchedulePage() {
     return (
         <div className="min-h-screen bg-gradient-to-br from-[#F0EADC] via-[#fff] to-[#FFD95D]/20">
             {/* Header */}
-            <div className="border-b bg-white/80 backdrop-blur-lg">
-                <div className="container mx-auto px-4 py-4">
-                    <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-4">
-                            <Link href="/contributor/dashboard">
-                                <Button variant="ghost" size="icon">
-                                    <ArrowLeft className="h-5 w-5" />
-                                </Button>
-                            </Link>
-                            <div>
-                                <h1 className="text-2xl font-bold text-[#576238]">
-                                    Schedule - {userData.name}
-                                </h1>
-                                <p className="text-sm text-muted-foreground">
-                                    Your upcoming meetings and events
-                                </p>
-                            </div>
-                        </div>
-                        <Calendar className="h-8 w-8 text-[#576238]" />
-                    </div>
-                </div>
-            </div>
+            <ContributorHeader
+                backLink="/contributor/dashboard"
+                title={`Schedule - ${userData.name}`}
+                subtitle="Your upcoming meetings and events"
+            />
 
             <main className="container mx-auto px-4 py-8">
                 <div className="max-w-4xl mx-auto space-y-8">

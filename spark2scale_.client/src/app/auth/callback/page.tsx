@@ -28,14 +28,17 @@ export default function AuthCallbackPage() {
                     throw new Error('Missing verification token. Please check your email link.');
                 }
 
-                // Only process signup verification (not password reset)
-                if (type !== 'signup' && type !== 'email') {
-                    // If it's a recovery type, redirect to reset password page
-                    if (type === 'recovery') {
-                        router.push(`/reset-password${window.location.hash}`);
-                        return;
-                    }
-                    throw new Error('Invalid verification type. Please use the signup verification link.');
+                // Only process signup/magiclink/invite verification (not password reset)
+                // If it's a recovery type, redirect to reset password page
+                if (type === 'recovery') {
+                    router.push(`/reset-password${window.location.hash}`);
+                    return;
+                }
+
+                // Allow 'signup', 'magiclink', 'invite', 'email_change' etc.
+                // We proceed if we have an accessToken.
+                if (type !== 'signup' && type !== 'email' && type !== 'magiclink' && type !== 'invite') {
+                    console.log(`[AuthCallback] Warning: Unexpected verification type '${type}'. Proceeding as it includes an access token.`);
                 }
 
                 const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5231';
@@ -43,20 +46,32 @@ export default function AuthCallbackPage() {
                 let cleanApiUrl = apiUrl.replace(/\/$/, '');
                 cleanApiUrl = cleanApiUrl.replace(/\/api$/, '');
 
-                console.log('=== EMAIL VERIFICATION REQUEST ===');
-                console.log('Full URL:', `${cleanApiUrl}/api/Auth/verify-email`);
+                let endpoint = `${cleanApiUrl}/api/Auth/verify-email`;
+                let body: any = {
+                    AccessToken: accessToken,
+                    RefreshToken: refreshToken || '',
+                };
 
-                // Call backend to verify email and create user profile
-                const response = await fetch(`${cleanApiUrl}/api/Auth/verify-email`, {
+                // Determine if this is a Google Sign-In or standard verification
+                if (!type && accessToken) {
+                    console.log('=== GOOGLE SIGN-IN CALLBACK DETECTED ===');
+                    endpoint = `${cleanApiUrl}/api/Auth/google-signin`;
+                    body = { AccessToken: accessToken };
+                } else {
+                    console.log('=== EMAIL VERIFICATION REQUEST ===');
+                    console.log('Type:', type);
+                }
+
+                console.log('Full URL:', endpoint);
+
+                // Call backend
+                const response = await fetch(endpoint, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                         'Accept': 'application/json'
                     },
-                    body: JSON.stringify({
-                        AccessToken: accessToken,
-                        RefreshToken: refreshToken || '',
-                    }),
+                    body: JSON.stringify(body),
                 });
 
                 console.log('=== EMAIL VERIFICATION RESPONSE ===');
@@ -97,8 +112,85 @@ export default function AuthCallbackPage() {
 
                 // Store token and handle auth success
                 if (data.token && typeof data.token === 'string') {
-                    // Pass the user object directly to avoid calling /me endpoint which might fail with 401
-                    await handleAuthSuccess(data.token, router, cleanApiUrl, data.user);
+                    let redirectPath: string | undefined;
+
+                    // --- ATOMIC LINK HANDSHAKE ---
+                    // --- ATOMIC LINK HANDSHAKE ---
+                    // 1. Check for pending post-verification invitation in LocalStorage (Primary)
+                    let inviteCtx: { token?: string, startupId?: string } | null = null;
+                    const postVerificationInviteStr = localStorage.getItem('postVerificationInvitation');
+
+                    if (postVerificationInviteStr) {
+                        try {
+                            inviteCtx = JSON.parse(postVerificationInviteStr);
+                            console.log('Found post-verification invitation context in LocalStorage:', inviteCtx);
+                        } catch (e) {
+                            console.error('Failed to parse localStorage invitation:', e);
+                        }
+                    }
+
+                    // 2. Fallback: Check User Metadata from Supabase (Secondary - for cross-device/tab verification)
+                    const userMetadata = (data.user as any)?.user_metadata || {};
+                    if (!inviteCtx && userMetadata?.startup_id) {
+                        console.log('LocalStorage empty. Falling back to User Metadata for Startup linking.');
+                        inviteCtx = {
+                            startupId: userMetadata.startup_id as string,
+                            token: '' // Token might not be needed if we rely on backend trust, or we can try to find it
+                        };
+                        // Note: If token is missing, the backend might need to find the invitation by email + startupId
+                    }
+
+                    if (inviteCtx?.startupId) {
+                        try {
+                            // Dynamically import service
+                            const { invitationService } = await import('@/services/invitationService');
+
+                            // We need the User ID
+                            const userId = data.user?.uid || data.user?.id || (data.user as any)?.UserId;
+
+                            if (userId) {
+                                console.log('Attempting to atomically accept invitation for user:', userId);
+
+                                // If we have a token, use the standard respond flow
+                                if (inviteCtx.token) {
+                                    await invitationService.respond({
+                                        token: inviteCtx.token,
+                                        accept: true,
+                                        userId: userId as string
+                                    });
+                                } else {
+                                    // If we only have startupId (from metadata), we might need a different approach
+                                    // OR we assume the Backend's VerifyEmail ALREADY did the linking (which it logic says it does!)
+                                    // uniqueness verify: AuthController.cs lines 368-374 DOES link the user if startup_id is in metadata.
+
+                                    console.log('No token available, relying on Backend VerifyEmail linking or previous association.');
+                                }
+
+                                console.log('Atomic handshake successful (or assumed by Backend)!');
+                                redirectPath = `/contributor/startup/${inviteCtx.startupId}`;
+
+                                // Clear storage just in case
+                                localStorage.removeItem('postVerificationInvitation');
+                            }
+                        } catch (e) {
+                            console.error('Failed to process atomic linking:', e);
+                        }
+                    }
+                    // -----------------------------
+                    // -----------------------------
+
+                    // Store for valid redirect construction
+                    const startupsId = inviteCtx?.startupId;
+
+                    // Redirect to Sign In page with redirect param to specific startup
+                    const userEmail = data.user?.email || data.user?.Email || '';
+                    redirectPath = `/signin?verified=true&email=${encodeURIComponent(userEmail)}`;
+
+                    if (startupsId) {
+                        redirectPath += `&redirect=/contributor/startup/${startupsId}`;
+                    }
+
+                    await handleAuthSuccess(data.token, router, cleanApiUrl, data.user as any, redirectPath);
                 } else {
                     throw new Error('Missing authentication token. Please try again.');
                 }
