@@ -18,6 +18,7 @@ namespace Spark2Scale_.Server.Controllers
         private readonly Supabase.Client _supabase;
         private readonly Services.AccessControlService _access;
         private const string SAFE_COLS = "sid,startupname,field,idea_description,region,startup_stage,founder_id,created_at";
+
         public StartupsController(Supabase.Client supabase, Services.AccessControlService access)
         {
             _supabase = supabase;
@@ -65,7 +66,6 @@ namespace Spark2Scale_.Server.Controllers
                 }
 
                 // 3. Resolve Supabase URL + key — tries every common config pattern
-                // Read directly from .env / environment variables
                 var supabaseUrl = Environment.GetEnvironmentVariable("URL")
                                ?? Environment.GetEnvironmentVariable("SUPABASE_URL");
 
@@ -77,10 +77,7 @@ namespace Spark2Scale_.Server.Controllers
                         "Server configuration error: Supabase URL or Key not found. " +
                         "Add 'Supabase:Url' and 'Supabase:Key' to appsettings.json.");
 
-                // 4. POST directly to PostgREST so json_response is sent as a JSON
-                //    object — not a quoted string. The Supabase C# ORM always wraps
-                //    string properties in quotes before sending, which causes jsonb
-                //    columns to store an escaped string instead of a native object.
+                // 4. POST directly to PostgREST so json_response is sent as a JSON object
                 var row = new JsonObject
                 {
                     ["startupname"]      = input.startupname,
@@ -111,9 +108,33 @@ namespace Spark2Scale_.Server.Controllers
                 if (inserted == null)
                     return StatusCode(500, "Insert succeeded but response could not be parsed.");
 
+                // 👇 --- NEW CODE: CREATE THE DEFAULT WORKFLOW ROW --- 👇
+                var newSid = Guid.Parse(inserted["sid"]!.ToString());
+
+                try
+                {
+                    var defaultWorkflow = new StartupWorkflow
+                    {
+                        StartupId = newSid,
+                        IdeaCheck = false,
+                        MarketResearch = false,
+                        Evaluation = false,
+                        Recommendation = false,
+                        Documents = false,
+                        PitchDeck = false,
+                        UpdatedAt = DateTime.UtcNow
+                    };
+                    await _supabase.From<StartupWorkflow>().Insert(defaultWorkflow);
+                }
+                catch (Exception wfEx)
+                {
+                    Console.WriteLine($"Warning: Failed to create default workflow for {newSid}. Error: {wfEx.Message}");
+                }
+                // 👆 ---------------------------------------------------- 👆
+
                 return Ok(new StartupResponseDto
                 {
-                    sid           = Guid.Parse(inserted["sid"]!.ToString()),
+                    sid           = newSid,
                     startupname   = inserted["startupname"]?.ToString() ?? input.startupname,
                     field         = inserted["field"]?.ToString(),
                     region        = inserted["region"]?.ToString(),
@@ -125,18 +146,14 @@ namespace Spark2Scale_.Server.Controllers
             }
             catch (Exception ex)
             {
-                // Surface the real error message so you can diagnose quickly
                 return StatusCode(500, $"AddStartup error: {ex.Message}\n{ex.InnerException?.Message}");
             }
         }
-
 
         // GET: api/startups
         [HttpGet]
         public async Task<IActionResult> GetStartups([FromQuery] string? founderId, [FromQuery] string? contributorId)
         {
-            
-
             try
             {
                 if (!string.IsNullOrEmpty(founderId) && Guid.TryParse(founderId, out Guid fId))
@@ -398,6 +415,4 @@ namespace Spark2Scale_.Server.Controllers
             public object JsonResponse { get; set; }
         }
     }
-
-
 }
