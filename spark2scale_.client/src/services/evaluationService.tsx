@@ -9,6 +9,7 @@ export interface EvaluationDocument {
     current_path: string;
     current_version: number;
     updated_at: string;
+    json_response?: any; 
 }
 
 interface WorkflowData {
@@ -53,6 +54,15 @@ export const evaluationService = {
             return workflow.evaluation === true || workflow.Evaluation === true;
         } catch (error) {
             console.error("Error fetching workflow:", error);
+            return false;
+        }
+    },
+    async deleteEvaluation(documentId: string): Promise<boolean> {
+        try {
+            await apiClient.delete(`/api/Documents/${documentId}`);
+            return true;
+        } catch (error) {
+            console.error("Error deleting document:", error);
             return false;
         }
     },

@@ -82,77 +82,44 @@ namespace Spark2Scale_.Server.Controllers
 
         // POST: api/StartupWorkflow/update
         // We use POST to handle both Creation and Updates (Upsert)
-        [HttpPost("update")]
-        public async Task<IActionResult> UpdateWorkflow([FromBody] WorkflowUpdateDto request)
+        [HttpPost("update")] // (Change to HttpPut if your original used Put)
+        public async Task<IActionResult> UpdateWorkflow([FromBody] StartupWorkflow input)
         {
-            // 1. Validate Input
-            if (request == null) return BadRequest("Request body is required.");
-
-            if (!Guid.TryParse(request.StartupId, out Guid sId))
-                return BadRequest($"Invalid Startup ID format: {request.StartupId}");
-
-            // AUTH CHECK
-            var token = GetToken();
-            Console.WriteLine($"[WorkflowUpdate] Start update for StartupID: {sId}");
-            
-            if (!await _access.IsFounderOrOwner(token, sId))
-            {
-                Console.WriteLine($"[WorkflowUpdate] Auth failed for StartupID: {sId}");
-                return Unauthorized(new { message = "Only the startup founder can modify the workflow." });
-            }
-
-            // 2. Check if Startup actually exists (Foreign Key Check)
-            // This prevents adding a workflow for a non-existent startup
-            var startupCheck = await _supabase.From<Startup>()
-                .Where(s => s.Sid == sId)
-                .Get();
-
-            if (!startupCheck.Models.Any())
-                return BadRequest($"Startup with ID {sId} does not exist.");
-
-            // 3. Prepare Model
-            var model = new StartupWorkflow
-            {
-                StartupId = sId,
-                IdeaCheck = request.IdeaCheck,
-                MarketResearch = request.MarketResearch,
-                Evaluation = request.Evaluation,
-                Recommendation = request.Recommendation,
-                Documents = request.Documents,
-                PitchDeck = request.PitchDeck,
-                UpdatedAt = DateTime.UtcNow
-            };
-
             try
             {
-                // 4. Perform Upsert
-                // Upsert() will Insert if the ID is new, or Update if the ID exists.
-                var result = await _supabase.From<StartupWorkflow>().Upsert(model);
-                var inserted = result.Models.FirstOrDefault();
+                // 1. Foolproof Token Extraction (Case-Insensitive)
+                var authHeader = Request.Headers["Authorization"].FirstOrDefault();
+                if (string.IsNullOrEmpty(authHeader) || !authHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+                    return Unauthorized(new { message = "Missing or invalid token format." });
 
-                // FIX: Map to DTO instead of returning the 'model' directly.
-                // Returning 'model' (BaseModel) causes serialization errors because of its internal attributes.
-                var responseDto = new WorkflowResponseDto
-                {
-                    StartupId = sId,
-                    IdeaCheck = request.IdeaCheck,
-                    MarketResearch = request.MarketResearch,
-                    Evaluation = request.Evaluation,
-                    Recommendation = request.Recommendation,
-                    Documents = request.Documents,
-                    PitchDeck = request.PitchDeck,
-                    UpdatedAt = inserted?.UpdatedAt ?? DateTime.UtcNow
-                };
+                var token = authHeader.Substring(7).Trim();
 
-                return Ok(new
-                {
-                    message = "Workflow updated successfully",
-                    data = responseDto
-                });
+                // 2. Verify user is authenticated
+                var user = await _supabase.Auth.GetUser(token);
+                if (user == null || string.IsNullOrEmpty(user.Id))
+                    return Unauthorized(new { message = "Invalid or expired session." });
+
+                // 3. Verify the user actually owns this startup
+                var startupRes = await _supabase.From<Startup>()
+                    .Select("sid,founder_id")
+                    .Where(s => s.Sid == input.StartupId)
+                    .Get();
+
+                var startup = startupRes.Models.FirstOrDefault();
+                if (startup == null || startup.FounderId.ToString() != user.Id)
+                    return StatusCode(403, new { message = "Only the founder can update the workflow." });
+
+                // 4. Perform the Update
+                input.UpdatedAt = DateTime.UtcNow;
+
+                // Using Upsert ensures it updates the existing row perfectly
+                await _supabase.From<StartupWorkflow>().Upsert(input);
+
+                return Ok(new { success = true, message = "Workflow stage marked as complete." });
             }
             catch (Exception ex)
             {
-                return StatusCode(500, $"Database Error: {ex.Message}");
+                return StatusCode(500, $"Error updating workflow: {ex.Message}");
             }
         }
 

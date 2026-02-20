@@ -107,7 +107,8 @@ namespace Spark2Scale_.Server.Controllers
                         current_version = d.CurrentVersion,
                         canaccess = d.CanAccess,
                         updated_at = d.UpdatedAt,
-                        access_status = accessStatus
+                        access_status = accessStatus,
+                        json_response = d.JsonResponse 
                     };
                 });
 
@@ -364,23 +365,52 @@ namespace Spark2Scale_.Server.Controllers
         public async Task<IActionResult> DeleteDocument(string documentId)
         {
             if (!Guid.TryParse(documentId, out Guid dId)) return BadRequest("Invalid ID");
-            
-            try 
+
+            try
             {
-                // Verify ownership via StartupId
-                var docRes = await _supabase.From<Document>().Where(x => x.Did == dId).Get();
+                // 1. Verify document exists (ONLY select needed columns to avoid JSON parse crash)
+                var docRes = await _supabase.From<Document>()
+                    .Select("did,startup_id") // 👈 FIX: Ignores json_response!
+                    .Where(x => x.Did == dId)
+                    .Get();
+
                 var doc = docRes.Models.FirstOrDefault();
                 if (doc == null) return NotFound("Document not found.");
 
-                if (!await _access.IsFounderOrOwner(GetToken(), doc.StartupId))
-                     return Unauthorized(new { message = "Unauthorized delete." });
+                // 2. Foolproof Token Extraction
+                var authHeader = Request.Headers["Authorization"].FirstOrDefault();
+                if (string.IsNullOrEmpty(authHeader) || !authHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+                    return Unauthorized(new { message = "Missing or invalid token format." });
 
+                var token = authHeader.Substring(7).Trim();
+
+                // 3. Verify user is the Founder
+                var user = await _supabase.Auth.GetUser(token);
+                if (user == null || string.IsNullOrEmpty(user.Id))
+                    return Unauthorized(new { message = "Invalid or expired session." });
+
+                // Check Startup ownership (also ignoring json_response)
+                var startupRes = await _supabase.From<Startup>()
+                    .Select("sid,founder_id")
+                    .Where(s => s.Sid == doc.StartupId)
+                    .Get();
+
+                var startup = startupRes.Models.FirstOrDefault();
+
+                if (startup == null || startup.FounderId.ToString() != user.Id)
+                    return StatusCode(403, new { message = "Only the founder can delete this document." });
+
+                // 4. Delete child versions FIRST to prevent SQL Foreign Key crash
+                await _supabase.From<DocumentVersion>().Where(x => x.DocumentId == dId).Delete();
+
+                // 5. Delete the main document
                 await _supabase.From<Document>().Where(x => x.Did == dId).Delete();
-                return Ok(new { message = "Document deleted" });
+
+                return Ok(new { message = "Document and versions deleted successfully" });
             }
             catch (Exception ex)
             {
-                 return StatusCode(500, $"Delete failed: {ex.Message}");
+                return StatusCode(500, $"Delete failed: {ex.Message}");
             }
         }
 
