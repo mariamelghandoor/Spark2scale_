@@ -42,7 +42,7 @@ namespace Spark2Scale_.Server.Models
         public bool IsCurrent { get; set; }
 
         [Column("json_response")]
-        public string JsonResponse { get; set; }
+        public Dictionary<string, object> JsonResponse { get; set; }
     }
 
     // --- DTOs ---

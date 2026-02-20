@@ -96,36 +96,53 @@ export default function EvaluatePage() {
     };
 
     // =========================================================================
-    // SMART JSON PARSER: Target Founder Output Only
+    // BULLETPROOF PARSER: Ignores spaces, casing, and ASP.NET mutations
     // =========================================================================
-    let parsedData: any = null;
-    if (evalDoc?.json_response) {
-        try {
-            let temp = evalDoc.json_response;
-            while (typeof temp === 'string') {
-                temp = JSON.parse(temp);
+    const findKey = (obj: any, target: string) => {
+        if (!obj || typeof obj !== 'object') return null;
+        const normalizedTarget = target.toLowerCase().replace(/[^a-z0-9]/g, '');
+        for (const key in obj) {
+            if (key.toLowerCase().replace(/[^a-z0-9]/g, '') === normalizedTarget) {
+                return obj[key];
             }
-            parsedData = temp;
-        } catch (e) {
-            console.error("Failed to parse JSON response", e);
         }
+        return null;
+    };
+
+    let parsedData: any = null;
+
+    // Catch json_response regardless of how C# serialized it
+    const rawJson = evalDoc?.json_response || (evalDoc as any)?.jsonResponse || (evalDoc as any)?.JsonResponse;
+
+    if (rawJson) {
+        let temp = rawJson;
+        for (let i = 0; i < 3; i++) { // Safely unpack nested strings up to 3 layers deep
+            if (typeof temp === 'string') {
+                try { temp = JSON.parse(temp); } catch { break; }
+            }
+        }
+        parsedData = temp;
     }
 
-    // Extract ONLY the FOUNDER Content
-    const founderContent = parsedData?.final_report?.founder_output?.Content || null;
+    // Step-by-step extraction ensuring we don't hit undefined errors
+    let founderContent = null;
+    if (parsedData) {
+        const finalObj = findKey(parsedData, "finalreport") || parsedData;
+        const founderObj = findKey(finalObj, "founderoutput") || finalObj;
+        founderContent = findKey(founderObj, "content") || founderObj;
+    }
 
-    // Map fields directly from the Founder Content JSON structure
-    const execSummary = founderContent?.["Executive Summary"] || "No executive summary available.";
-    const verdict = founderContent?.["Verdict"] || "EVALUATED";
+    // Extract fields completely immune to casing
+    const execSummary = findKey(founderContent, "executivesummary") || "";
+    const verdict = findKey(founderContent, "verdict") || "EVALUATED";
 
-    const rawScore = founderContent?.["Weighted Score"] || 0;
-    const displayScore = typeof rawScore === 'number' ? rawScore.toFixed(1) : parseFloat(rawScore).toFixed(1);
+    const rawScore = findKey(founderContent, "weightedscore") || 0;
+    const displayScore = typeof rawScore === 'number' ? rawScore.toFixed(1) : parseFloat(rawScore || "0").toFixed(1);
 
-    const priorities = founderContent?.["Top 3 Priorities"] || [];
-    const dimensionAnalysis = founderContent?.["Dimension Analysis"] || [];
-    const scorecard = founderContent?.["Scorecard Grid"] || {};
+    const priorities = findKey(founderContent, "top3priorities") || [];
+    const dimensionAnalysis = findKey(founderContent, "dimensionanalysis") || [];
+    const scorecard = findKey(founderContent, "scorecardgrid") || {};
 
-    // Build Radar Chart Data from Scorecard Grid
     const radarData = Object.keys(scorecard).map(key => ({
         subject: key.toUpperCase(),
         score: scorecard[key] || 0,
@@ -137,7 +154,6 @@ export default function EvaluatePage() {
 
     return (
         <div className="min-h-screen bg-gradient-to-br from-[#F0EADC] via-[#fff] to-[#FFD95D]/20">
-            {/* Top Navigation Bar */}
             <div className="border-b bg-white/80 backdrop-blur-lg">
                 <div className="container mx-auto px-4 py-4 flex justify-between items-center">
                     <div className="flex items-center gap-4">
@@ -154,7 +170,6 @@ export default function EvaluatePage() {
 
             <main className="container mx-auto px-4 py-8">
                 <div className="max-w-4xl mx-auto">
-                    {/* SCENARIO 1: No Document */}
                     {!evalDoc && userRole === 'Founder' && (
                         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
                             <Card className="mb-6 border-2 border-[#FFD95D]">
@@ -170,14 +185,12 @@ export default function EvaluatePage() {
                                             {isGenerating ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <PlayCircle className="mr-2 h-5 w-5" />}
                                             {isGenerating ? "Analyzing Data..." : "Run Evaluation"}
                                         </Button>
-                                        {isGenerating && <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-sm text-amber-600 font-medium mt-4 animate-pulse">This process takes about 2 to 3 minutes. <br />Please do not refresh or close this page.</motion.p>}
                                     </div>
                                 </CardContent>
                             </Card>
                         </motion.div>
                     )}
 
-                    {/* SCENARIO 2: Document Exists - Show Small Card */}
                     {evalDoc && (
                         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
                             <div className="flex flex-col items-end mb-4">
@@ -185,7 +198,6 @@ export default function EvaluatePage() {
                                     {isGenerating ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <PlayCircle className="w-4 h-4 mr-2" />}
                                     {isGenerating ? "Regenerating..." : "Regenerate Evaluation"}
                                 </Button>
-                                {isGenerating && <p className="text-xs text-amber-600 mt-2 animate-pulse">Generating new AI reports (~2 mins). Do not refresh.</p>}
                             </div>
 
                             <div className="flex items-center justify-between p-4 border border-gray-200 rounded-xl bg-white shadow-sm hover:shadow-md transition-all">
@@ -205,7 +217,6 @@ export default function EvaluatePage() {
                                         variant="outline" size="sm"
                                         className="bg-[#F4F1EA] hover:bg-[#e8e4db] text-[#576238] border-none"
                                         onClick={() => setIsViewModalOpen(true)}
-                                        disabled={!founderContent}
                                     >
                                         <Eye className="h-4 w-4 mr-2" /> View
                                     </Button>
@@ -234,36 +245,39 @@ export default function EvaluatePage() {
 
             {/* --- NATIVE WEB VIEW MODAL --- */}
             <Dialog open={isViewModalOpen} onOpenChange={setIsViewModalOpen}>
-                {/* 👇 FIX: Updated width to max-w-[95vw] w-full and height to h-[95vh] */}
-                <DialogContent aria-describedby="evaluation-dialog-description" className="!max-w-[95vw] !w-[95vw] !h-[95vh] p-0 overflow-hidden bg-[#F4F1EA] border-none shadow-2xl flex flex-col rounded-xl">
+                <DialogContent className="!max-w-[95vw] !w-[95vw] !h-[95vh] p-0 overflow-hidden bg-[#F4F1EA] border-none shadow-2xl flex flex-col rounded-xl">
 
-                    {/* Thematic Header */}
                     <div className="bg-[#576238] text-white px-8 py-6 shrink-0 flex justify-between items-center">
                         <div>
                             <p className="text-[10px] uppercase tracking-widest opacity-70 mb-1 font-sans">Spark2Scale</p>
                             <DialogTitle className="text-2xl font-bold font-sans">Founder Evaluation Report</DialogTitle>
-                            <DialogDescription id="evaluation-dialog-description" className="text-sm opacity-75 mt-0.5 text-white/80">
+                            <DialogDescription className="text-sm opacity-75 mt-0.5 text-white/80">
                                 Comprehensive Startup Feedback & Priority Actions
                             </DialogDescription>
                         </div>
-                        {founderContent && (
-                            <div className="text-right flex flex-col items-end">
-                                <div className="text-4xl font-black text-[#FFD95D] font-serif leading-none tracking-tighter">
-                                    {displayScore} <span className="text-xl text-white/60">/ 45</span>
-                                </div>
-                                <div className={`text-[10px] uppercase tracking-widest font-bold mt-2 px-2.5 py-1 rounded shadow-sm ${verdict?.includes('Ready') ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
-                                    {verdict}
-                                </div>
+                        <div className="text-right flex flex-col items-end">
+                            <div className="text-4xl font-black text-[#FFD95D] font-serif leading-none tracking-tighter">
+                                {displayScore} <span className="text-xl text-white/60">/ 45</span>
                             </div>
-                        )}
+                            <div className={`text-[10px] uppercase tracking-widest font-bold mt-2 px-2.5 py-1 rounded shadow-sm ${verdict?.includes('Ready') ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+                                {verdict}
+                            </div>
+                        </div>
                     </div>
                     <div className="h-1.5 bg-[#ffd95d] shrink-0" />
 
-                    {/* Scrollable Content View */}
                     <div className="flex-1 w-full overflow-y-auto px-8 py-8 space-y-8">
-                        {founderContent ? (
+
+                        {/* ⚠️ EMERGENCY DEBUG BOX (Only shows if it failed to parse) ⚠️ */}
+                        {!execSummary && (
+                            <div className="bg-red-50 border border-red-300 rounded p-4 text-xs font-mono text-red-900 overflow-x-auto shadow-sm">
+                                <h3 className="font-bold uppercase tracking-wider mb-2">Diagnostic Data Received:</h3>
+                                <pre>{JSON.stringify(evalDoc, null, 2)}</pre>
+                            </div>
+                        )}
+
+                        {founderContent && execSummary && (
                             <>
-                                {/* Executive Summary */}
                                 <section>
                                     <div className="bg-[#576238] text-white px-4 py-2 font-bold text-xs uppercase tracking-widest font-sans rounded-sm inline-block mb-3">
                                         Executive Summary
@@ -274,7 +288,6 @@ export default function EvaluatePage() {
                                 </section>
 
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                                    {/* Radar Chart */}
                                     {radarData.length > 0 && (
                                         <section className="bg-white p-6 rounded border border-gray-200 shadow-sm flex flex-col items-center">
                                             <h3 className="font-bold text-[#576238] uppercase tracking-wider text-sm mb-4">Scorecard Grid</h3>
@@ -291,7 +304,6 @@ export default function EvaluatePage() {
                                         </section>
                                     )}
 
-                                    {/* Top 3 Priorities */}
                                     <div className="space-y-6">
                                         {priorities.length > 0 && (
                                             <section className="bg-blue-50/50 p-5 rounded border border-blue-200 shadow-sm h-full">
@@ -312,7 +324,6 @@ export default function EvaluatePage() {
                                     </div>
                                 </div>
 
-                                {/* Dimension Analysis (Detailed Sections) */}
                                 {dimensionAnalysis.length > 0 && (
                                     <section className="space-y-4">
                                         <div className="bg-[#576238] text-white px-4 py-2 font-bold text-xs uppercase tracking-widest font-sans rounded-sm inline-block mb-2">
@@ -320,48 +331,50 @@ export default function EvaluatePage() {
                                         </div>
 
                                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                            {dimensionAnalysis.map((item: any, idx: number) => (
-                                                <div key={idx} className="bg-white border border-gray-200 rounded overflow-hidden shadow-sm flex flex-col">
-                                                    <div className="bg-[#F4F1EA] px-4 py-3 flex justify-between items-center border-b border-gray-200">
-                                                        <h3 className="font-bold text-[#576238] uppercase tracking-wider text-sm">{item.dimension}</h3>
-                                                        <span className="font-bold text-gray-700 bg-white px-2 py-1 rounded shadow-sm text-[11px] border border-gray-200">
-                                                            Score: <span className="text-[#576238]">{item.score}</span> / 5
-                                                        </span>
-                                                    </div>
-                                                    <div className="p-5 flex-1 space-y-4">
-                                                        <div>
-                                                            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1.5">Feedback</p>
-                                                            <p className="text-sm text-gray-700 leading-relaxed font-serif whitespace-pre-wrap">
-                                                                {item.justification}
-                                                            </p>
+                                            {dimensionAnalysis.map((item: any, idx: number) => {
+                                                const dimName = findKey(item, "dimension") || "Section";
+                                                const dimScore = findKey(item, "score") ?? 0;
+                                                const dimJustification = findKey(item, "justification") || findKey(item, "feedback") || "";
+                                                const rawFlags = findKey(item, "redflags") || [];
+                                                const flags = Array.isArray(rawFlags) ? rawFlags : [];
+
+                                                return (
+                                                    <div key={idx} className="bg-white border border-gray-200 rounded overflow-hidden shadow-sm flex flex-col">
+                                                        <div className="bg-[#F4F1EA] px-4 py-3 flex justify-between items-center border-b border-gray-200">
+                                                            <h3 className="font-bold text-[#576238] uppercase tracking-wider text-sm">{dimName}</h3>
+                                                            <span className="font-bold text-gray-700 bg-white px-2 py-1 rounded shadow-sm text-[11px] border border-gray-200">
+                                                                Score: <span className="text-[#576238]">{dimScore}</span> / 5
+                                                            </span>
                                                         </div>
-                                                        {item.red_flags && item.red_flags.length > 0 && (
-                                                            <div className="bg-red-50/50 p-4 rounded border border-red-100 mt-4">
-                                                                <div className="flex items-center gap-2 mb-2">
-                                                                    <AlertTriangle className="h-3 w-3 text-red-600" />
-                                                                    <p className="text-[10px] font-bold text-red-600 uppercase tracking-widest">Identified Risks</p>
-                                                                </div>
-                                                                <ul className="list-disc pl-5 text-xs text-red-900/80 space-y-1.5 font-serif">
-                                                                    {item.red_flags.map((flag: string, i: number) => <li key={i}>{flag}</li>)}
-                                                                </ul>
+                                                        <div className="p-5 flex-1 space-y-4">
+                                                            <div>
+                                                                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1.5">Feedback</p>
+                                                                <p className="text-sm text-gray-700 leading-relaxed font-serif whitespace-pre-wrap">
+                                                                    {dimJustification}
+                                                                </p>
                                                             </div>
-                                                        )}
+                                                            {flags.length > 0 && (
+                                                                <div className="bg-red-50/50 p-4 rounded border border-red-100 mt-4">
+                                                                    <div className="flex items-center gap-2 mb-2">
+                                                                        <AlertTriangle className="h-3 w-3 text-red-600" />
+                                                                        <p className="text-[10px] font-bold text-red-600 uppercase tracking-widest">Identified Risks</p>
+                                                                    </div>
+                                                                    <ul className="list-disc pl-5 text-xs text-red-900/80 space-y-1.5 font-serif">
+                                                                        {flags.map((flag: string, i: number) => <li key={i}>{flag}</li>)}
+                                                                    </ul>
+                                                                </div>
+                                                            )}
+                                                        </div>
                                                     </div>
-                                                </div>
-                                            ))}
+                                                );
+                                            })}
                                         </div>
                                     </section>
                                 )}
                             </>
-                        ) : (
-                            <div className="flex flex-col items-center justify-center h-full text-gray-400">
-                                <FileText className="h-12 w-12 mb-4 opacity-20" />
-                                <p>No Founder Output found in this evaluation.</p>
-                            </div>
                         )}
                     </div>
 
-                    {/* Thematic Footer */}
                     <div className="bg-[#ffd95d] px-8 py-3 flex justify-between items-center text-xs font-medium text-[#2c3e50] shrink-0 border-t border-yellow-500/20">
                         <span>Generated by Spark2Scale AI Evaluator</span>
                         <span>{startupStage} Stage</span>

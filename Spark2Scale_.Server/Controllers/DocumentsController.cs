@@ -1,12 +1,13 @@
 ﻿using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
-using Supabase;
+using Microsoft.IdentityModel.Tokens;
 using Spark2Scale_.Server.Models;
+using Supabase;
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
-using System.Collections.Generic;
 
 namespace Spark2Scale_.Server.Controllers
 {
@@ -39,23 +40,18 @@ namespace Spark2Scale_.Server.Controllers
 
             try
             {
-                // 1. Fetch Documents (Start with all docs for this startup)
                 var query = _supabase.From<Document>()
                     .Where(x => x.StartupId == sId)
                     .Order("updated_at", Supabase.Postgrest.Constants.Ordering.Descending);
 
-                // If this request is coming from an Investor (investorId is present), 
-                // HIDE 'Founder Only' documents (CanAccess = 0).
                 if (!string.IsNullOrEmpty(investorId))
                 {
-                    // Filter: CanAccess != 0
                     query = query.Filter("canaccess", Supabase.Postgrest.Constants.Operator.NotEqual, "0");
                 }
 
                 var docsResult = await query.Get();
                 var allDocs = docsResult.Models;
 
-                // 2. Get Access Records if Investor
                 List<InvestorDocumentAccess> accessRecords = new List<InvestorDocumentAccess>();
                 if (!string.IsNullOrEmpty(investorId) && Guid.TryParse(investorId, out Guid invId))
                 {
@@ -65,36 +61,19 @@ namespace Spark2Scale_.Server.Controllers
                     accessRecords = accessResult.Models;
                 }
 
-                // 3. Map to DTOs and Calculate Access Status
                 var dtos = allDocs.Select(d =>
                 {
-                    // Access Levels:
-                    // 0 = Founder Only (Filtered out above if investor)
-                    // 1 = Public (Always visible)
-                    // 2 = Restricted (Needs access)
-
                     bool isRestricted = d.CanAccess == 2;
-                    string accessStatus = "public"; // Default for CanAccess = 1
+                    string accessStatus = "public";
                     string? path = d.CurrentPath;
 
                     if (isRestricted)
                     {
                         var record = accessRecords.FirstOrDefault(r => r.DocumentId == d.Did);
 
-                        if (record != null && record.Granted == true)
-                        {
-                            accessStatus = "granted"; // Approved
-                        }
-                        else if (record != null && record.Granted == false)
-                        {
-                            accessStatus = "pending"; // Request sent, waiting
-                            path = null; // Hide URL
-                        }
-                        else
-                        {
-                            accessStatus = "locked"; // No request yet
-                            path = null; // Hide URL
-                        }
+                        if (record != null && record.Granted == true) { accessStatus = "granted"; }
+                        else if (record != null && record.Granted == false) { accessStatus = "pending"; path = null; }
+                        else { accessStatus = "locked"; path = null; }
                     }
 
                     return new
@@ -108,7 +87,8 @@ namespace Spark2Scale_.Server.Controllers
                         canaccess = d.CanAccess,
                         updated_at = d.UpdatedAt,
                         access_status = accessStatus,
-                        json_response = d.JsonResponse 
+                        // 👇 FIX: Use SerializeObject instead of ToString()
+                        json_response = d.JsonResponse != null ? Newtonsoft.Json.JsonConvert.SerializeObject(d.JsonResponse) : null
                     };
                 });
 
@@ -191,10 +171,13 @@ namespace Spark2Scale_.Server.Controllers
                 canaccess = d.CanAccess,
                 updated_at = d.UpdatedAt,
                 created_at = d.CreatedAt,
-                is_current = d.IsCurrent
+                is_current = d.IsCurrent,
+                // 👇 FIX: Use SerializeObject instead of ToString()
+                json_response = d.JsonResponse != null ? Newtonsoft.Json.JsonConvert.SerializeObject(d.JsonResponse) : null
             });
 
             return Ok(dtos);
+
         }
 
         [HttpPost("upload")]
@@ -423,24 +406,21 @@ namespace Spark2Scale_.Server.Controllers
             {
                 var now = DateTime.UtcNow;
 
-                // 1. Helper Function: Upload file directly to Supabase from C#
                 async Task<string> UploadToSupabase(IFormFile file, string prefix)
                 {
                     var fileName = $"{sId}/{DateTime.Now.Ticks}_{prefix}.pdf";
                     using var ms = new MemoryStream();
                     await file.CopyToAsync(ms);
                     var fileBytes = ms.ToArray();
-
                     await _supabase.Storage.From("startup-docs").Upload(fileBytes, fileName);
                     return _supabase.Storage.From("startup-docs").GetPublicUrl(fileName);
                 }
 
-                // Upload both files and get their secure URLs
                 string founderUrl = await UploadToSupabase(input.FounderFile, "Founder_Report");
                 string investorUrl = await UploadToSupabase(input.InvestorFile, "Investor_Memo");
 
-                // 2. Helper Function: Save to Database
-                async Task CreateDocumentAndVersion(string docName, string docType, string url, int accessLvl, string jsonContent)
+                // 👇 Parameter is now strictly a Dictionary
+                async Task CreateDocumentAndVersion(string docName, string docType, string url, int accessLvl, Dictionary<string, object> jsonContent)
                 {
                     var newDoc = new Document
                     {
@@ -475,9 +455,15 @@ namespace Spark2Scale_.Server.Controllers
                     }
                 }
 
-                // 3. Save both database records
-                await CreateDocumentAndVersion("Founder_Report.pdf", "Founder Evaluation", founderUrl, 0, input.JsonResponse);
-                await CreateDocumentAndVersion("Investor_Memo.pdf", "Investor Evaluation", investorUrl, 1, input.JsonResponse);
+                // 👇 Deserialize strictly into the Dictionary
+                Dictionary<string, object> parsedJson = null;
+                if (!string.IsNullOrEmpty(input.JsonResponse))
+                {
+                    parsedJson = Newtonsoft.Json.JsonConvert.DeserializeObject<Dictionary<string, object>>(input.JsonResponse);
+                }
+
+                await CreateDocumentAndVersion("Founder_Report.pdf", "Founder Evaluation", founderUrl, 0, parsedJson);
+                await CreateDocumentAndVersion("Investor_Memo.pdf", "Investor Evaluation", investorUrl, 1, parsedJson);
 
                 return Ok(new { success = true, message = "Evaluations saved successfully" });
             }
