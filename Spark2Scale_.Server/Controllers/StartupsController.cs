@@ -5,7 +5,6 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Json;
-using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Threading.Tasks;
@@ -22,7 +21,6 @@ namespace Spark2Scale_.Server.Controllers
         private readonly Services.AccessControlService _access;
         private readonly ILogger<StartupsController> _logger;
 
-        // Excludes json_response to keep the Startup List/Dashboard snappy
         private const string SAFE_COLS = "sid,startupname,field,idea_description,region,startup_stage,founder_id,created_at,logo_path,current_iteration";
 
         public StartupsController(
@@ -41,9 +39,6 @@ namespace Spark2Scale_.Server.Controllers
             public string Category { get; set; }
         }
 
-        // ─────────────────────────────────────────────────────────────
-        // Helper: Consistent Mapping (Fixes Python Agent crashes)
-        // ─────────────────────────────────────────────────────────────
         private static StartupResponseDto ToDto(
             Startup s,
             string? role = null,
@@ -52,15 +47,19 @@ namespace Spark2Scale_.Server.Controllers
             int totalLikes = 0,
             bool hasGap = false)
         {
-            // Safely convert JSON to string to prevent Python Agent / Frontend crashes
             string? stringifiedJson = null;
-            if (safeJson != null)
+            var sourceJson = safeJson ?? s.JsonResponse;
+
+            if (sourceJson != null)
             {
-                stringifiedJson = System.Text.Json.JsonSerializer.Serialize(safeJson);
-            }
-            else if (s.JsonResponse.HasValue && s.JsonResponse.Value.ValueKind != JsonValueKind.Undefined)
-            {
-                stringifiedJson = s.JsonResponse.Value.GetRawText();
+                if (sourceJson is Newtonsoft.Json.Linq.JToken jToken)
+                    stringifiedJson = jToken.ToString(Newtonsoft.Json.Formatting.None);
+                else if (sourceJson is System.Text.Json.JsonElement je)
+                    stringifiedJson = je.GetRawText();
+                else if (sourceJson is string str)
+                    stringifiedJson = str;
+                else
+                    stringifiedJson = JsonConvert.SerializeObject(sourceJson);
             }
 
             return new StartupResponseDto
@@ -83,14 +82,10 @@ namespace Spark2Scale_.Server.Controllers
             };
         }
 
-        // ─────────────────────────────────────────────────────────────
-        // POST api/Startups/add (Safe JSON Insert)
-        // ─────────────────────────────────────────────────────────────
         [HttpPost("add")]
         public async Task<IActionResult> AddStartup([FromBody] StartupInsertDto input)
         {
-            if (input == null || string.IsNullOrEmpty(input.startupname))
-                return BadRequest("Startup Name is required.");
+            if (input == null || string.IsNullOrEmpty(input.startupname)) return BadRequest("Startup Name is required.");
 
             try
             {
@@ -101,7 +96,6 @@ namespace Spark2Scale_.Server.Controllers
                     finalJsonNode = JsonNode.Parse(rawJson)?.AsObject() ?? new JsonObject();
                 }
 
-                // HttpClient Bypass to prevent ORM limits on large JSON blocks
                 var supabaseUrl = Environment.GetEnvironmentVariable("SUPABASE_URL") ?? Environment.GetEnvironmentVariable("URL");
                 var supabaseKey = Environment.GetEnvironmentVariable("SUPABASE_KEY") ?? Environment.GetEnvironmentVariable("KEY");
 
@@ -123,7 +117,8 @@ namespace Spark2Scale_.Server.Controllers
                 http.DefaultRequestHeaders.Add("Authorization", $"Bearer {supabaseKey}");
                 http.DefaultRequestHeaders.Add("Prefer", "return=representation");
 
-                var content = new StringContent(row.ToJsonString(), Encoding.UTF8, "application/json");
+                // 👇 FIX: Fully qualified System.Text.Encoding.UTF8
+                var content = new StringContent(row.ToJsonString(), System.Text.Encoding.UTF8, "application/json");
                 var httpResp = await http.PostAsync($"{supabaseUrl}/rest/v1/startups", content);
 
                 if (!httpResp.IsSuccessStatusCode)
@@ -135,43 +130,22 @@ namespace Spark2Scale_.Server.Controllers
                 var respBody = await httpResp.Content.ReadAsStringAsync();
                 var insertedJson = JsonNode.Parse(respBody)?[0]?.AsObject();
 
-                if (insertedJson == null) return StatusCode(500, "Failed to parse insertion response.");
+                var newSid = Guid.Parse(insertedJson!["sid"]!.ToString());
 
-                var newSid = Guid.Parse(insertedJson["sid"]!.ToString());
-
-                // Initialize Workflow silently
-                try
-                {
-                    var defaultWorkflow = new StartupWorkflow { StartupId = newSid, UpdatedAt = DateTime.UtcNow };
-                    await _supabase.From<StartupWorkflow>().Insert(defaultWorkflow);
-                }
+                try { await _supabase.From<StartupWorkflow>().Insert(new StartupWorkflow { StartupId = newSid, UpdatedAt = DateTime.UtcNow }); }
                 catch (Exception wfEx) { _logger.LogWarning($"Workflow Init Warning: {wfEx.Message}"); }
 
-                return Ok(new StartupResponseDto
-                {
-                    sid = newSid,
-                    startupname = input.startupname,
-                    founder_id = input.founder_id,
-                    created_at = DateTime.UtcNow
-                });
+                return Ok(new StartupResponseDto { sid = newSid, startupname = input.startupname, founder_id = input.founder_id, created_at = DateTime.UtcNow });
             }
-            catch (Exception ex)
-            {
-                return StatusCode(500, $"AddStartup error: {ex.Message}");
-            }
+            catch (Exception ex) { return StatusCode(500, $"AddStartup error: {ex.Message}"); }
         }
 
-        // ─────────────────────────────────────────────────────────────
-        // GET api/Startups (Includes Metrics calculation)
-        // ─────────────────────────────────────────────────────────────
         [HttpGet]
         public async Task<IActionResult> GetStartups([FromQuery] string? founderId, [FromQuery] string? contributorId)
         {
             try
             {
                 List<Startup> startupsList = new List<Startup>();
-
-                // 1. Determine Data Source
                 if (!string.IsNullOrEmpty(founderId) && Guid.TryParse(founderId, out Guid fId))
                 {
                     var result = await _supabase.From<Startup>().Select(SAFE_COLS).Where(s => s.FounderId == fId).Get();
@@ -181,7 +155,6 @@ namespace Spark2Scale_.Server.Controllers
                 {
                     var links = await _supabase.From<StartupContributor>().Filter("user_id", Supabase.Postgrest.Constants.Operator.Equals, cId.ToString()).Get();
                     var ids = links.Models.Select(x => x.StartupId.ToString()).ToList();
-
                     if (ids.Any())
                     {
                         var result = await _supabase.From<Startup>().Select(SAFE_COLS).Filter("sid", Supabase.Postgrest.Constants.Operator.In, ids).Get();
@@ -194,7 +167,6 @@ namespace Spark2Scale_.Server.Controllers
                     startupsList = result.Models;
                 }
 
-                // 2. Prepare Enrichment Data
                 var startupIds = startupsList.Select(x => x.Sid.ToString()).ToList();
                 var workflows = new List<StartupWorkflow>();
                 var pitchDecks = new List<PitchDeck>();
@@ -203,29 +175,19 @@ namespace Spark2Scale_.Server.Controllers
                 {
                     try
                     {
-                        var wfResult = await _supabase.From<StartupWorkflow>().Filter("startup_id", Supabase.Postgrest.Constants.Operator.In, startupIds).Get();
-                        workflows = wfResult.Models;
-
-                        var pdResult = await _supabase.From<PitchDeck>().Filter("startup_id", Supabase.Postgrest.Constants.Operator.In, startupIds).Get();
-                        pitchDecks = pdResult.Models;
+                        workflows = (await _supabase.From<StartupWorkflow>().Filter("startup_id", Supabase.Postgrest.Constants.Operator.In, startupIds).Get()).Models;
+                        pitchDecks = (await _supabase.From<PitchDeck>().Filter("startup_id", Supabase.Postgrest.Constants.Operator.In, startupIds).Get()).Models;
                     }
                     catch (Exception ex) { _logger.LogWarning($"Enrichment fetch failed: {ex.Message}"); }
                 }
 
-                // 3. Identify Current User for Role
                 Guid? currentUserId = null;
                 var authHeader = Request.Headers["Authorization"].FirstOrDefault();
                 if (!string.IsNullOrEmpty(authHeader) && authHeader.StartsWith("Bearer "))
                 {
-                    try
-                    {
-                        var user = await _supabase.Auth.GetUser(authHeader.Replace("Bearer ", "").Trim());
-                        if (user != null && Guid.TryParse(user.Id, out Guid uid)) currentUserId = uid;
-                    }
-                    catch { }
+                    try { var user = await _supabase.Auth.GetUser(authHeader.Replace("Bearer ", "").Trim()); if (user != null && Guid.TryParse(user.Id, out Guid uid)) currentUserId = uid; } catch { }
                 }
 
-                // 4. Map and Calculate
                 var dtos = new List<StartupResponseDto>();
                 foreach (var s in startupsList)
                 {
@@ -235,53 +197,37 @@ namespace Spark2Scale_.Server.Controllers
                         if (s.FounderId == currentUserId.Value) role = "Founder";
                         else
                         {
-                            var contrib = await _supabase.From<StartupContributor>()
-                                .Match(new Dictionary<string, string> { { "startup_id", s.Sid.ToString() }, { "user_id", currentUserId.Value.ToString() } }).Get();
+                            var contrib = await _supabase.From<StartupContributor>().Match(new Dictionary<string, string> { { "startup_id", s.Sid.ToString() }, { "user_id", currentUserId.Value.ToString() } }).Get();
                             if (contrib.Models.Any()) role = contrib.Models.First().Role ?? "Contributor";
                         }
                     }
 
-                    int progressCount = 0;
-                    int totalLikes = 0;
-                    bool hasGap = false;
-
+                    int progressCount = 0; bool hasGap = false;
                     var wf = workflows.FirstOrDefault(w => w.StartupId == s.Sid);
                     if (wf != null)
                     {
                         bool[] steps = { wf.IdeaCheck, wf.MarketResearch, wf.Evaluation, wf.Recommendation, wf.Documents, wf.PitchDeck };
                         progressCount = steps.Count(step => step);
-
                         bool foundFalse = false;
-                        foreach (var step in steps)
-                        {
-                            if (!step) foundFalse = true;
-                            else if (foundFalse && step) hasGap = true;
-                        }
+                        foreach (var step in steps) { if (!step) foundFalse = true; else if (foundFalse && step) hasGap = true; }
                     }
 
-                    var decks = pitchDecks.Where(p => p.startup_id == s.Sid);
-                    if (decks.Any()) totalLikes = decks.Sum(d => d.countlikes);
-
+                    int totalLikes = pitchDecks.Where(p => p.startup_id == s.Sid).Sum(d => d.countlikes);
                     dtos.Add(ToDto(s, role, null, progressCount, totalLikes, hasGap));
                 }
 
                 return Ok(dtos);
             }
-            catch (Exception ex) { return StatusCode(500, $"Error fetching startups: {ex.Message}"); }
+            catch (Exception ex) { return StatusCode(500, $"Error: {ex.Message}"); }
         }
 
-        // ─────────────────────────────────────────────────────────────
-        // GET api/Startups/{id} (With Metrics & Safe JSON)
-        // ─────────────────────────────────────────────────────────────
         [HttpGet("{id}")]
         public async Task<IActionResult> GetStartupById(string id)
         {
             if (!Guid.TryParse(id, out Guid sId)) return BadRequest("Invalid ID format");
-
             try
             {
-                var result = await _supabase.From<Startup>().Select(SAFE_COLS).Where(s => s.Sid == sId).Get();
-                var startup = result.Models.FirstOrDefault();
+                var startup = (await _supabase.From<Startup>().Select(SAFE_COLS).Where(s => s.Sid == sId).Get()).Models.FirstOrDefault();
                 if (startup == null) return NotFound("Startup not found");
 
                 string? role = null;
@@ -296,8 +242,7 @@ namespace Spark2Scale_.Server.Controllers
                             if (startup.FounderId == currentUserId) role = "Founder";
                             else
                             {
-                                var contrib = await _supabase.From<StartupContributor>()
-                                    .Match(new Dictionary<string, string> { { "startup_id", sId.ToString() }, { "user_id", currentUserId.ToString() } }).Get();
+                                var contrib = await _supabase.From<StartupContributor>().Match(new Dictionary<string, string> { { "startup_id", sId.ToString() }, { "user_id", currentUserId.ToString() } }).Get();
                                 if (contrib.Models.Any()) role = contrib.Models.First().Role ?? "Contributor";
                             }
                         }
@@ -305,33 +250,22 @@ namespace Spark2Scale_.Server.Controllers
                     catch { }
                 }
 
-                // Metrics
-                int progressCount = 0;
-                int totalLikes = 0;
-                bool hasGap = false;
-
+                int progressCount = 0; int totalLikes = 0; bool hasGap = false;
                 try
                 {
-                    var wfResult = await _supabase.From<StartupWorkflow>().Where(w => w.StartupId == sId).Get();
-                    var wf = wfResult.Models.FirstOrDefault();
+                    var wf = (await _supabase.From<StartupWorkflow>().Where(w => w.StartupId == sId).Get()).Models.FirstOrDefault();
                     if (wf != null)
                     {
                         bool[] steps = { wf.IdeaCheck, wf.MarketResearch, wf.Evaluation, wf.Recommendation, wf.Documents, wf.PitchDeck };
                         progressCount = steps.Count(step => step);
                         bool foundFalse = false;
-                        foreach (var step in steps)
-                        {
-                            if (!step) foundFalse = true;
-                            else if (foundFalse && step) hasGap = true;
-                        }
+                        foreach (var step in steps) { if (!step) foundFalse = true; else if (foundFalse && step) hasGap = true; }
                     }
-
                     var pdResult = await _supabase.From<PitchDeck>().Where(p => p.startup_id == sId).Get();
                     if (pdResult.Models.Any()) totalLikes = pdResult.Models.Sum(d => d.countlikes);
                 }
-                catch (Exception ex) { _logger.LogWarning($"Metric fetch failed: {ex.Message}"); }
+                catch { }
 
-                // Safe JSON Fetch
                 object? safeJsonData = null;
                 try
                 {
@@ -341,7 +275,6 @@ namespace Spark2Scale_.Server.Controllers
                     http.DefaultRequestHeaders.Add("apikey", supabaseKey);
                     http.DefaultRequestHeaders.Add("Authorization", $"Bearer {supabaseKey}");
                     var rawRes = await http.GetAsync($"{supabaseUrl}/rest/v1/startups?select=json_response&sid=eq.{sId}");
-
                     if (rawRes.IsSuccessStatusCode)
                     {
                         var body = await rawRes.Content.ReadAsStringAsync();
@@ -356,9 +289,6 @@ namespace Spark2Scale_.Server.Controllers
             catch (Exception ex) { return StatusCode(500, $"Error: {ex.Message}"); }
         }
 
-        // ─────────────────────────────────────────────────────────────
-        // PUT /update-idea (RPC)
-        // ─────────────────────────────────────────────────────────────
         [HttpPut("update-idea/{id}")]
         public async Task<IActionResult> UpdateIdea(string id, [FromBody] IdeaUpdateDto input)
         {
@@ -371,12 +301,7 @@ namespace Spark2Scale_.Server.Controllers
                 if (string.IsNullOrEmpty(token)) return Unauthorized("Missing authorization token.");
                 if (!await _access.IsFounderOrOwner(token, sId)) return StatusCode(403, "Only the Founder can update the idea.");
 
-                var parameters = new Dictionary<string, object>
-                {
-                    { "p_startup_id", sId },
-                    { "p_new_idea", input.IdeaDescription }
-                };
-
+                var parameters = new Dictionary<string, object> { { "p_startup_id", sId }, { "p_new_idea", input.IdeaDescription } };
                 await _supabase.Rpc("update_idea_and_reset", parameters);
 
                 return Ok(new { message = "Idea updated, history archived, and workflow reset successfully.", idea = input.IdeaDescription });
@@ -384,9 +309,6 @@ namespace Spark2Scale_.Server.Controllers
             catch (Exception ex) { return StatusCode(500, $"Error updating idea: {ex.Message}"); }
         }
 
-        // ─────────────────────────────────────────────────────────────
-        // POST /generate-market-research
-        // ─────────────────────────────────────────────────────────────
         [HttpPost("{id}/generate-market-research")]
         public async Task<IActionResult> GenerateMarketResearch(string id, [FromBody] MarketResearchRequest request)
         {
@@ -394,17 +316,13 @@ namespace Spark2Scale_.Server.Controllers
 
             try
             {
-                var result = await _supabase.From<Startup>().Where(s => s.Sid == sId).Get();
-                var startup = result.Models.FirstOrDefault();
+                var startup = (await _supabase.From<Startup>().Where(s => s.Sid == sId).Get()).Models.FirstOrDefault();
                 if (startup == null) return NotFound("Startup not found");
 
                 string jsonContent = "";
-
                 using (var client = new HttpClient())
                 {
                     client.Timeout = TimeSpan.FromMinutes(10);
-                    var apiUrl = "https://spark2scale-ai-server.azurewebsites.net/api/v1/market-research/research";
-
                     var externalPayload = new
                     {
                         idea = startup.IdeaDescription ?? "No description",
@@ -413,28 +331,18 @@ namespace Spark2Scale_.Server.Controllers
                         category = request.Category
                     };
 
-                    var response = await client.PostAsJsonAsync(apiUrl, externalPayload);
-
+                    var response = await client.PostAsJsonAsync("https://spark2scale-ai-server.azurewebsites.net/api/v1/market-research/research", externalPayload);
                     if (!response.IsSuccessStatusCode)
                     {
                         var error = await response.Content.ReadAsStringAsync();
                         return StatusCode((int)response.StatusCode, $"AI Service Failed: {error}");
                     }
-
                     jsonContent = await response.Content.ReadAsStringAsync();
                 }
 
-                // Fallback deserialization to prevent crash on bad AI output
-                object jsonObjectToSave;
-                try { jsonObjectToSave = JsonConvert.DeserializeObject<Dictionary<string, object>>(jsonContent); }
-                catch
-                {
-                    try { jsonObjectToSave = JsonConvert.DeserializeObject<List<object>>(jsonContent); }
-                    catch { jsonObjectToSave = new { raw_output = jsonContent }; }
-                }
-
                 var fileName = $"{sId}/market_research_{DateTime.UtcNow.Ticks}.json";
-                var fileBytes = Encoding.UTF8.GetBytes(jsonContent);
+                // 👇 FIX: Fully qualified System.Text.Encoding.UTF8
+                var fileBytes = System.Text.Encoding.UTF8.GetBytes(jsonContent);
                 string publicUrl = "";
 
                 try
@@ -444,43 +352,57 @@ namespace Spark2Scale_.Server.Controllers
                 }
                 catch (Exception ex) { _logger.LogWarning($"Storage upload failed: {ex.Message}"); }
 
-                // Database Save
                 try
                 {
-                    var existingDocs = await _supabase.From<Document>()
+                    var supabaseUrl = Environment.GetEnvironmentVariable("SUPABASE_URL") ?? Environment.GetEnvironmentVariable("URL");
+                    var supabaseKey = Environment.GetEnvironmentVariable("SUPABASE_KEY") ?? Environment.GetEnvironmentVariable("KEY");
+                    using var supabaseHttp = new HttpClient();
+                    supabaseHttp.DefaultRequestHeaders.Add("apikey", supabaseKey);
+                    supabaseHttp.DefaultRequestHeaders.Add("Authorization", $"Bearer {supabaseKey}");
+                    supabaseHttp.DefaultRequestHeaders.Add("Prefer", "return=representation");
+
+                    // 👇 FIX: Fully qualified System.Text.Encoding.UTF8
+                    var patchUrl = $"{supabaseUrl}/rest/v1/documents?startup_id=eq.{sId}&type=eq.Market Research&is_current=eq.true";
+                    var patchRequest = new HttpRequestMessage(new HttpMethod("PATCH"), patchUrl) { Content = new StringContent("{\"is_current\": false}", System.Text.Encoding.UTF8, "application/json") };
+                    await supabaseHttp.SendAsync(patchRequest);
+
+                    var existingDocs = await _supabase.From<Document>().Select("did, current_version")
                         .Filter("startup_id", Supabase.Postgrest.Constants.Operator.Equals, sId.ToString())
                         .Filter("type", Supabase.Postgrest.Constants.Operator.Equals, "Market Research")
-                        .Filter("is_current", Supabase.Postgrest.Constants.Operator.Equals, "true")
-                        .Get();
+                        .Order("current_version", Supabase.Postgrest.Constants.Ordering.Descending).Get();
 
-                    var currentDoc = existingDocs.Models.FirstOrDefault();
-                    int nextVersion = 1;
+                    int nextVersion = (existingDocs.Models.FirstOrDefault()?.CurrentVersion ?? 0) + 1;
 
-                    if (currentDoc != null)
-                    {
-                        currentDoc.IsCurrent = false;
-                        await _supabase.From<Document>().Update(currentDoc);
-                        nextVersion = currentDoc.CurrentVersion + 1;
-                    }
+                    object finalJsonObj;
+                    try { finalJsonObj = System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(jsonContent); }
+                    catch { finalJsonObj = new { raw_output = jsonContent }; }
 
                     var newDocId = Guid.NewGuid();
-                    var newDoc = new Document
+                    var insertPayload = new
                     {
-                        Did = newDocId,
-                        StartupId = sId,
-                        DocumentName = $"Market Research Analysis v{nextVersion}",
-                        Type = "Market Research",
-                        CurrentPath = publicUrl,
-                        CurrentVersion = nextVersion,
-                        CanAccess = 1,
-                        UpdatedAt = DateTime.UtcNow,
-                        CreatedAt = DateTime.UtcNow,
-                        IsCurrent = true,
-                        JsonResponse = jsonObjectToSave
+                        did = newDocId,
+                        startup_id = sId,
+                        document_name = $"Market Research Analysis v{nextVersion}",
+                        type = "Market Research",
+                        current_path = publicUrl,
+                        current_version = nextVersion,
+                        canaccess = 1,
+                        updated_at = DateTime.UtcNow,
+                        created_at = DateTime.UtcNow,
+                        is_current = true,
+                        json_response = finalJsonObj
                     };
-                    await _supabase.From<Document>().Insert(newDoc);
 
-                    // 👇 CRITICAL FIX: Add DocumentVersion so the frontend renders it!
+                    // 👇 FIX: Fully qualified System.Text.Encoding.UTF8
+                    var content = new StringContent(System.Text.Json.JsonSerializer.Serialize(insertPayload), System.Text.Encoding.UTF8, "application/json");
+                    var res = await supabaseHttp.PostAsync($"{supabaseUrl}/rest/v1/documents", content);
+
+                    if (!res.IsSuccessStatusCode)
+                    {
+                        var err = await res.Content.ReadAsStringAsync();
+                        throw new Exception($"Supabase Insert failed: {err}");
+                    }
+
                     var versionDoc = new DocumentVersion
                     {
                         DocumentId = newDocId,
@@ -499,17 +421,17 @@ namespace Spark2Scale_.Server.Controllers
             catch (Exception ex) { return StatusCode(500, new { error = "Internal Server Error", message = ex.Message }); }
         }
 
-        // ─────────────────────────────────────────────────────────────
-        // PUT /recommendation
-        // ─────────────────────────────────────────────────────────────
         [HttpPut("{id}/recommendation")]
         public async Task<IActionResult> UpdateRecommendationData(string id, [FromBody] StartupRecommendationUpdateDto input)
         {
             if (!Guid.TryParse(id, out Guid sId)) return BadRequest();
 
+            var rawJson = input.JsonResponse.GetRawText();
+            var supabaseSafeJson = JsonConvert.DeserializeObject<object>(rawJson);
+
             await _supabase.From<Startup>()
                 .Where(s => s.Sid == sId)
-                .Set(s => s.JsonResponse, input.JsonResponse)
+                .Set(s => s.JsonResponse, supabaseSafeJson)
                 .Set(s => s.CurrentIteration, input.CurrentIteration)
                 .Update();
 

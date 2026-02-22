@@ -7,8 +7,8 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
-using System.Text.Json;
 using System.Threading.Tasks;
+using Newtonsoft.Json;
 
 namespace Spark2Scale_.Server.Controllers
 {
@@ -19,6 +19,8 @@ namespace Spark2Scale_.Server.Controllers
         private readonly Client _supabase;
         private readonly Spark2Scale_.Server.Services.AccessControlService _access;
         private readonly IHttpClientFactory _httpClientFactory;
+
+        private const string SAFE_COLS = "did,startup_id,document_name,type,current_path,current_version,canaccess,updated_at,created_at,is_current";
 
         public DocumentsController(
             Client supabase,
@@ -43,7 +45,6 @@ namespace Spark2Scale_.Server.Controllers
 
             try
             {
-                // We fetch the full document so the UI can read the AI analysis JSON
                 var query = _supabase.From<Document>()
                     .Where(x => x.StartupId == sId)
                     .Order("updated_at", Supabase.Postgrest.Constants.Ordering.Descending);
@@ -79,17 +80,17 @@ namespace Spark2Scale_.Server.Controllers
                         else { accessStatus = "locked"; path = null; }
                     }
 
-                    // 👇 FIX 1: Safely cast the object to a clean JSON string for the frontend to consume
                     string? jsonString = null;
                     if (d.JsonResponse != null)
                     {
-                        try
-                        {
-                            if (d.JsonResponse is string str) jsonString = str;
-                            else if (d.JsonResponse is JsonElement je) jsonString = je.GetRawText();
-                            else jsonString = JsonSerializer.Serialize(d.JsonResponse);
-                        }
-                        catch { /* Ignore parse errors on corrupted rows */ }
+                        if (d.JsonResponse is Newtonsoft.Json.Linq.JToken jToken)
+                            jsonString = jToken.ToString(Newtonsoft.Json.Formatting.None);
+                        else if (d.JsonResponse is System.Text.Json.JsonElement je)
+                            jsonString = je.GetRawText();
+                        else if (d.JsonResponse is string str)
+                            jsonString = str;
+                        else
+                            jsonString = JsonConvert.SerializeObject(d.JsonResponse);
                     }
 
                     return new
@@ -103,11 +104,6 @@ namespace Spark2Scale_.Server.Controllers
                         canaccess = d.CanAccess,
                         updated_at = d.UpdatedAt,
                         access_status = accessStatus,
-                        // FIX: Convert Newtonsoft JToken (from Supabase) to System.Text.Json.JsonElement (for Controller return)
-                        //json_response = d.JsonResponse is JToken token 
-                        //    ? JsonSerializer.Deserialize<JsonElement>(token.ToString()) 
-                        //    : d.JsonResponse,
-                        
                         json_response = jsonString
                     };
                 });
@@ -214,12 +210,11 @@ namespace Spark2Scale_.Server.Controllers
                 http.DefaultRequestHeaders.Add("Authorization", $"Bearer {supabaseKey}");
                 http.DefaultRequestHeaders.Add("Prefer", "return=representation");
 
-                // Deactivate old
+                // 👇 FIX: Fully qualified System.Text.Encoding.UTF8
                 var patchUrl = $"{supabaseUrl}/rest/v1/documents?startup_id=eq.{input.StartupId}&type=eq.{input.Type}&is_current=eq.true";
                 var patchRequest = new HttpRequestMessage(new HttpMethod("PATCH"), patchUrl) { Content = new StringContent("{\"is_current\": false}", System.Text.Encoding.UTF8, "application/json") };
                 await http.SendAsync(patchRequest);
 
-                // Insert new Document
                 Guid newDid = Guid.NewGuid();
                 var insertPayload = new
                 {
@@ -236,7 +231,8 @@ namespace Spark2Scale_.Server.Controllers
                     json_response = input.Content
                 };
 
-                var insertRequest = new HttpRequestMessage(HttpMethod.Post, $"{supabaseUrl}/rest/v1/documents") { Content = new StringContent(JsonSerializer.Serialize(insertPayload), System.Text.Encoding.UTF8, "application/json") };
+                // 👇 FIX: Fully qualified System.Text.Encoding.UTF8
+                var insertRequest = new HttpRequestMessage(HttpMethod.Post, $"{supabaseUrl}/rest/v1/documents") { Content = new StringContent(System.Text.Json.JsonSerializer.Serialize(insertPayload), System.Text.Encoding.UTF8, "application/json") };
                 var response = await http.SendAsync(insertRequest);
 
                 if (!response.IsSuccessStatusCode)
@@ -245,7 +241,6 @@ namespace Spark2Scale_.Server.Controllers
                     return StatusCode((int)response.StatusCode, $"Failed to save document to DB: {err}");
                 }
 
-                // 👇 FIX 2: CREATE THE DOCUMENT VERSION! The frontend hides documents that don't have a version.
                 var versionDoc = new DocumentVersion
                 {
                     DocumentId = newDid,
@@ -271,11 +266,10 @@ namespace Spark2Scale_.Server.Controllers
                 string founderUrl = await UploadHelper(input.FounderFile, "Founder_Report", sId);
                 string investorUrl = await UploadHelper(input.InvestorFile, "Investor_Memo", sId);
 
-                // Safe parsing to prevent crashes from AI Hallucinations
                 object? parsedJson = null;
                 if (!string.IsNullOrEmpty(input.JsonResponse))
                 {
-                    try { parsedJson = JsonSerializer.Deserialize<object>(input.JsonResponse); }
+                    try { parsedJson = JsonConvert.DeserializeObject<object>(input.JsonResponse); }
                     catch { parsedJson = new { raw_output = input.JsonResponse }; }
                 }
 
@@ -287,7 +281,6 @@ namespace Spark2Scale_.Server.Controllers
             catch (Exception ex) { return StatusCode(500, $"Error saving evaluations: {ex.Message}"); }
         }
 
-        // Helpers
         private async Task<string> UploadHelper(IFormFile file, string prefix, Guid sId)
         {
             var fileName = $"{sId}/{DateTime.Now.Ticks}_{prefix}.pdf";
@@ -300,32 +293,10 @@ namespace Spark2Scale_.Server.Controllers
         private async Task CreateDocHelper(string type, string url, int access, Guid sId, object? json)
         {
             var docId = Guid.NewGuid();
-            var doc = new Document
-            {
-                Did = docId,
-                StartupId = sId,
-                DocumentName = type + ".pdf",
-                Type = type,
-                CurrentPath = url,
-                CurrentVersion = 1,
-                CanAccess = access,
-                UpdatedAt = DateTime.UtcNow,
-                CreatedAt = DateTime.UtcNow,
-                IsCurrent = true,
-                JsonResponse = json
-            };
+            var doc = new Document { Did = docId, StartupId = sId, DocumentName = type + ".pdf", Type = type, CurrentPath = url, CurrentVersion = 1, CanAccess = access, UpdatedAt = DateTime.UtcNow, CreatedAt = DateTime.UtcNow, IsCurrent = true, JsonResponse = json };
             await _supabase.From<Document>().Insert(doc);
 
-            // 👇 FIX 3: CREATE THE DOCUMENT VERSION FOR EVALUATIONS TOO!
-            var versionDoc = new DocumentVersion
-            {
-                DocumentId = docId,
-                StartupId = sId,
-                VersionNumber = 1,
-                Path = url,
-                CreatedAt = DateTime.UtcNow,
-                GeneratedBy = "AI"
-            };
+            var versionDoc = new DocumentVersion { DocumentId = docId, StartupId = sId, VersionNumber = 1, Path = url, CreatedAt = DateTime.UtcNow, GeneratedBy = "AI" };
             await _supabase.From<DocumentVersion>().Insert(versionDoc);
         }
     }

@@ -42,7 +42,7 @@ namespace Spark2Scale_.Server.Models
         public int CurrentIteration { get; set; } // Added mapping
 
         [Column("json_response")]
-        public JsonElement? JsonResponse { get; set; }
+        public object? JsonResponse { get; set; }
 
         // --- ADD THIS PROPERTY ---
         // This maps to the JSONB column in your database
