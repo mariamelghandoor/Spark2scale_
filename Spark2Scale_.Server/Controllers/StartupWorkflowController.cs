@@ -82,44 +82,42 @@ namespace Spark2Scale_.Server.Controllers
 
         // POST: api/StartupWorkflow/update
         // We use POST to handle both Creation and Updates (Upsert)
-        [HttpPost("update")] // (Change to HttpPut if your original used Put)
-        public async Task<IActionResult> UpdateWorkflow([FromBody] StartupWorkflow input)
+        [HttpPost("update")]
+        public async Task<IActionResult> UpdateWorkflow([FromBody] WorkflowUpdateDto input)
         {
             try
             {
-                // 1. Foolproof Token Extraction (Case-Insensitive)
-                var authHeader = Request.Headers["Authorization"].FirstOrDefault();
-                if (string.IsNullOrEmpty(authHeader) || !authHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
-                    return Unauthorized(new { message = "Missing or invalid token format." });
+                // 1. Validate the string ID from the DTO
+                if (!Guid.TryParse(input.StartupId, out Guid sId))
+                    return BadRequest("Invalid Startup ID format.");
 
-                var token = authHeader.Substring(7).Trim();
+                var token = GetToken();
+                if (string.IsNullOrEmpty(token)) return Unauthorized();
 
-                // 2. Verify user is authenticated
-                var user = await _supabase.Auth.GetUser(token);
-                if (user == null || string.IsNullOrEmpty(user.Id))
-                    return Unauthorized(new { message = "Invalid or expired session." });
+                // 2. Auth check (reusing your service)
+                if (!await _access.IsFounderOrOwner(token, sId))
+                    return StatusCode(403, "Only the founder can update the workflow.");
 
-                // 3. Verify the user actually owns this startup
-                var startupRes = await _supabase.From<Startup>()
-                    .Select("sid,founder_id")
-                    .Where(s => s.Sid == input.StartupId)
-                    .Get();
+                // 3. Map DTO to Model
+                var workflow = new StartupWorkflow
+                {
+                    StartupId = sId,
+                    IdeaCheck = input.IdeaCheck,
+                    MarketResearch = input.MarketResearch,
+                    Evaluation = input.Evaluation,
+                    Recommendation = input.Recommendation,
+                    Documents = input.Documents,
+                    PitchDeck = input.PitchDeck,
+                    UpdatedAt = DateTime.UtcNow
+                };
 
-                var startup = startupRes.Models.FirstOrDefault();
-                if (startup == null || startup.FounderId.ToString() != user.Id)
-                    return StatusCode(403, new { message = "Only the founder can update the workflow." });
+                await _supabase.From<StartupWorkflow>().Upsert(workflow);
 
-                // 4. Perform the Update
-                input.UpdatedAt = DateTime.UtcNow;
-
-                // Using Upsert ensures it updates the existing row perfectly
-                await _supabase.From<StartupWorkflow>().Upsert(input);
-
-                return Ok(new { success = true, message = "Workflow stage marked as complete." });
+                return Ok(new { success = true, message = "Workflow updated successfully." });
             }
             catch (Exception ex)
             {
-                return StatusCode(500, $"Error updating workflow: {ex.Message}");
+                return StatusCode(500, $"Error: {ex.Message}");
             }
         }
 
@@ -174,6 +172,31 @@ namespace Spark2Scale_.Server.Controllers
             catch (Exception ex)
             {
                 return StatusCode(500, $"Reset failed: {ex.Message}");
+            }
+        }
+
+        // POST: api/StartupWorkflow/complete-recommendation/{startupId}
+        [HttpPost("complete-recommendation/{startupId}")]
+        public async Task<IActionResult> CompleteRecommendationStage(Guid startupId)
+        {
+            if (!await _access.IsFounderOrOwner(GetToken(), startupId))
+                return Unauthorized(new { message = "Unauthorized." });
+            try
+            {
+                var update = await _supabase.From<StartupWorkflow>()
+                    .Where(x => x.StartupId == startupId)
+                    .Set(x => x.Recommendation, true)
+                    .Set(x => x.UpdatedAt, DateTime.UtcNow)
+                    .Update();
+
+                var result = update.Models.FirstOrDefault();
+                if (result == null) return NotFound("Workflow not found for this startup.");
+
+                return Ok(new { message = "Recommendation stage marked as complete.", recommendation = true });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, $"Error updating workflow: {ex.Message}");
             }
         }
 

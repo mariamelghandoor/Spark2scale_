@@ -8,6 +8,11 @@ export interface InvitationResponse {
     role: string;
     status: string;
     expiresAt: string;
+    // PascalCase fallbacks
+    StartupId?: string;
+    StartupName?: string;
+    Email?: string;
+    Role?: string;
 }
 
 export interface SendInvitationRequest {
@@ -41,6 +46,11 @@ export const invitationService = {
 
     respond: async (data: RespondInvitationRequest) => {
         const response = await apiClient.post('/api/Invitation/respond', data);
+        return response.data;
+    },
+
+    getMyPending: async () => {
+        const response = await apiClient.get('/api/Invitation/my-pending');
         return response.data;
     }
 };

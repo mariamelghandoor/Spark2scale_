@@ -61,7 +61,7 @@ namespace Spark2Scale_.Server.Services
                 return;
             }
 
-            string subject = "🚀 Verify Your Account - Spark2Scale";
+            string subject = "🚀 Action Required: Verify your Spark2Scale account";
             string body = $@"
                 <!DOCTYPE html>
                 <html>
@@ -88,14 +88,18 @@ namespace Spark2Scale_.Server.Services
                                                 </p>
                                             </div>
                                             <div style='text-align: center; margin-top: 30px;'>
-                                                <a href='{verificationLink}' style='background-color:#576238; color:#ffffff; padding: 14px 28px; text-decoration: none; font-weight: bold; border-radius: 8px; display: inline-block; font-size: 16px;'>
-                                                    Verify Email
-                                                </a>
+                                                <!--[if mso]>
+                                                <v:roundrect xmlns:v='urn:schemas-microsoft-com:vml' xmlns:w='urn:schemas-microsoft-com:office:word' href='{verificationLink}' style='height:50px;v-text-anchor:middle;width:200px;' arcsize='10%' stroke='f' fillcolor='#576238'>
+                                                <w:anchorlock/>
+                                                <center>
+                                                <![endif]-->
+                                                    <a href='{verificationLink}' style='background-color:#576238; color:#ffffff; display:inline-block; font-family:sans-serif; font-size:16px; font-weight:bold; line-height:50px; text-align:center; text-decoration:none; width:200px; -webkit-text-size-adjust:none; border-radius: 8px;'>Verify Email</a>
+                                                <!--[if mso]>
+                                                </center>
+                                                </v:roundrect>
+                                                <![endif]-->
                                             </div>
-                                            <p style='color:#999; font-size: 14px; margin-top: 30px; text-align: center;'>
-                                                If the button doesn't work, copy and paste this link into your browser:<br>
-                                                <a href='{verificationLink}' style='color:#576238; word-break: break-all;'>{verificationLink}</a>
-                                            </p>
+
                                         </td>
                                     </tr>
                                     <tr>
@@ -149,14 +153,17 @@ namespace Spark2Scale_.Server.Services
                                                 </p>
                                             </div>
                                             <div style='text-align: center; margin-top: 30px;'>
-                                                <a href='{inviteLink}' style='background-color:#576238; color:#ffffff; padding: 14px 28px; text-decoration: none; font-weight: bold; border-radius: 8px; display: inline-block; font-size: 16px;'>
-                                                    Accept Invitation
-                                                </a>
+                                                <!--[if mso]>
+                                                <v:roundrect xmlns:v='urn:schemas-microsoft-com:vml' xmlns:w='urn:schemas-microsoft-com:office:word' href='{inviteLink}' style='height:50px;v-text-anchor:middle;width:220px;' arcsize='10%' stroke='f' fillcolor='#576238'>
+                                                <w:anchorlock/>
+                                                <center>
+                                                <![endif]-->
+                                                    <a href='{inviteLink}' style='background-color:#576238; color:#ffffff; display:inline-block; font-family:sans-serif; font-size:16px; font-weight:bold; line-height:50px; text-align:center; text-decoration:none; width:220px; -webkit-text-size-adjust:none; border-radius: 8px;'>Accept Invitation</a>
+                                                <!--[if mso]>
+                                                </center>
+                                                </v:roundrect>
+                                                <![endif]-->
                                             </div>
-                                             <p style='color:#999; font-size: 14px; margin-top: 30px; text-align: center;'>
-                                                If the button doesn't work, copy and paste this link into your browser:<br>
-                                                <a href='{inviteLink}' style='color:#576238; word-break: break-all;'>{inviteLink}</a>
-                                            </p>
                                         </td>
                                     </tr>
                                     <tr>

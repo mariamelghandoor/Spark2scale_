@@ -5,6 +5,7 @@ import { Card } from "@/components/ui/card";
 import { ArrowLeft, Download, Eye } from "lucide-react";
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
+import ContributorHeader from "@/components/contributor/ContributorHeader";
 
 export default function ContributorPitchViewPage() {
     const params = useParams();
@@ -24,37 +25,11 @@ export default function ContributorPitchViewPage() {
     return (
         <div className="min-h-screen bg-gradient-to-br from-[#F0EADC] via-[#fff] to-[#FFD95D]/20">
             {/* Header */}
-            <div className="border-b bg-white/80 backdrop-blur-lg">
-                <div className="container mx-auto px-4 py-4">
-                    <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-4">
-                            <Link href={`/contributor/startup/${params.id}/pitches`}>
-                                <Button variant="ghost" size="icon">
-                                    <ArrowLeft className="h-5 w-5" />
-                                </Button>
-                            </Link>
-                            <div>
-                                <h1 className="text-xl font-bold text-[#576238]">{pitch.name}</h1>
-                                <p className="text-sm text-muted-foreground">
-                                    Version: {pitch.version} • {pitch.duration}
-                                </p>
-                            </div>
-                        </div>
-                        <div className="flex items-center gap-2">
-                            <Link href={`/contributor/startup/${params.id}/pitches/${params.pitchId}/details`}>
-                                <Button variant="outline" size="sm" className="gap-2">
-                                    <Eye className="h-4 w-4" />
-                                    View Guidelines
-                                </Button>
-                            </Link>
-                            <Button variant="outline" size="sm" className="gap-2">
-                                <Download className="h-4 w-4" />
-                                Download
-                            </Button>
-                        </div>
-                    </div>
-                </div>
-            </div>
+            <ContributorHeader
+                backLink={`/contributor/startup/${params.id}/pitches`}
+                title={pitch.name}
+                subtitle={`Version: ${pitch.version} • ${pitch.duration}`}
+            />
 
             <main className="container mx-auto px-4 py-8">
                 <div className="max-w-6xl mx-auto">

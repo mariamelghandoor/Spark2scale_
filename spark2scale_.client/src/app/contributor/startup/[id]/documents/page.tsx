@@ -9,6 +9,7 @@ import { motion } from "framer-motion";
 import { useParams } from "next/navigation";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import ContributorHeader from "@/components/contributor/ContributorHeader";
 
 // --- Interfaces ---
 interface DocumentVersion {
@@ -139,17 +140,11 @@ export default function ContributorDocumentsPage() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-[#F0EADC] via-[#fff] to-[#FFD95D]/20">
       {/* Nav */}
-      <div className="border-b bg-white/80 backdrop-blur-lg">
-        <div className="container mx-auto px-4 py-4 flex justify-between items-center">
-          <Link href={`/contributor/startup/${startupId}`}>
-            <Button variant="ghost" size="icon"><ArrowLeft className="h-5 w-5" /></Button>
-          </Link>
-          <div>
-            <h1 className="text-xl font-bold text-[#576238]">📁 Documents</h1>
-            <p className="text-sm text-muted-foreground">Contributor Access</p>
-          </div>
-        </div>
-      </div>
+      <ContributorHeader
+        backLink={`/contributor/startup/${startupId}`}
+        title="📁 Documents"
+        subtitle="Contributor Access"
+      />
 
       <main className="container mx-auto px-4 py-8">
         <div className="max-w-5xl mx-auto space-y-8">

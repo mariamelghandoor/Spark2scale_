@@ -114,7 +114,7 @@ export const startupDashboardService = {
             console.error("Invite error:", error);
             let message = "Network error occurred.";
             if (error && typeof error === 'object' && 'response' in error) {
-                const errResponse = (error as any).response?.data;
+                const errResponse = (error as { response?: { data?: string } }).response?.data;
                 if (errResponse) message = errResponse;
             }
             else if (error instanceof Error) {

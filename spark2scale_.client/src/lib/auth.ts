@@ -67,7 +67,7 @@ export function getDashboardRoute(userType: string): string {
  * @param router Next.js router instance
  * @param apiUrl Base API URL
  */
-export async function handleAuthSuccess(token: string, router: AppRouterInstance, apiUrl: string, providedUser?: User) {
+export async function handleAuthSuccess(token: string, router: AppRouterInstance, apiUrl: string, providedUser?: User, redirectPath?: string) {
     if (!token) {
         throw new Error('No access token provided');
     }
@@ -106,15 +106,20 @@ export async function handleAuthSuccess(token: string, router: AppRouterInstance
     // 3. Store user data
     localStorage.setItem('user', JSON.stringify(user));
 
-    // 4. Redirect based on user type
-    const userType = resolveUserType(user);
-    if (!userType) {
-        throw new Error('User type not found in profile');
-    }
+    // 4. Redirect
+    if (redirectPath) {
+        console.log('Redirecting to custom path:', redirectPath);
+        router.push(redirectPath);
+    } else {
+        const userType = resolveUserType(user);
+        if (!userType) {
+            throw new Error('User type not found in profile');
+        }
 
-    console.log('Redirecting for user type:', userType);
-    const route = getDashboardRoute(userType);
-    router.push(route);
+        console.log('Redirecting for user type:', userType);
+        const route = getDashboardRoute(userType);
+        router.push(route);
+    }
 }
 
 /**

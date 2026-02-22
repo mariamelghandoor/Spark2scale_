@@ -2,11 +2,12 @@
 using Supabase.Postgrest.Models;
 using System;
 using System.Collections.Generic;
+using System.Text.Json;
 
 namespace Spark2Scale_.Server.Models
 {
-    // The C# Object that maps to your JSONB column
-    public class RecommendationContent
+    // The C# Object that maps to your JSONB column (Legacy schema for Idea Check)
+    public class LegacyRecommendationContent
     {
         public string Summary { get; set; }
         public int Score { get; set; }
@@ -26,9 +27,10 @@ namespace Spark2Scale_.Server.Models
         [Column("type")]
         public string Type { get; set; } // "idea_check" or "document_review"
 
-        // Supabase Client handles Serialization/Deserialization to JSONB automatically
+        // Use JsonElement to preserve ALL fields from the JSONB column
+        // Using 'object' caused Supabase to deserialize into LegacyRecommendationContent, stripping new fields
         [Column("content")]
-        public RecommendationContent Content { get; set; }
+        public JsonElement Content { get; set; }
 
         [Column("version")]
         public int Version { get; set; }
@@ -40,11 +42,10 @@ namespace Spark2Scale_.Server.Models
         public bool IsCurrent { get; set; }
     }
 
-    // Input DTO
     public class RecommendationInsertDto
     {
         public Guid StartupId { get; set; }
         public string Type { get; set; }
-        public RecommendationContent Content { get; set; }
+        public JsonElement Content { get; set; }
     }
 }

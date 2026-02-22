@@ -1,12 +1,12 @@
 ﻿using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.IdentityModel.Tokens;
 using Spark2Scale_.Server.Models;
 using Supabase;
 using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Net.Http;
 using System.Threading.Tasks;
 
 namespace Spark2Scale_.Server.Controllers
@@ -17,11 +17,16 @@ namespace Spark2Scale_.Server.Controllers
     {
         private readonly Client _supabase;
         private readonly Spark2Scale_.Server.Services.AccessControlService _access;
+        private readonly IHttpClientFactory _httpClientFactory;
 
-        public DocumentsController(Client supabase, Spark2Scale_.Server.Services.AccessControlService access)
+        public DocumentsController(
+            Client supabase,
+            Spark2Scale_.Server.Services.AccessControlService access,
+            IHttpClientFactory httpClientFactory)
         {
             _supabase = supabase;
             _access = access;
+            _httpClientFactory = httpClientFactory;
         }
 
         private string GetToken()
@@ -30,11 +35,8 @@ namespace Spark2Scale_.Server.Controllers
             return header?.StartsWith("Bearer ") == true ? header.Substring(7) : "";
         }
 
-        // GET: api/documents?startupId=...&investorId=...
         [HttpGet]
-        public async Task<IActionResult> GetDocuments(
-            [FromQuery] string startupId,
-            [FromQuery] string? investorId = null)
+        public async Task<IActionResult> GetDocuments([FromQuery] string startupId, [FromQuery] string? investorId = null)
         {
             if (!Guid.TryParse(startupId, out Guid sId)) return BadRequest("Invalid ID");
 
@@ -70,7 +72,6 @@ namespace Spark2Scale_.Server.Controllers
                     if (isRestricted)
                     {
                         var record = accessRecords.FirstOrDefault(r => r.DocumentId == d.Did);
-
                         if (record != null && record.Granted == true) { accessStatus = "granted"; }
                         else if (record != null && record.Granted == false) { accessStatus = "pending"; path = null; }
                         else { accessStatus = "locked"; path = null; }
@@ -87,97 +88,13 @@ namespace Spark2Scale_.Server.Controllers
                         canaccess = d.CanAccess,
                         updated_at = d.UpdatedAt,
                         access_status = accessStatus,
-                        // 👇 FIX: Use SerializeObject instead of ToString()
                         json_response = d.JsonResponse != null ? Newtonsoft.Json.JsonConvert.SerializeObject(d.JsonResponse) : null
                     };
                 });
 
                 return Ok(dtos);
             }
-            catch (Exception ex)
-            {
-                return StatusCode(500, $"Error fetching documents: {ex.Message}");
-            }
-        }
-
-        // GET: api/documents/check-completion/{startupId}
-        [HttpGet("check-completion/{startupId}")]
-        public async Task<IActionResult> CheckCompletion(string startupId)
-        {
-            if (!Guid.TryParse(startupId, out Guid sId)) return BadRequest("Invalid ID");
-
-            var requiredTypes = new List<string> { "Pitch Deck", "Financials", "Cap Table", "Legal Docs", "Business Plan" };
-
-            var result = await _supabase.From<Document>()
-                .Where(x => x.StartupId == sId && x.IsCurrent == true)
-                .Order("updated_at", Supabase.Postgrest.Constants.Ordering.Descending)
-                .Get();
-
-            var uploadedTypes = result.Models.Select(d => d.Type).ToList();
-
-            var missing = requiredTypes
-                .Where(req => !uploadedTypes.Any(up => up.Equals(req, StringComparison.OrdinalIgnoreCase)))
-                .ToList();
-
-            if (missing.Any())
-            {
-                return Ok(new { isComplete = false, missingDocs = missing });
-            }
-
-            return Ok(new { isComplete = true });
-        }
-
-        [HttpGet("history/{documentId}")]
-        public async Task<IActionResult> GetHistory(string documentId)
-        {
-            if (!Guid.TryParse(documentId, out Guid dId)) return BadRequest("Invalid ID");
-
-            var result = await _supabase.From<DocumentVersion>()
-                .Where(x => x.DocumentId == dId)
-                .Order("version_number", Supabase.Postgrest.Constants.Ordering.Descending)
-                .Get();
-
-            var dtos = result.Models.Select(v => new
-            {
-                vid = v.Vid,
-                document_id = v.DocumentId,
-                version_number = v.VersionNumber,
-                path = v.Path,
-                created_at = v.CreatedAt,
-                generated_by = v.GeneratedBy
-            });
-
-            return Ok(dtos);
-        }
-
-        [HttpGet("all")]
-        public async Task<IActionResult> GetAllDocuments(string startupId)
-        {
-            if (!Guid.TryParse(startupId, out Guid sId)) return BadRequest("Invalid ID");
-
-            var result = await _supabase.From<Document>()
-                .Where(x => x.StartupId == sId)
-                .Order("updated_at", Supabase.Postgrest.Constants.Ordering.Descending)
-                .Get();
-
-            var dtos = result.Models.Select(d => new
-            {
-                did = d.Did,
-                startup_id = d.StartupId,
-                document_name = d.DocumentName,
-                type = d.Type,
-                current_path = d.CurrentPath,
-                current_version = d.CurrentVersion,
-                canaccess = d.CanAccess,
-                updated_at = d.UpdatedAt,
-                created_at = d.CreatedAt,
-                is_current = d.IsCurrent,
-                // 👇 FIX: Use SerializeObject instead of ToString()
-                json_response = d.JsonResponse != null ? Newtonsoft.Json.JsonConvert.SerializeObject(d.JsonResponse) : null
-            });
-
-            return Ok(dtos);
-
+            catch (Exception ex) { return StatusCode(500, $"Error: {ex.Message}"); }
         }
 
         [HttpPost("upload")]
@@ -186,7 +103,6 @@ namespace Spark2Scale_.Server.Controllers
             if (form.File == null || form.File.Length == 0) return BadRequest("No file.");
             if (!Guid.TryParse(form.StartupId, out Guid sId)) return BadRequest("Invalid Startup ID.");
 
-            // AUTH CHECK
             if (!await _access.IsFounderOrOwner(GetToken(), sId))
                 return Unauthorized(new { message = "Unauthorized upload." });
 
@@ -200,277 +116,117 @@ namespace Spark2Scale_.Server.Controllers
                 var publicUrl = _supabase.Storage.From("startup-docs").GetPublicUrl(fileName);
                 var now = DateTime.UtcNow;
 
+                // Logic to update existing vs create new doc
                 if (!string.IsNullOrEmpty(form.DocumentId) && Guid.TryParse(form.DocumentId, out Guid dId))
                 {
                     var existingRes = await _supabase.From<Document>().Where(x => x.Did == dId).Get();
                     var currentDoc = existingRes.Models.FirstOrDefault();
-
                     if (currentDoc != null)
                     {
-                        int newVer = currentDoc.CurrentVersion + 1;
                         currentDoc.CurrentPath = publicUrl;
-                        currentDoc.CurrentVersion = newVer;
+                        currentDoc.CurrentVersion++;
                         currentDoc.UpdatedAt = now;
-                        currentDoc.IsCurrent = true;
                         await _supabase.From<Document>().Upsert(currentDoc);
-
-                        await _supabase.From<DocumentVersion>().Insert(new DocumentVersion
-                        {
-                            DocumentId = dId,
-                            StartupId = sId,
-                            VersionNumber = newVer,
-                            Path = publicUrl,
-                            CreatedAt = now,
-                            GeneratedBy = "manual"
-                        });
-
-                        return Ok(new { message = "Version updated", version = newVer });
+                        return Ok(new { message = "Version updated" });
                     }
                 }
 
-                var newDoc = new Document
-                {
-                    StartupId = sId,
-                    DocumentName = form.DocName,
-                    Type = form.Type,
-                    CurrentPath = publicUrl,
-                    CurrentVersion = 1,
-                    CanAccess = 1,
-                    UpdatedAt = now,
-                    CreatedAt = now,
-                    IsCurrent = true
-                };
-
-                var insertOptions = new Supabase.Postgrest.QueryOptions { Returning = Supabase.Postgrest.QueryOptions.ReturnType.Representation };
-                var inserted = await _supabase.From<Document>().Insert(newDoc, insertOptions);
-                var createdDoc = inserted.Models.FirstOrDefault();
-                if (createdDoc == null) throw new Exception("Database insert failed to return the new ID.");
-                var realDbId = createdDoc.Did;
-
-                await _supabase.From<DocumentVersion>().Insert(new DocumentVersion
-                {
-                    DocumentId = realDbId,
-                    StartupId = sId,
-                    VersionNumber = 1,
-                    Path = publicUrl,
-                    CreatedAt = now,
-                    GeneratedBy = "manual"
-                });
-
-                return Ok(new { message = "File created", version = 1 });
+                var newDoc = new Document { StartupId = sId, DocumentName = form.DocName, Type = form.Type, CurrentPath = publicUrl, CurrentVersion = 1, CanAccess = 1, UpdatedAt = now, CreatedAt = now, IsCurrent = true };
+                await _supabase.From<Document>().Insert(newDoc);
+                return Ok(new { message = "File created" });
             }
-            catch (Exception ex)
-            {
-                return StatusCode(500, $"Upload failed: {ex.Message}");
-            }
-        }
-
-        [HttpPost("generate-mock")]
-        public async Task<IActionResult> GenerateMock([FromBody] GenerateMockDto input)
-        {
-            if (input.StartupId == Guid.Empty) return BadRequest("Invalid Startup ID");
-
-            // AUTH CHECK
-            if (!await _access.IsFounderOrOwner(GetToken(), input.StartupId))
-                return Unauthorized(new { message = "Unauthorized generation." });
-
-            try
-            {
-                string mockUrl = "https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf";
-                string docName = $"{input.Type} (AI Generated)";
-
-                var existingRes = await _supabase.From<Document>()
-                    .Where(x => x.StartupId == input.StartupId && x.Type == input.Type && x.IsCurrent == true)
-                    .Get();
-
-                var currentDoc = existingRes.Models.FirstOrDefault();
-
-                if (currentDoc != null)
-                {
-                    int newVer = currentDoc.CurrentVersion + 1;
-                    await _supabase.From<DocumentVersion>().Insert(new DocumentVersion
-                    {
-                        DocumentId = currentDoc.Did,
-                        StartupId = input.StartupId,
-                        VersionNumber = newVer,
-                        Path = mockUrl,
-                        CreatedAt = DateTime.UtcNow,
-                        GeneratedBy = "AI"
-                    });
-
-                    currentDoc.CurrentPath = mockUrl;
-                    currentDoc.CurrentVersion = newVer;
-                    currentDoc.UpdatedAt = DateTime.UtcNow;
-                    currentDoc.IsCurrent = true;
-                    await _supabase.From<Document>().Upsert(currentDoc);
-
-                    return Ok(new { message = "AI generated new version", version = newVer });
-                }
-                else
-                {
-                    var newDoc = new Document
-                    {
-                        Did = Guid.NewGuid(),
-                        StartupId = input.StartupId,
-                        DocumentName = docName,
-                        Type = input.Type,
-                        CurrentPath = mockUrl,
-                        CurrentVersion = 1,
-                        CanAccess = 1,
-                        UpdatedAt = DateTime.UtcNow,
-                        CreatedAt = DateTime.UtcNow,
-                        IsCurrent = true
-                    };
-
-                    var inserted = await _supabase.From<Document>().Insert(newDoc);
-                    var createdDid = inserted.Models.First().Did;
-
-                    await _supabase.From<DocumentVersion>().Insert(new DocumentVersion
-                    {
-                        DocumentId = createdDid,
-                        StartupId = input.StartupId,
-                        VersionNumber = 1,
-                        Path = mockUrl,
-                        CreatedAt = DateTime.UtcNow,
-                        GeneratedBy = "AI"
-                    });
-
-                    return Ok(new { message = "AI generated document", version = 1 });
-                }
-            }
-            catch (Exception ex)
-            {
-                return StatusCode(500, $"Generation failed: {ex.Message}");
-            }
+            catch (Exception ex) { return StatusCode(500, ex.Message); }
         }
 
         [HttpDelete("{documentId}")]
         public async Task<IActionResult> DeleteDocument(string documentId)
         {
             if (!Guid.TryParse(documentId, out Guid dId)) return BadRequest("Invalid ID");
+            try
+            {
+                var docRes = await _supabase.From<Document>().Select("did,startup_id").Where(x => x.Did == dId).Get();
+                var doc = docRes.Models.FirstOrDefault();
+                if (doc == null) return NotFound();
+
+                if (!await _access.IsFounderOrOwner(GetToken(), doc.StartupId)) return Forbid();
+
+                await _supabase.From<DocumentVersion>().Where(x => x.DocumentId == dId).Delete();
+                await _supabase.From<Document>().Where(x => x.Did == dId).Delete();
+
+                return Ok(new { message = "Deleted successfully" });
+            }
+            catch (Exception ex) { return StatusCode(500, ex.Message); }
+        }
+
+        [HttpPost("save-ai-response")]
+        public async Task<IActionResult> SaveAIResponse([FromBody] SaveAIResponseDto input)
+        {
+            if (input.StartupId == Guid.Empty) return BadRequest("Invalid Startup ID.");
+            var supabaseUrl = Environment.GetEnvironmentVariable("SUPABASE_URL");
+            var supabaseKey = Environment.GetEnvironmentVariable("SUPABASE_KEY");
 
             try
             {
-                // 1. Verify document exists (ONLY select needed columns to avoid JSON parse crash)
-                var docRes = await _supabase.From<Document>()
-                    .Select("did,startup_id") // 👈 FIX: Ignores json_response!
-                    .Where(x => x.Did == dId)
-                    .Get();
+                var http = _httpClientFactory.CreateClient();
+                http.DefaultRequestHeaders.Add("apikey", supabaseKey);
+                http.DefaultRequestHeaders.Add("Authorization", $"Bearer {supabaseKey}");
 
-                var doc = docRes.Models.FirstOrDefault();
-                if (doc == null) return NotFound("Document not found.");
+                // Deactivate old
+                var patchUrl = $"{supabaseUrl}/rest/v1/documents?startup_id=eq.{input.StartupId}&type=eq.{input.Type}&is_current=eq.true";
+                var patchRequest = new HttpRequestMessage(new HttpMethod("PATCH"), patchUrl) { Content = new StringContent("{\"is_current\": false}", System.Text.Encoding.UTF8, "application/json") };
+                await http.SendAsync(patchRequest);
 
-                // 2. Foolproof Token Extraction
-                var authHeader = Request.Headers["Authorization"].FirstOrDefault();
-                if (string.IsNullOrEmpty(authHeader) || !authHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
-                    return Unauthorized(new { message = "Missing or invalid token format." });
+                // Insert new
+                var insertPayload = new { did = Guid.NewGuid(), startup_id = input.StartupId, document_name = $"{input.Type} (AI Analysis)", type = input.Type, current_path = "", current_version = 1, canaccess = 1, updated_at = DateTime.UtcNow, created_at = DateTime.UtcNow, is_current = true, json_response = input.Content };
+                var insertRequest = new HttpRequestMessage(HttpMethod.Post, $"{supabaseUrl}/rest/v1/documents") { Content = new StringContent(System.Text.Json.JsonSerializer.Serialize(insertPayload), System.Text.Encoding.UTF8, "application/json") };
+                await http.SendAsync(insertRequest);
 
-                var token = authHeader.Substring(7).Trim();
-
-                // 3. Verify user is the Founder
-                var user = await _supabase.Auth.GetUser(token);
-                if (user == null || string.IsNullOrEmpty(user.Id))
-                    return Unauthorized(new { message = "Invalid or expired session." });
-
-                // Check Startup ownership (also ignoring json_response)
-                var startupRes = await _supabase.From<Startup>()
-                    .Select("sid,founder_id")
-                    .Where(s => s.Sid == doc.StartupId)
-                    .Get();
-
-                var startup = startupRes.Models.FirstOrDefault();
-
-                if (startup == null || startup.FounderId.ToString() != user.Id)
-                    return StatusCode(403, new { message = "Only the founder can delete this document." });
-
-                // 4. Delete child versions FIRST to prevent SQL Foreign Key crash
-                await _supabase.From<DocumentVersion>().Where(x => x.DocumentId == dId).Delete();
-
-                // 5. Delete the main document
-                await _supabase.From<Document>().Where(x => x.Did == dId).Delete();
-
-                return Ok(new { message = "Document and versions deleted successfully" });
+                return Ok(new { message = "AI Response Saved" });
             }
-            catch (Exception ex)
-            {
-                return StatusCode(500, $"Delete failed: {ex.Message}");
-            }
+            catch (Exception ex) { return StatusCode(500, ex.Message); }
         }
 
         [HttpPost("save-ai-evaluations")]
         public async Task<IActionResult> SaveAiEvaluations([FromForm] SaveAiEvaluationsFormDto input)
         {
-            if (!Guid.TryParse(input.StartupId, out Guid sId)) return BadRequest("Invalid Startup ID.");
-
+            if (!Guid.TryParse(input.StartupId, out Guid sId)) return BadRequest("Invalid ID.");
             try
             {
-                var now = DateTime.UtcNow;
+                string founderUrl = await UploadHelper(input.FounderFile, "Founder_Report", sId);
+                string investorUrl = await UploadHelper(input.InvestorFile, "Investor_Memo", sId);
 
-                async Task<string> UploadToSupabase(IFormFile file, string prefix)
-                {
-                    var fileName = $"{sId}/{DateTime.Now.Ticks}_{prefix}.pdf";
-                    using var ms = new MemoryStream();
-                    await file.CopyToAsync(ms);
-                    var fileBytes = ms.ToArray();
-                    await _supabase.Storage.From("startup-docs").Upload(fileBytes, fileName);
-                    return _supabase.Storage.From("startup-docs").GetPublicUrl(fileName);
-                }
+                Dictionary<string, object>? parsedJson = string.IsNullOrEmpty(input.JsonResponse) ? null : Newtonsoft.Json.JsonConvert.DeserializeObject<Dictionary<string, object>>(input.JsonResponse);
 
-                string founderUrl = await UploadToSupabase(input.FounderFile, "Founder_Report");
-                string investorUrl = await UploadToSupabase(input.InvestorFile, "Investor_Memo");
+                await CreateDocHelper("Founder Evaluation", founderUrl, 0, sId, parsedJson);
+                await CreateDocHelper("Investor Evaluation", investorUrl, 1, sId, parsedJson);
 
-                // 👇 Parameter is now strictly a Dictionary
-                async Task CreateDocumentAndVersion(string docName, string docType, string url, int accessLvl, Dictionary<string, object> jsonContent)
-                {
-                    var newDoc = new Document
-                    {
-                        Did = Guid.NewGuid(),
-                        StartupId = sId,
-                        DocumentName = docName,
-                        Type = docType,
-                        CurrentPath = url,
-                        CurrentVersion = 1,
-                        CanAccess = accessLvl,
-                        UpdatedAt = now,
-                        CreatedAt = now,
-                        IsCurrent = true,
-                        JsonResponse = jsonContent
-                    };
-
-                    var insertOptions = new Supabase.Postgrest.QueryOptions { Returning = Supabase.Postgrest.QueryOptions.ReturnType.Representation };
-                    var inserted = await _supabase.From<Document>().Insert(newDoc, insertOptions);
-                    var createdDoc = inserted.Models.FirstOrDefault();
-
-                    if (createdDoc != null)
-                    {
-                        await _supabase.From<DocumentVersion>().Insert(new DocumentVersion
-                        {
-                            DocumentId = createdDoc.Did,
-                            StartupId = sId,
-                            VersionNumber = 1,
-                            Path = url,
-                            CreatedAt = now,
-                            GeneratedBy = "AI"
-                        });
-                    }
-                }
-
-                // 👇 Deserialize strictly into the Dictionary
-                Dictionary<string, object> parsedJson = null;
-                if (!string.IsNullOrEmpty(input.JsonResponse))
-                {
-                    parsedJson = Newtonsoft.Json.JsonConvert.DeserializeObject<Dictionary<string, object>>(input.JsonResponse);
-                }
-
-                await CreateDocumentAndVersion("Founder_Report.pdf", "Founder Evaluation", founderUrl, 0, parsedJson);
-                await CreateDocumentAndVersion("Investor_Memo.pdf", "Investor Evaluation", investorUrl, 1, parsedJson);
-
-                return Ok(new { success = true, message = "Evaluations saved successfully" });
+                return Ok(new { success = true });
             }
-            catch (Exception ex)
-            {
-                return StatusCode(500, $"Failed to save evaluations: {ex.Message}");
-            }
+            catch (Exception ex) { return StatusCode(500, ex.Message); }
         }
+
+        // Helpers
+        private async Task<string> UploadHelper(IFormFile file, string prefix, Guid sId)
+        {
+            var fileName = $"{sId}/{DateTime.Now.Ticks}_{prefix}.pdf";
+            using var ms = new MemoryStream();
+            await file.CopyToAsync(ms);
+            await _supabase.Storage.From("startup-docs").Upload(ms.ToArray(), fileName);
+            return _supabase.Storage.From("startup-docs").GetPublicUrl(fileName);
+        }
+
+        private async Task CreateDocHelper(string type, string url, int access, Guid sId, Dictionary<string, object>? json)
+        {
+            var doc = new Document { Did = Guid.NewGuid(), StartupId = sId, DocumentName = type + ".pdf", Type = type, CurrentPath = url, CurrentVersion = 1, CanAccess = access, UpdatedAt = DateTime.UtcNow, CreatedAt = DateTime.UtcNow, IsCurrent = true, JsonResponse = json };
+            await _supabase.From<Document>().Insert(doc);
+        }
+    }
+
+    // DTOs (Placed outside the Controller class)
+    public class SaveAIResponseDto
+    {
+        public Guid StartupId { get; set; }
+        public string? Type { get; set; }
+        public System.Text.Json.JsonElement Content { get; set; }
     }
 }

@@ -33,6 +33,7 @@ export default function DocumentsPage() {
     const [uploadingId, setUploadingId] = useState<string | null>(null);
     const [deletingId, setDeletingId] = useState<string | null>(null);
     const [isCompleting, setIsCompleting] = useState(false);
+    const [isWorkflowComplete, setIsWorkflowComplete] = useState(false);
 
     // Chat & History State
     const [sessions, setSessions] = useState<SessionSummary[]>([]);
@@ -63,7 +64,10 @@ export default function DocumentsPage() {
         if (!cleanId) return;
         setIsLoadingData(true);
         try {
-            const dbDocs = await documentsService.getDocuments(cleanId);
+            const [dbDocs, workflowState] = await Promise.all([
+                documentsService.getDocuments(cleanId),
+                documentsService.getWorkflow(cleanId)
+            ]);
 
             const mergedState: DocState[] = REQUIRED_DOCS.map(req => {
                 const match = dbDocs.find(d => d.type.toLowerCase() === req.name.toLowerCase());
@@ -82,6 +86,12 @@ export default function DocumentsPage() {
                 }
             });
             setDocStates(mergedState);
+
+            // Check if Documents stage is complete
+            if (workflowState) {
+                const isComplete = workflowState.documents === true || workflowState.Documents === true;
+                setIsWorkflowComplete(isComplete);
+            }
         } finally {
             setIsLoadingData(false);
         }
@@ -245,8 +255,10 @@ export default function DocumentsPage() {
             };
 
             const success = await documentsService.updateWorkflow(updatePayload);
-            if (success) router.push(`/founder/startup/${cleanId}`);
-
+            if (success) {
+                setIsWorkflowComplete(true);
+                router.push(`/founder/startup/${cleanId}`);
+            }
         } finally {
             setIsCompleting(false);
         }
@@ -331,10 +343,34 @@ export default function DocumentsPage() {
                                 })}
                             </div>
                         )}
-                        <div className="pt-4 text-center">
-                            <Button size="lg" className="w-full sm:w-auto bg-[#FFD95D] hover:bg-[#ffe89a] text-black font-semibold px-8" onClick={handleCompleteStage} disabled={isCompleting}>
-                                {isCompleting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : "Complete Documents Stage"}
-                            </Button>
+                        {/* COMPLETE BUTTON SECTION */}
+                        <div className="pt-8 text-center">
+                            {isWorkflowComplete ? (
+                                <Button
+                                    size="lg"
+                                    variant="outline"
+                                    className="font-semibold"
+                                    asChild
+                                >
+                                    <Link href={`/founder/startup/${cleanId}`}>
+                                        Continue to Dashboard
+                                    </Link>
+                                </Button>
+                            ) : (
+                                <Button
+                                    size="lg"
+                                    className="w-full sm:w-auto bg-[#FFD95D] hover:bg-[#ffe89a] text-black font-semibold px-8"
+                                    onClick={handleCompleteStage}
+                                    disabled={isCompleting}
+                                >
+                                    {isCompleting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : "Mark as Complete & Continue"}
+                                </Button>
+                            )}
+                            {isWorkflowComplete && (
+                                <p className="text-xs text-muted-foreground mt-2">
+                                    Stage previously marked as complete.
+                                </p>
+                            )}
                         </div>
                     </div>
 

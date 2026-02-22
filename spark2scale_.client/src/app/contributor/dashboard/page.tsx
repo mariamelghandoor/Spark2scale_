@@ -1,19 +1,24 @@
 "use client";
 
+// ... (no changes here yet, just verifying)
+
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Calendar, User, FolderOpen, Video } from "lucide-react";
 import Link from "next/link";
 import { motion } from "framer-motion";
-import NotificationsDropdown from "@/components/shared/NotificationsDropdown";
+import ContributorHeader from "@/components/contributor/ContributorHeader";
 import { useAuth } from "@/context/AuthContext";
 
 interface StartupApiResponse {
     sid: string;
     startupname: string;
     field: string;
+    region?: string;
     location?: string;
+    invited_by_name?: string;
+    current_role?: string;
     [key: string]: unknown;
 }
 
@@ -26,23 +31,37 @@ interface Startup {
     role: string;
 }
 
-interface StartupContributor {
-    contributorId: string;
-    invitedBy?: string;
-    [key: string]: unknown;
-}
+// Unused interfaces removed
 
-interface BackendUser {
-    uid: string;
-    fname?: string;
-    lname?: string;
-    email?: string;
+interface Invitation {
+    invitationId: string;
+    startupName: string;
+    role: string;
+    expiresAt: string;
+    token?: string;
+    Token?: string;
     [key: string]: unknown;
 }
 
 export default function ContributorDashboard() {
     const { user, loading } = useAuth();
     const [startups, setStartups] = useState<Startup[]>([]);
+    const [pendingInvites, setPendingInvites] = useState<Invitation[]>([]);
+    const [refreshTrigger, setRefreshTrigger] = useState(0);
+
+    const handleAcceptInvite = async (invite: Invitation) => {
+        try {
+            await import('@/services/invitationService').then(m => m.invitationService.respond({
+                token: invite.token || invite.invitationId || invite.Token || "", // Handle casing
+                accept: true,
+                userId: user?.id || ''
+            }));
+            // Refresh
+            setRefreshTrigger(prev => prev + 1);
+        } catch (error) {
+            console.error("Failed to accept invite", error);
+        }
+    };
 
     useEffect(() => {
         if (loading || !user?.id) return;
@@ -58,50 +77,99 @@ export default function ContributorDashboard() {
                 if (response.ok) {
                     const data: StartupApiResponse[] = await response.json();
 
-                    // Fetch contributor relationships to get invited_by info
-                    const mapped = await Promise.all(data.map(async (s) => {
-                        let invitedByName = "Unknown";
-                        try {
-                            // Fetch startup contributors to get invited_by
-                            const contributorsRes = await fetch(`${cleanApiUrl}/api/StartupContributor/${s.sid}`);
-                            if (contributorsRes.ok) {
-                                const contributors: StartupContributor[] = await contributorsRes.json();
-                                const contributor = contributors.find(c => c.contributorId === user.id);
-                                if (contributor?.invitedBy) {
-                                    // Fetch user name
-                                    const userRes = await fetch(`${cleanApiUrl}/api/Users`);
-                                    if (userRes.ok) {
-                                        const users: BackendUser[] = await userRes.json();
-                                        const inviter = users.find(u => u.uid === contributor.invitedBy);
-                                        if (inviter) {
-                                            invitedByName = `${inviter.fname || ''} ${inviter.lname || ''}`.trim() || inviter.email || "Unknown";
-                                        }
-                                    }
-                                }
-                            }
-                        } catch (err) {
-                            console.warn("Failed to fetch inviter name", err);
-                        }
-
-                        return {
-                            id: s.sid,
-                            name: s.startupname,
-                            region: s.location || "Global",
-                            field: s.field,
-                            invitedBy: invitedByName,
-                            role: "Contributor",
-                        };
+                    // Map the response to the format expected by the UI
+                    const mapped = data.map((s) => ({
+                        id: s.sid,
+                        name: s.startupname,
+                        region: s.region || "Global",
+                        field: s.field,
+                        invitedBy: s.invited_by_name || "Unknown",
+                        role: s.current_role || "Contributor",
                     }));
 
                     setStartups(mapped);
                 }
+
+                // Fetch Pending Invitations
+                import('@/services/invitationService').then(async m => {
+                    try {
+                        const invites = await m.invitationService.getMyPending();
+                        setPendingInvites(invites);
+                    } catch (e) {
+                        console.error("Failed to fetch pending invites", e);
+                    }
+                });
+
             } catch (error) {
                 console.error("Failed to fetch contributor startups:", error);
             }
         };
 
         fetchStartups();
-    }, [user, loading]);
+
+        // --- SAFETY NET: Check for pending invitations in localStorage ---
+        const checkPendingAndRedirect = async () => {
+            const pendingInviteStr = localStorage.getItem('pendingInvitation') || localStorage.getItem('postVerificationInvitation');
+
+            if (pendingInviteStr && user?.id) {
+                try {
+                    const invite = JSON.parse(pendingInviteStr);
+                    console.log('Found pending invitation in storage on Dashboard:', invite);
+
+                    if (invite.token) {
+                        const m = await import('@/services/invitationService');
+                        await m.invitationService.respond({
+                            token: invite.token,
+                            accept: true,
+                            userId: user.id
+                        });
+
+                        console.log('Safety net: Invitation accepted. Redirecting...');
+
+                        // Clear storage
+                        localStorage.removeItem('pendingInvitation');
+                        localStorage.removeItem('postVerificationInvitation');
+
+                        // Refresh or Redirect
+                        // If we have a startupId, redirect there
+                        if (invite.startupId) {
+                            window.location.href = `/contributor/startup/${invite.startupId}`;
+                        } else {
+                            setRefreshTrigger(prev => prev + 1);
+                        }
+                    }
+                } catch (e: any) {
+                    console.error('Safety net failed:', e);
+                    // Check if error is "Invitation is already Accepted"
+                    if (e?.response?.data?.message?.includes("already Accepted") || e?.message?.includes("already Accepted")) {
+                        console.log('Invitation already accepted. Clearing storage and redirecting...');
+
+                        // Try to get startupId from the stored invite string
+                        let startupId = null;
+                        try {
+                            const storedInvite = JSON.parse(pendingInviteStr || '{}');
+                            startupId = storedInvite.startupId;
+                        } catch (parseError) {
+                            console.error("Could not parse stored invite for redirection", parseError);
+                        }
+
+                        localStorage.removeItem('pendingInvitation');
+                        localStorage.removeItem('postVerificationInvitation');
+
+                        // Redirect if startupId is known
+                        if (startupId) {
+                            window.location.href = `/contributor/startup/${startupId}`;
+                        } else {
+                            setRefreshTrigger(prev => prev + 1);
+                        }
+                    }
+                }
+            }
+        };
+
+        checkPendingAndRedirect();
+        // -----------------------------------------------------------------
+    }, [user, loading, refreshTrigger]);
 
     // Derived User Name
     const userName = user?.fname || "Contributor";
@@ -113,31 +181,65 @@ export default function ContributorDashboard() {
     return (
         <div className="min-h-screen bg-gradient-to-br from-[#F0EADC] via-[#fff] to-[#FFD95D]/20">
             {/* Top Navigation Bar */}
-            <div className="border-b bg-white/80 backdrop-blur-lg">
-                <div className="container mx-auto px-4 py-4 flex justify-between items-center">
-                    <div>
-                        <h1 className="text-2xl font-bold text-[#576238]">
-                            Hello {userName}!
-                        </h1>
-                        <p className="text-sm text-muted-foreground">Contributor Dashboard</p>
-                    </div>
-                    <div className="flex items-center gap-4">
-                        <Link href="/contributor/schedule">
-                            <Button variant="ghost" size="icon">
-                                <Calendar className="h-5 w-5" />
-                            </Button>
-                        </Link>
-                        <NotificationsDropdown />
-                        <Link href="/profile">
-                            <Button variant="ghost" size="icon">
-                                <User className="h-5 w-5" />
-                            </Button>
-                        </Link>
-                    </div>
-                </div>
-            </div>
+            <ContributorHeader
+                title={`Hello ${userName}!`}
+                subtitle="Contributor Dashboard"
+            />
 
             <main className="container mx-auto px-4 py-8">
+                {/* Pending Invitations Section */}
+                {pendingInvites.length > 0 && (
+                    <div className="mb-12">
+                        <div className="flex justify-between items-center mb-6">
+                            <div>
+                                <h2 className="text-3xl font-bold text-[#576238]">
+                                    Pending Invitations
+                                </h2>
+                                <p className="text-muted-foreground mt-1">
+                                    Startups waiting for your response
+                                </p>
+                            </div>
+                        </div>
+                        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+                            {pendingInvites.map((invite) => (
+                                <Card key={invite.invitationId} className="hover:shadow-xl transition-all border-l-4 border-l-orange-400">
+                                    <CardHeader>
+                                        <CardTitle className="text-[#576238]">
+                                            {invite.startupName}
+                                        </CardTitle>
+                                        <CardDescription>
+                                            Role: {invite.role}
+                                        </CardDescription>
+                                    </CardHeader>
+                                    <CardContent>
+                                        <div className="space-y-4">
+                                            <div className="text-sm text-muted-foreground">
+                                                Invited: {new Date(invite.expiresAt).toLocaleDateString()}
+                                            </div>
+                                            <div className="flex gap-2">
+                                                <Button
+                                                    size="sm"
+                                                    className="flex-1 bg-[#576238] hover:bg-[#6b7c3f] text-white"
+                                                    onClick={() => handleAcceptInvite(invite)}
+                                                >
+                                                    Accept
+                                                </Button>
+                                                <Button
+                                                    size="sm"
+                                                    variant="outline"
+                                                    className="flex-1 text-red-500 hover:text-red-700 hover:bg-red-50"
+                                                >
+                                                    Decline
+                                                </Button>
+                                            </div>
+                                        </div>
+                                    </CardContent>
+                                </Card>
+                            ))}
+                        </div>
+                    </div>
+                )}
+
                 {/* Startup Projects Section */}
                 <div className="flex justify-between items-center mb-6">
                     <div>
@@ -216,9 +318,9 @@ export default function ContributorDashboard() {
                         </motion.div>
                     ))}
 
-                    {!loading && startups.length === 0 && (
+                    {!loading && startups.length === 0 && pendingInvites.length === 0 && (
                         <div className="col-span-full text-center py-12">
-                            <p className="text-muted-foreground">You haven't been added to any startups yet.</p>
+                            <p className="text-muted-foreground">You haven't been added to any startups and have no pending invitations.</p>
                         </div>
                     )}
                 </div>

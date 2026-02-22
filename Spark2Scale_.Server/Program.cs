@@ -38,6 +38,7 @@ builder.Services.AddControllers()
 
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
+builder.Services.AddHttpClient(); // Required for IHttpClientFactory in controllers
 
 // Email sender service (uses SMTP settings in your env)
 builder.Services.AddTransient<EmailService>();

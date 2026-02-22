@@ -5,6 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { ArrowLeft, Lightbulb, Target, TrendingUp, Users, DollarSign, Award, Clock } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
+import ContributorHeader from "@/components/contributor/ContributorHeader";
 
 export default function ContributorPitchDetailsPage() {
     const params = useParams();
@@ -119,21 +120,11 @@ export default function ContributorPitchDetailsPage() {
     return (
         <div className="min-h-screen bg-gradient-to-br from-[#F0EADC] via-[#fff] to-[#FFD95D]/20">
             {/* Header */}
-            <div className="border-b bg-white/80 backdrop-blur-lg">
-                <div className="container mx-auto px-4 py-4">
-                    <div className="flex items-center gap-4">
-                        <Link href={`/contributor/startup/${params.id}/pitches`}>
-                            <Button variant="ghost" size="icon">
-                                <ArrowLeft className="h-5 w-5" />
-                            </Button>
-                        </Link>
-                        <div>
-                            <h1 className="text-xl font-bold text-[#576238]">Pitch Guidelines & Tips</h1>
-                            <p className="text-sm text-muted-foreground">Structured advice for delivering an effective pitch</p>
-                        </div>
-                    </div>
-                </div>
-            </div>
+            <ContributorHeader
+                backLink={`/contributor/startup/${params.id}/pitches`}
+                title="Pitch Guidelines & Tips"
+                subtitle="Structured advice for delivering an effective pitch"
+            />
 
             <main className="container mx-auto px-4 py-8">
                 <div className="max-w-5xl mx-auto space-y-8">

@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -10,13 +10,31 @@ import Link from "next/link";
 import LegoIllustration from "@/components/lego/LegoIllustration";
 import { motion } from "framer-motion";
 import { useRouter } from "next/navigation";
-import { Loader2 } from "lucide-react";
+import { Loader2, Eye, EyeOff } from "lucide-react";
 import { handleAuthSuccess, User, getDashboardRoute, resolveUserType, setCookie } from "@/lib/auth";
 import { useAuth } from "@/context/AuthContext";
+import { createBrowserClient } from "@supabase/auth-helpers-nextjs";
 
 export default function SigninPage() {
     const router = useRouter();
     const { login } = useAuth();
+
+    // Safely create Supabase client
+    const supabase = useMemo(() => {
+        try {
+            if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
+                return null;
+            }
+            return createBrowserClient(
+                process.env.NEXT_PUBLIC_SUPABASE_URL,
+                process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+            );
+        } catch (error) {
+            console.error("Failed to initialize Supabase client:", error);
+            return null;
+        }
+    }, []);
+
     const [redirectTo, setRedirectTo] = useState<string | null>(null);
 
     const [formData, setFormData] = useState({
@@ -25,11 +43,14 @@ export default function SigninPage() {
     });
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [showPassword, setShowPassword] = useState(false);
 
-    // Read redirect parameter from URL on mount
+    // Read redirect parameter and invitation context from URL on mount
     useEffect(() => {
         if (typeof window !== 'undefined') {
             const params = new URLSearchParams(window.location.search);
+
+            // 1. Handle Redirects
             console.log('Redirect param from URL:', params.get('redirect'));
             console.log('CallbackUrl param from URL:', params.get('callbackUrl'));
             let redirect = params.get('redirect') || params.get('callbackUrl');
@@ -51,28 +72,30 @@ export default function SigninPage() {
             } else {
                 console.log('❌ No redirect destination found');
             }
+
+            // 2. Handle Pending Invitation Fallback (Restore from URL if sessionStorage is empty)
+            const invitationPending = params.get('invitationPending');
+            const token = params.get('token');
+            const startupId = params.get('startupId');
+
+            if (invitationPending === 'true' && token && startupId) {
+                let storedInviteStr = sessionStorage.getItem('pendingInvitation');
+                if (!storedInviteStr) {
+                    storedInviteStr = sessionStorage.getItem('postVerificationInvitation');
+                }
+
+                if (!storedInviteStr) {
+                    console.log('🔄 Restoring pending invitation from URL parameters...');
+                    localStorage.setItem('pendingInvitation', JSON.stringify({
+                        token: token,
+                        startupId: startupId,
+                        email: params.get('email') || '',
+                        role: 'Contributor' // Default or unknown if not in URL
+                    }));
+                }
+            }
         }
     }, []);
-
-    // Check if already logged in - REMOVED to allow switching accounts
-    // useEffect(() => {
-    //     const token = localStorage.getItem('auth_token');
-    //     if (token) {
-    //         const userStr = localStorage.getItem('user');
-    //         if (userStr) {
-    //             try {
-    //                 const user = JSON.parse(userStr);
-    //                 const userType = resolveUserType(user);
-    //                 if (userType) {
-    //                     const route = getDashboardRoute(userType);
-    //                     router.push(route);
-    //                 }
-    //             } catch {
-    //                 // Invalid user data, continue with signin
-    //             }
-    //         }
-    //     }
-    // }, [router]);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -161,16 +184,10 @@ export default function SigninPage() {
                 throw new Error('Invalid response: missing authentication token');
             }
 
-            // Store token in both localStorage and cookie
-            // localStorage.setItem('auth_token', data.token);
-            // setCookie('auth_token', data.token, 30); // 30 days expiration
-
             const user = data.user as User;
             if (!user) {
                 throw new Error('Invalid response: missing user data');
             }
-
-            // localStorage.setItem('user', JSON.stringify(user));
 
             // Use AuthContext login to update state immediately
             login(user, data.token);
@@ -178,6 +195,56 @@ export default function SigninPage() {
             console.log('=== SIGNIN SUCCESS ===');
             console.log('User:', user);
             console.log('Redirect parameter:', redirectTo);
+
+            // Check for pending invitation or post-verification invitation in localStorage (primary) or sessionStorage (fallback)
+            let pendingInvitationStr = localStorage.getItem('pendingInvitation') || sessionStorage.getItem('pendingInvitation');
+            if (!pendingInvitationStr) {
+                pendingInvitationStr = localStorage.getItem('postVerificationInvitation') || sessionStorage.getItem('postVerificationInvitation');
+            }
+
+            if (pendingInvitationStr) {
+                try {
+                    const pendingInvitation = JSON.parse(pendingInvitationStr);
+                    console.log('Pending invitation found:', pendingInvitation);
+
+                    // Accept the invitation
+                    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5231';
+                    let cleanApiUrl = apiUrl.replace(/\/$/, '');
+                    cleanApiUrl = cleanApiUrl.replace(/\/api$/, '');
+
+                    const inviteResponse = await fetch(`${cleanApiUrl}/api/Invitation/respond`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${data.token}`
+                        },
+                        body: JSON.stringify({
+                            token: pendingInvitation.token,
+                            accept: true,
+                            userId: user.id
+                        })
+                    });
+
+                    if (inviteResponse.ok) {
+                        const inviteData = await inviteResponse.json();
+                        console.log('Invitation accepted successfully:', inviteData);
+
+                        // Clear pending invitation
+                        localStorage.removeItem('pendingInvitation');
+                        localStorage.removeItem('postVerificationInvitation');
+                        sessionStorage.removeItem('pendingInvitation');
+                        sessionStorage.removeItem('postVerificationInvitation');
+
+                        // Redirect to startup overview page
+                        router.push(`/contributor/startup/${pendingInvitation.startupId}`);
+                        return;
+                    } else {
+                        console.error('Failed to accept invitation:', await inviteResponse.text());
+                    }
+                } catch (inviteError) {
+                    console.error('Error processing pending invitation:', inviteError);
+                }
+            }
 
             // Redirect to intended destination or default dashboard
             if (redirectTo && redirectTo.startsWith('/')) {
@@ -204,9 +271,30 @@ export default function SigninPage() {
         }
     };
 
-    const handleGoogleSignIn = () => {
+    const handleGoogleSignIn = async () => {
         console.log("Google Sign-in triggered");
-        // Handle Google OAuth logic
+
+        if (!supabase) {
+            setError("Configuration Missing: Supabase credentials are not set in .env.local");
+            return;
+        }
+
+        try {
+            const { error } = await supabase.auth.signInWithOAuth({
+                provider: 'google',
+                options: {
+                    redirectTo: `${window.location.origin}/auth/callback`,
+                    queryParams: {
+                        access_type: 'offline',
+                        prompt: 'consent',
+                    },
+                },
+            });
+            if (error) throw error;
+        } catch (error) {
+            console.error("Error signing in with Google:", error);
+            setError("Failed to sign in with Google.");
+        }
     };
 
     return (
@@ -276,16 +364,31 @@ export default function SigninPage() {
                                             Forgot password?
                                         </Link>
                                     </div>
-                                    <Input
-                                        id="password"
-                                        type="password"
-                                        placeholder="••••••••"
-                                        value={formData.password}
-                                        onChange={(e) =>
-                                            setFormData({ ...formData, password: e.target.value })
-                                        }
-                                        required
-                                    />
+                                    <div className="relative">
+                                        <Input
+                                            id="password"
+                                            type={showPassword ? "text" : "password"}
+                                            placeholder="••••••••"
+                                            value={formData.password}
+                                            onChange={(e) =>
+                                                setFormData({ ...formData, password: e.target.value })
+                                            }
+                                            required
+                                        />
+                                        <Button
+                                            type="button"
+                                            variant="ghost"
+                                            size="icon"
+                                            className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
+                                            onClick={() => setShowPassword(!showPassword)}
+                                        >
+                                            {showPassword ? (
+                                                <EyeOff className="h-4 w-4 text-muted-foreground" />
+                                            ) : (
+                                                <Eye className="h-4 w-4 text-muted-foreground" />
+                                            )}
+                                        </Button>
+                                    </div>
                                 </div>
 
                                 <Button

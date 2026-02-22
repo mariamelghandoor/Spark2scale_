@@ -14,6 +14,7 @@ namespace Spark2Scale_.Server.Models
         public string UserType { get; set; } = "founder";
         public string[] Tags { get; set; } = Array.Empty<string>();
         public Guid? StartupId { get; set; }
+        public string? RedirectUrl { get; set; }
     }
 
     public class SignInRequest
@@ -39,6 +40,16 @@ namespace Spark2Scale_.Server.Models
     {
         public string AccessToken { get; set; } = "";
         public string RefreshToken { get; set; } = "";
+    }
+
+    public class ResendVerificationRequest
+    {
+        public string Email { get; set; } = "";
+    }
+
+    public class GoogleSignInRequest
+    {
+        public string AccessToken { get; set; } = "";
     }
 }
 

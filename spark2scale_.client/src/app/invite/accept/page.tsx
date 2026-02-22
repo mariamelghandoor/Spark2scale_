@@ -3,14 +3,11 @@
 import { useEffect, useState, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { invitationService, InvitationResponse } from '@/services/invitationService';
-import { useAuth } from '@/context/AuthContext';
 import Link from 'next/link';
-import apiClient from '@/lib/apiClient';
 
 function InviteContent() {
     const searchParams = useSearchParams();
     const router = useRouter();
-    const { user } = useAuth();
     const [invitation, setInvitation] = useState<InvitationResponse | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -28,7 +25,17 @@ function InviteContent() {
         const fetchInvitation = async () => {
             try {
                 const data = await invitationService.verify(token);
+                console.log('Invitation Data:', data);
                 setInvitation(data);
+
+                // Store invitation context in localStorage for auth flow (survives redirects/new tabs)
+                localStorage.setItem('pendingInvitation', JSON.stringify({
+                    token: token,
+                    startupId: data.startupId || (data as any).StartupId,
+                    startupName: data.startupName || (data as any).StartupName,
+                    email: data.email || (data as any).Email,
+                    role: data.role || (data as any).Role
+                }));
             } catch (err: unknown) {
                 console.error(err);
                 const errorObj = err as { response?: { data?: { message?: string } } };
@@ -36,6 +43,8 @@ function InviteContent() {
 
                 if (msg.includes('already Accepted')) {
                     setError('This invitation has already been accepted.');
+                } else if (msg.includes('expired')) {
+                    setError('This invitation has expired.');
                 } else {
                     setError(msg || 'Failed to validate invitation.');
                 }
@@ -46,40 +55,6 @@ function InviteContent() {
 
         fetchInvitation();
     }, [token]);
-
-    const handleAccept = async () => {
-        if (!invitation || !token) return;
-        setProcessing(true);
-
-        try {
-            // Scenario A: User is already logged in
-            if (user) {
-                await invitationService.respond({
-                    token: token,
-                    accept: true,
-                    userId: user.id
-                });
-
-                // Redirect to Dashboard
-                router.push(`/contributor/startup/${invitation.startupId}`);
-            } else {
-                // Scenario B: User is NOT logged in -> Redirect to Signup or Login
-
-                const query = new URLSearchParams({
-                    email: invitation.email,
-                    token: token,
-                    startupId: invitation.startupId,
-                    type: 'contributor'
-                }).toString();
-
-                router.push(`/signup-contributor?${query}`);
-            }
-        } catch (err: unknown) {
-            const errorObj = err as { response?: { data?: { message?: string } } };
-            setError(errorObj.response?.data?.message || 'Failed to accept invitation.');
-            setProcessing(false);
-        }
-    };
 
     const handleReject = async () => {
         if (!invitation || !token) return;
@@ -135,54 +110,23 @@ function InviteContent() {
                 </div>
 
                 <div className="space-y-4">
-                    {user ? (
-                        <>
-                            <div className="bg-green-50 text-green-800 p-3 rounded-lg text-sm text-center">
-                                Logged in as <strong>{user.email}</strong>
-                            </div>
-                            <button
-                                onClick={handleAccept}
-                                disabled={processing}
-                                className="w-full bg-[#576238] text-white py-3 rounded-xl font-semibold text-lg hover:bg-[#4a5430] transition-transform active:scale-95 disabled:opacity-70 disabled:cursor-not-allowed shadow-lg hover:shadow-xl"
-                            >
-                                {processing ? 'Processing...' : 'Accept Invitation'}
-                            </button>
+                    <p className="text-gray-600 text-center mb-4">Please note that by accepting, you will be joining the team as a contributor.</p>
 
-                            <button
-                                onClick={handleReject}
-                                disabled={processing}
-                                className="w-full bg-white text-gray-500 border-2 border-gray-200 py-3 rounded-xl font-semibold text-lg hover:bg-gray-50 hover:text-gray-700 transition-colors disabled:opacity-70 disabled:cursor-not-allowed"
-                            >
-                                Decline
-                            </button>
-                        </>
-                    ) : (
-                        <div className="space-y-3">
-                            <p className="text-gray-600 text-center mb-4">Please log in or sign up to accept this invitation.</p>
+                    <Link
+                        href={`/invite/join?token=${token || ''}&startupId=${invitation?.startupId || invitation?.StartupId || ''}&email=${invitation?.email || invitation?.Email || ''}&role=${invitation?.role || invitation?.Role || ''}&startupName=${encodeURIComponent(invitation?.startupName || invitation?.StartupName || '')}`}
+                        className="block w-full bg-[#576238] text-white py-4 rounded-xl font-semibold text-lg hover:bg-[#4a5430] text-center shadow-lg hover:shadow-xl transition-all flex items-center justify-center gap-2"
+                    >
+                        <span>Accept Invitation</span>
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path></svg>
+                    </Link>
 
-                            <Link
-                                href={`/signin?redirect=/invite/accept?token=${token}`}
-                                className="block w-full bg-[#576238] text-white py-3 rounded-xl font-semibold text-lg hover:bg-[#4a5430] text-center shadow-lg hover:shadow-xl"
-                            >
-                                Sign In (Existing User)
-                            </Link>
-
-                            <Link
-                                href={`/signup-contributor?email=${encodeURIComponent(invitation?.email || '')}&token=${token}&startupId=${invitation?.startupId}`}
-                                className="block w-full bg-white text-[#576238] border-2 border-[#576238] py-3 rounded-xl font-semibold text-lg hover:bg-gray-50 text-center"
-                            >
-                                Sign Up (New Contributor)
-                            </Link>
-
-                            <button
-                                onClick={handleReject}
-                                disabled={processing}
-                                className="w-full text-gray-400 hover:text-gray-600 text-sm mt-2"
-                            >
-                                Decline Invitation
-                            </button>
-                        </div>
-                    )}
+                    <button
+                        onClick={handleReject}
+                        disabled={processing}
+                        className="w-full bg-white text-red-500 border-2 border-transparent hover:bg-red-50 py-3 rounded-xl font-medium transition-colors mt-2"
+                    >
+                        {processing ? 'Declining...' : 'Decline Invitation'}
+                    </button>
                 </div>
             </div>
         </div>

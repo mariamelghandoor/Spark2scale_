@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { useState, Suspense } from "react";
+import { useState, Suspense, useEffect, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -10,27 +10,88 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import Link from "next/link";
 import LegoIllustration from "@/components/lego/LegoIllustration";
 import { motion } from "framer-motion";
-import { Loader2, CheckCircle2 } from "lucide-react";
+import { Loader2, CheckCircle2, Eye, EyeOff } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { createBrowserClient } from "@supabase/auth-helpers-nextjs";
 
 function SignupContent() {
+    const [showPassword, setShowPassword] = useState(false);
+    const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+
+    // Safely create Supabase client
+    const supabase = useMemo(() => {
+        try {
+            if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
+                return null;
+            }
+            return createBrowserClient(
+                process.env.NEXT_PUBLIC_SUPABASE_URL,
+                process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+            );
+        } catch (error) {
+            console.error("Failed to initialize Supabase client:", error);
+            return null;
+        }
+    }, []);
+
+    const handleGoogleSignUp = async () => {
+        console.log("Google Sign-up triggered");
+
+        if (!supabase) {
+            setError("Configuration Missing: Supabase credentials are not set in .env.local");
+            return;
+        }
+
+        try {
+            const { error } = await supabase.auth.signInWithOAuth({
+                provider: 'google',
+                options: {
+                    redirectTo: `${window.location.origin}/auth/callback`,
+                    queryParams: {
+                        access_type: 'offline',
+                        prompt: 'consent',
+                    },
+                },
+            });
+            if (error) throw error;
+        } catch (error) {
+            console.error("Error signing up with Google:", error);
+            setError("Failed to sign up with Google.");
+        }
+    };
+
+    // ... (rest of render logic for password inputs is updated in separate block)
 
 
 
     const router = useRouter();
     const searchParams = useSearchParams();
     const sid = searchParams.get('sid');
+    const emailParam = searchParams.get('email');
+    const typeParam = searchParams.get('type');
     const inviteAccepted = searchParams.get('inviteAccepted') === 'true';
+
     const [formData, setFormData] = useState({
         name: "",
-        email: "",
+        email: emailParam || "",
         phone: "",
         password: "",
         confirmPassword: "",
-        userType: "founder",
+        userType: typeParam || "founder",
         addressRegion: "",
         tags: [] as string[],
     });
+
+    // Sync from query params if they change (e.g. initial load)
+    useEffect(() => {
+        if (emailParam || typeParam) {
+            setFormData(prev => ({
+                ...prev,
+                email: emailParam || prev.email,
+                userType: typeParam || prev.userType
+            }));
+        }
+    }, [emailParam, typeParam]);
 
     // ... (rest of code)
 
@@ -152,6 +213,7 @@ function SignupContent() {
                 UserType: formData.userType,
                 Tags: formData.tags,
                 StartupId: formData.userType === "contributor" && sid ? sid : null,
+                RedirectUrl: window.location.origin + '/auth/callback'
             };
 
             console.log("--- SIGNUP REQUEST ---");
@@ -255,10 +317,7 @@ function SignupContent() {
         }
     };
 
-    const handleGoogleSignUp = () => {
-        console.log("Google Sign-up triggered");
-        // Handle Google OAuth logic (to be implemented)
-    };
+
 
     if (success) {
         return (
@@ -533,15 +592,30 @@ function SignupContent() {
 
                                         <div className="space-y-2">
                                             <Label htmlFor="password">Password</Label>
-                                            <Input
-                                                id="password"
-                                                type="password"
-                                                placeholder="••••••••"
-                                                value={formData.password}
-                                                onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                                                required
-                                                className={validationErrors.password ? "border-red-500" : ""}
-                                            />
+                                            <div className="relative">
+                                                <Input
+                                                    id="password"
+                                                    type={showPassword ? "text" : "password"}
+                                                    placeholder="••••••••"
+                                                    value={formData.password}
+                                                    onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                                                    required
+                                                    className={validationErrors.password ? "border-red-500 pr-10" : "pr-10"}
+                                                />
+                                                <Button
+                                                    type="button"
+                                                    variant="ghost"
+                                                    size="sm"
+                                                    className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
+                                                    onClick={() => setShowPassword(!showPassword)}
+                                                >
+                                                    {showPassword ? (
+                                                        <EyeOff className="h-4 w-4 text-muted-foreground" />
+                                                    ) : (
+                                                        <Eye className="h-4 w-4 text-muted-foreground" />
+                                                    )}
+                                                </Button>
+                                            </div>
                                             {validationErrors.password && (
                                                 <p className="text-sm text-red-500">{validationErrors.password}</p>
                                             )}
@@ -552,15 +626,30 @@ function SignupContent() {
 
                                         <div className="space-y-2">
                                             <Label htmlFor="confirmPassword">Confirm Password</Label>
-                                            <Input
-                                                id="confirmPassword"
-                                                type="password"
-                                                placeholder="••••••••"
-                                                value={formData.confirmPassword}
-                                                onChange={(e) => setFormData({ ...formData, confirmPassword: e.target.value })}
-                                                required
-                                                className={validationErrors.confirmPassword ? "border-red-500" : ""}
-                                            />
+                                            <div className="relative">
+                                                <Input
+                                                    id="confirmPassword"
+                                                    type={showConfirmPassword ? "text" : "password"}
+                                                    placeholder="••••••••"
+                                                    value={formData.confirmPassword}
+                                                    onChange={(e) => setFormData({ ...formData, confirmPassword: e.target.value })}
+                                                    required
+                                                    className={validationErrors.confirmPassword ? "border-red-500 pr-10" : "pr-10"}
+                                                />
+                                                <Button
+                                                    type="button"
+                                                    variant="ghost"
+                                                    size="sm"
+                                                    className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
+                                                    onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                                                >
+                                                    {showConfirmPassword ? (
+                                                        <EyeOff className="h-4 w-4 text-muted-foreground" />
+                                                    ) : (
+                                                        <Eye className="h-4 w-4 text-muted-foreground" />
+                                                    )}
+                                                </Button>
+                                            </div>
                                             {validationErrors.confirmPassword && (
                                                 <p className="text-sm text-red-500">{validationErrors.confirmPassword}</p>
                                             )}
