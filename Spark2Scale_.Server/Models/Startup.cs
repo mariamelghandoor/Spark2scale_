@@ -90,6 +90,11 @@ namespace Spark2Scale_.Server.Models
         // Profile
         public string? logo_path { get; set; }
         //public object json_response { get; set; }
+        
+        // --- NEW DASHBOARD METRICS ---
+        public int total_likes { get; set; }
+        public int progress_count { get; set; }
+        public bool progress_has_gap { get; set; }
     }
 
     public class IdeaUpdateDto

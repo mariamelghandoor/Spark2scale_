@@ -1,0 +1,54 @@
+name: Deploy React Client to Azure
+on:
+  push:
+    branches: [ "Sarah" ]
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install and Build
+        working-directory: ./spark2scale_.client
+        # --- FIX 1: INJECT THE API URL HERE ---
+        env:
+          # REPLACE THIS with your actual Server App Service URL (e.g., https://spark2scale-server.azurewebsites.net)
+          NEXT_PUBLIC_API_URL: 'https://spark2scale-server.azurewebsites.net' 
+        # --------------------------------------
+        run: |
+          npm install
+          npm run build
+          
+          # --- SMART FIND DEPLOYMENT SCRIPT ---
+          echo "🔍 Searching for server.js..."
+          SERVER_DIR=$(find .next/standalone -type f -name "server.js" -exec dirname {} \; | head -n 1)
+          echo "✅ Found app in: $SERVER_DIR"
+          
+          mkdir -p ../deploy_out
+          
+          # Copy app files
+          cp -r "$SERVER_DIR"/. ../deploy_out/
+          
+          # Copy shared node_modules if they exist
+          if [ "$SERVER_DIR" != ".next/standalone" ] && [ -d ".next/standalone/node_modules" ]; then
+             cp -r .next/standalone/node_modules ../deploy_out/
+          fi
+          
+          # Copy static assets
+          mkdir -p ../deploy_out/.next/static
+          mkdir -p ../deploy_out/public
+          cp -r .next/static/. ../deploy_out/.next/static/
+          cp -r public/. ../deploy_out/public/ || true
+
+      - name: Deploy to Azure Web App
+        uses: azure/webapps-deploy@v2
+        with:
+          app-name: 'spark2scale-client'
+          publish-profile: ${{ secrets.AZURE_CLIENT_PUBLISH_PROFILE }}
+          package: ./deploy_out

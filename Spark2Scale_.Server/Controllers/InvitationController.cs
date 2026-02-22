@@ -101,7 +101,7 @@ namespace Spark2Scale_.Server.Controllers
                     .Get();
 
                 var startup = startupRes.Models.FirstOrDefault();
-                if (startup == null) 
+                if (startup == null)
                 {
                     _logger.LogWarning("Startup {StartupId} not found.", request.StartupId);
                     return NotFound("Startup not found.");
@@ -120,7 +120,7 @@ namespace Spark2Scale_.Server.Controllers
                 {
                     return Conflict(new { message = "User already has a pending invitation." });
                 }
-                
+
                 // 3. Create Invitation
                 var token = Guid.NewGuid().ToString(); // Secure token
                 var invitation = new Invitation
@@ -130,26 +130,21 @@ namespace Spark2Scale_.Server.Controllers
                     Role = request.Role ?? "Contributor",
                     Token = token,
                     Status = "Pending",
-                    InvitedBy = request.InvitedBy, // From request (optional)
+                    InvitedBy = request.InvitedBy,
                     InvitedAt = DateTime.UtcNow,
-                    ExpiresAt = DateTime.UtcNow.AddDays(7) // 7 days expiration
+                    ExpiresAt = DateTime.UtcNow.AddDays(7)
                 };
 
                 await _supabase.From<Invitation>().Insert(invitation);
                 _logger.LogInformation("Invitation created in DB with token {Token}", token);
 
                 // 4. Send Email
-                // Link format: https://spark2scale.com/invite/accept?token={token}
-                // For development: http://localhost:5173/invite/accept?token={token}
-                // We should use an environment variable for the base URL ideally.
-                // Assuming client runs on 5173 for now or whatever origin is configured.
-                
-                // TODO: Load this from config
-                var clientBaseUrl = "http://localhost:3000"; 
+                // FIX: Load CLIENT_URL from Environment (Azure) or default to Localhost
+                var clientBaseUrl = Environment.GetEnvironmentVariable("CLIENT_URL") ?? "http://localhost:5173";
                 var inviteLink = $"{clientBaseUrl}/invite/accept?token={token}";
 
                 await _emailService.SendInvitationEmailAsync(request.Email, startup.StartupName, inviteLink);
-                _logger.LogInformation("Invitation email sent to {Email}", request.Email);
+                _logger.LogInformation("Invitation email sent to {Email} with link {Link}", request.Email, inviteLink);
 
                 return Ok(new { Message = "Invitation sent successfully.", Token = token });
             }

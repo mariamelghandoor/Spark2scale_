@@ -9,8 +9,12 @@
     <BuildOutputFolder>$(MSBuildProjectDirectory)\dist</BuildOutputFolder>
   </PropertyGroup>
   <ItemGroup>
+    <None Remove="src\app\founder\startup\[d]\NewFolder\**" />
+    <TypeScriptConfiguration Remove="src\app\founder\startup\[d]\NewFolder\**" />
+  </ItemGroup>
+  <ItemGroup>
     <Folder Include="src\app\contributor\startup\" />
-    <Folder Include="src\app\founder\startup\[d]\NewFolder\" />
     <Folder Include="src\lib\api\" />
+    <Folder Include="src\pdf-formats\" />
   </ItemGroup>
 </Project>

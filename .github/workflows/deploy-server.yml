@@ -1,0 +1,31 @@
+name: Deploy .NET Server to Azure
+on:
+  push:
+    branches:
+      - Sarah
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 'Checkout Github Action'
+        uses: actions/checkout@v4
+
+      - name: 'Setup .NET Core'
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: 'Build and Publish'
+        run: |
+          dotnet build ./Spark2Scale_.Server/Spark2Scale_.Server.csproj --configuration Release
+          dotnet publish ./Spark2Scale_.Server/Spark2Scale_.Server.csproj -c Release -o ./publish
+
+      - name: 'Deploy to Azure Web App'
+        uses: azure/webapps-deploy@v2
+        with:
+          app-name: 'spark2scale-server'
+          publish-profile: ${{ secrets.AZURE_SERVER_PUBLISH_PROFILE }}
+          package: ./publish
+          clean: true # <--- The ONLY addition. Fixes the "Bad IL / Corruption" crash.

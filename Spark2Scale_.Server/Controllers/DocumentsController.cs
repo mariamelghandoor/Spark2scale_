@@ -103,6 +103,11 @@ namespace Spark2Scale_.Server.Controllers
                         canaccess = d.CanAccess,
                         updated_at = d.UpdatedAt,
                         access_status = accessStatus,
+                        // FIX: Convert Newtonsoft JToken (from Supabase) to System.Text.Json.JsonElement (for Controller return)
+                        //json_response = d.JsonResponse is JToken token 
+                        //    ? JsonSerializer.Deserialize<JsonElement>(token.ToString()) 
+                        //    : d.JsonResponse,
+                        
                         json_response = jsonString
                     };
                 });

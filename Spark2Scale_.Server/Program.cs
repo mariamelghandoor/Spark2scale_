@@ -7,7 +7,7 @@ using Microsoft.Extensions.Hosting;
 using System.Text.Json;
 using System;
 
-// Load .env
+// Load .env for local development
 Env.Load();
 
 var builder = WebApplication.CreateBuilder(args);
@@ -15,54 +15,58 @@ var builder = WebApplication.CreateBuilder(args);
 // CORS policy name
 var MyAllowSpecificOrigins = "_myAllowSpecificOrigins";
 
-// CORS – allow Next.js dev server
+// CORS configuration
 builder.Services.AddCors(options =>
 {
     options.AddPolicy(name: MyAllowSpecificOrigins, policy =>
     {
-        // Allow any localhost port (fixing the issue if frontend is on 3001, 3002 etc)
-        policy.SetIsOriginAllowed(origin => new Uri(origin).Host == "localhost")
+        // Allows localhost for dev and your future Azure Static Web App URL
+        policy.SetIsOriginAllowed(origin => new Uri(origin).Host == "localhost" || origin.Contains("azurestaticapps.net") || origin == Environment.GetEnvironmentVariable("CLIENT_URL"))
               .AllowAnyHeader()
               .AllowAnyMethod();
     });
 });
 
-// Configure JSON to accept both camelCase and PascalCase
+builder.Logging.ClearProviders();
+builder.Logging.AddConsole();
+builder.Logging.AddDebug();
+
+// Configure JSON options
 builder.Services.AddControllers()
     .AddJsonOptions(options =>
     {
-        // Accept both camelCase (from frontend) and PascalCase (C# default)
         options.JsonSerializerOptions.PropertyNameCaseInsensitive = true;
-        options.JsonSerializerOptions.PropertyNamingPolicy = null; // Keep PascalCase
+        options.JsonSerializerOptions.PropertyNamingPolicy = null; 
     });
 
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.AddHttpClient(); // Required for IHttpClientFactory in controllers
 
-// Email sender service (uses SMTP settings in your env)
+// Services
 builder.Services.AddTransient<EmailService>();
 builder.Services.AddTransient<AccessControlService>();
 
-// Supabase URL + API key from environment
-var url = Environment.GetEnvironmentVariable("SUPABASE_URL");
-var key = Environment.GetEnvironmentVariable("SUPABASE_KEY");
+// Supabase Configuration
+// This will check your Azure Environment Variables first, then your .env file
+var url = Environment.GetEnvironmentVariable("SUPABASE_URL") ?? builder.Configuration["SUPABASE_URL"];
+var key = Environment.GetEnvironmentVariable("SUPABASE_KEY") ?? builder.Configuration["SUPABASE_KEY"];
 
 if (string.IsNullOrEmpty(url) || string.IsNullOrEmpty(key))
 {
-    Console.WriteLine("FATAL: SUPABASE_URL or SUPABASE_KEY missing.");
-    throw new InvalidOperationException("Supabase credentials must be set in .env");
+    Console.WriteLine("FATAL: SUPABASE_URL or SUPABASE_KEY missing. Ensure they are set in Azure App Settings.");
+    throw new InvalidOperationException("Supabase credentials must be set.");
 }
 
-var options = new SupabaseOptions
+var supabaseOptions = new SupabaseOptions
 {
     AutoRefreshToken = true,
     AutoConnectRealtime = true
 };
 
-var supabaseClient = new Supabase.Client(url, key, options);
+var supabaseClient = new Supabase.Client(url, key, supabaseOptions);
 
-// Initialize client before app starts
+// Initialize Supabase
 try
 {
     await supabaseClient.InitializeAsync();
@@ -73,25 +77,27 @@ catch (Exception ex)
     throw;
 }
 
-// Single shared Supabase client
 builder.Services.AddSingleton(supabaseClient);
 
 var app = builder.Build();
 
-// --- FIX: Apply CORS *BEFORE* other middleware like Swagger or Auth ---
+// --- MIDDLEWARE PIPELINE ---
+
+// Apply CORS before Swagger or Controllers
 app.UseCors(MyAllowSpecificOrigins);
 
-// Configure the HTTP request pipeline.
-if (app.Environment.IsDevelopment())
+// FIXED: Swagger enabled for both Development and Production (Azure)
+// Enable Swagger in BOTH Development and Production
+if (app.Environment.IsDevelopment() || app.Environment.IsProduction())
 {
     app.UseSwagger();
-    app.UseSwaggerUI();
+    app.UseSwaggerUI(options =>
+    {
+        options.SwaggerEndpoint("/swagger/v1/swagger.json", "v1");
+        options.RoutePrefix = "swagger"; 
+    });
 }
-
-// app.UseHttpsRedirection(); // Keep commented out to avoid redirect loops on localhost
-
 app.UseAuthorization();
-
 app.MapControllers();
 
 app.Run();
