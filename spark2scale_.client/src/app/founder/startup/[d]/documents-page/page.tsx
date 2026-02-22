@@ -14,18 +14,13 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 
 // --- Import Merged Service ---
-import {
-    documentsService,
-    DocumentData
-} from "@/services/documentsService"; // Ensure this path is correct
+import { documentsService, DocumentData } from "@/services/documentsService";
 
 export default function DocumentsHistoryPage() {
     const params = useParams();
-    const [documents, setDocuments] = useState<DocumentData[]>([]);
+    const [documents, setDocuments] = useState<any[]>([]); // Relaxed type slightly to allow dynamic fallback
     const [loading, setLoading] = useState(true);
 
-    // ID Logic
-    // Handle potential array or undefined params safely
     const getCleanId = () => {
         const raw = params?.id || params?.d;
         if (!raw) return "";
@@ -33,19 +28,15 @@ export default function DocumentsHistoryPage() {
     };
     const startupId = getCleanId();
 
-    // Upload State
     const [isUploadOpen, setIsUploadOpen] = useState(false);
     const [isUploading, setIsUploading] = useState(false);
     const [uploadFile, setUploadFile] = useState<File | null>(null);
     const [uploadName, setUploadName] = useState("");
     const [uploadType, setUploadType] = useState("");
 
-    // Version Selection State (Tracks selected VID per document Type)
     const [selectedVersions, setSelectedVersions] = useState<{ [type: string]: string }>({});
 
-    // ---------------------------------------------------------
     // 1. Fetch Data
-    // ---------------------------------------------------------
     const loadDocuments = async () => {
         if (!startupId) {
             setLoading(false);
@@ -53,9 +44,10 @@ export default function DocumentsHistoryPage() {
         }
         setLoading(true);
         try {
-            // Using the new 'getGroupedDocuments' method from the merged service
             const data = await documentsService.getGroupedDocuments(startupId);
-            setDocuments(data);
+            setDocuments(data || []);
+        } catch (error) {
+            console.error("Failed to load documents", error);
         } finally {
             setLoading(false);
         }
@@ -65,20 +57,16 @@ export default function DocumentsHistoryPage() {
         loadDocuments();
     }, [startupId]);
 
-    // ---------------------------------------------------------
     // 2. Handlers
-    // ---------------------------------------------------------
-
-    // Toggle Public/Private Visibility
     const handleToggleVisibility = async (docType: string, versionId: string, currentStatus: boolean) => {
         const newStatus = !currentStatus;
 
-        // A. Optimistic Update (Update UI immediately for responsiveness)
+        // Safely map versions (prevents crash if doc.versions is undefined)
         const updatedDocs = documents.map(doc => {
             if (doc.type === docType) {
                 return {
                     ...doc,
-                    versions: doc.versions.map(v =>
+                    versions: (doc.versions || []).map((v: any) =>
                         v.vid === versionId ? { ...v, is_public: newStatus } : v
                     )
                 };
@@ -87,31 +75,25 @@ export default function DocumentsHistoryPage() {
         });
         setDocuments(updatedDocs);
 
-        // B. API Call via Service
         const success = await documentsService.toggleVersionVisibility(versionId, newStatus);
-
-        // C. Revert if failed
         if (!success) {
             alert("Failed to change visibility settings.");
-            loadDocuments(); // Re-fetch to restore correct state
+            loadDocuments();
         }
     };
 
-    // Upload Submit
     const handleUploadSubmit = async () => {
         if (!uploadFile || !uploadName || !uploadType || !startupId) return;
 
         setIsUploading(true);
         try {
-            // Using the shared upload method
             const success = await documentsService.uploadDocument(startupId, uploadType, uploadFile);
-
             if (success) {
                 setIsUploadOpen(false);
                 setUploadFile(null);
                 setUploadName("");
                 setUploadType("");
-                loadDocuments(); // Refresh the list to show new upload
+                loadDocuments();
             } else {
                 alert("Upload failed. Please try again.");
             }
@@ -120,36 +102,39 @@ export default function DocumentsHistoryPage() {
         }
     };
 
-    // Helper: Get the specific version object being viewed
-    const getCurrentVersionObj = (doc: DocumentData) => {
+    // 👇 FIX: Bulletproof function to prevent React crashes if AI docs lack a versions array
+    const getCurrentVersionObj = (doc: any) => {
+        if (!doc.versions || doc.versions.length === 0) return null;
+
         const selectedVid = selectedVersions[doc.type];
-        // If nothing selected, pick the first one (latest, as sorted by service)
-        if (!selectedVid) {
-            return doc.versions[0];
-        }
-        return doc.versions.find(v => v.vid === selectedVid) || doc.versions[0];
+        if (!selectedVid) return doc.versions[0];
+
+        return doc.versions.find((v: any) => v.vid === selectedVid) || doc.versions[0];
     };
 
-    const handleView = (doc: DocumentData) => {
+    // 👇 FIX: Safely fallback to the main document path if the version path is missing
+    const handleView = (doc: any) => {
         const version = getCurrentVersionObj(doc);
-        if (version?.path) window.open(version.path, "_blank");
+        const pathToOpen = version?.path || doc.current_path;
+
+        if (pathToOpen) {
+            window.open(pathToOpen, "_blank");
+        } else {
+            alert("This document is still processing or has no file attached.");
+        }
     };
 
-    // Helper: Icon Selection based on file type
     const getIcon = (type: string) => {
-        const t = type.toLowerCase();
-        if (t.includes("pdf")) return "📄";
+        const t = type?.toLowerCase() || "";
+        if (t.includes("pdf") || t.includes("evaluation") || t.includes("report")) return "📄";
         if (t.includes("excel") || t.includes("financial") || t.includes("cap")) return "📊";
         if (t.includes("ppt") || t.includes("deck")) return "📽️";
         return "📁";
     };
 
-    // ---------------------------------------------------------
     // 3. Render
-    // ---------------------------------------------------------
     return (
         <div className="min-h-screen bg-gradient-to-br from-[#F0EADC] via-[#fff] to-[#FFD95D]/20">
-            {/* Nav */}
             <div className="border-b bg-white/80 backdrop-blur-lg">
                 <div className="container mx-auto px-4 py-4 flex justify-between items-center">
                     <Link href={`/founder/startup/${startupId}`}>
@@ -166,64 +151,72 @@ export default function DocumentsHistoryPage() {
                             <div className="flex justify-center py-10">
                                 <Loader2 className="h-8 w-8 animate-spin text-[#576238]" />
                             </div>
+                        ) : documents.length === 0 ? (
+                            <div className="text-center py-12 text-gray-500">
+                                No documents available. Wait for AI to finish or upload one below.
+                            </div>
                         ) : documents.map((doc, index) => {
                             const activeVersion = getCurrentVersionObj(doc);
 
                             return (
                                 <motion.div
-                                    key={doc.type}
+                                    key={doc.did || doc.type || index}
                                     initial={{ opacity: 0, y: 20 }}
                                     animate={{ opacity: 1, y: 0 }}
                                     transition={{ delay: index * 0.1 }}
                                 >
                                     <Card className="p-6 border-2 transition-all bg-white hover:border-[#FFD95D]">
                                         <div className="flex flex-col md:flex-row gap-6">
-
-                                            {/* LEFT SIDE: Document Info */}
+                                            {/* LEFT SIDE */}
                                             <div className="flex items-start gap-4 md:w-1/3">
                                                 <div className="text-5xl">{getIcon(doc.type)}</div>
                                                 <div className="flex-grow">
                                                     <h3 className="font-bold text-[#576238] text-lg mb-1">
-                                                        {doc.type}
+                                                        {doc.document_name || doc.type}
                                                     </h3>
-
                                                     <div className="flex flex-col gap-1 text-xs text-muted-foreground">
                                                         <div className="flex items-center gap-2">
-                                                            <span className="font-semibold text-gray-500">Selected Version:</span>
+                                                            <span className="font-semibold text-gray-500">Version:</span>
                                                             <span className="truncate max-w-[150px]">
-                                                                v{activeVersion?.version_number}
+                                                                v{activeVersion ? activeVersion.version_number : doc.current_version}
                                                             </span>
                                                         </div>
-                                                        <span>Created: {activeVersion ? new Date(activeVersion.created_at).toLocaleDateString() : "N/A"}</span>
+                                                        {/* 👇 FIX: Safe date parsing fallback */}
+                                                        <span>Created: {new Date(activeVersion?.created_at || doc.updated_at || Date.now()).toLocaleDateString()}</span>
                                                     </div>
                                                 </div>
                                             </div>
 
-                                            {/* RIGHT SIDE: Controls */}
+                                            {/* RIGHT SIDE */}
                                             <div className="md:w-2/3 space-y-4">
-
-                                                {/* Version Select & Visibility Toggle */}
                                                 <div className="flex items-center gap-3">
                                                     <div className="flex-grow">
-                                                        <Label className="text-xs text-muted-foreground mb-1 block">Version</Label>
-                                                        <Select
-                                                            value={selectedVersions[doc.type] || (doc.versions[0]?.vid)}
-                                                            onValueChange={(val) => setSelectedVersions({ ...selectedVersions, [doc.type]: val })}
-                                                        >
-                                                            <SelectTrigger className="w-full h-9">
-                                                                <SelectValue placeholder="Select Version" />
-                                                            </SelectTrigger>
-                                                            <SelectContent>
-                                                                {doc.versions.map((v) => (
-                                                                    <SelectItem key={v.vid} value={v.vid}>
-                                                                        v{v.version_number} - {new Date(v.created_at).toLocaleDateString()}
-                                                                    </SelectItem>
-                                                                ))}
-                                                            </SelectContent>
-                                                        </Select>
+                                                        <Label className="text-xs text-muted-foreground mb-1 block">Select Version</Label>
+
+                                                        {/* 👇 FIX: Conditionally render Select ONLY if versions exist */}
+                                                        {doc.versions && doc.versions.length > 0 ? (
+                                                            <Select
+                                                                value={selectedVersions[doc.type] || (doc.versions[0]?.vid)}
+                                                                onValueChange={(val) => setSelectedVersions({ ...selectedVersions, [doc.type]: val })}
+                                                            >
+                                                                <SelectTrigger className="w-full h-9">
+                                                                    <SelectValue placeholder="Select Version" />
+                                                                </SelectTrigger>
+                                                                <SelectContent>
+                                                                    {doc.versions.map((v: any) => (
+                                                                        <SelectItem key={v.vid} value={v.vid}>
+                                                                            v{v.version_number} - {new Date(v.created_at).toLocaleDateString()}
+                                                                        </SelectItem>
+                                                                    ))}
+                                                                </SelectContent>
+                                                            </Select>
+                                                        ) : (
+                                                            <div className="w-full h-9 border rounded-md bg-gray-50 flex items-center px-3 text-sm text-gray-500">
+                                                                Latest AI Output
+                                                            </div>
+                                                        )}
                                                     </div>
 
-                                                    {/* PUBLIC/PRIVATE TOGGLE */}
                                                     {activeVersion && (
                                                         <div className="flex flex-col items-center">
                                                             <Label className="text-xs text-muted-foreground mb-1 block">Visibility</Label>
@@ -251,7 +244,7 @@ export default function DocumentsHistoryPage() {
                                                         <Eye className="h-4 w-4 mr-2" />
                                                         View File
                                                     </Button>
-                                                    <Button variant="outline" size="sm">
+                                                    <Button variant="outline" size="sm" disabled={!activeVersion}>
                                                         <Users className="h-4 w-4 mr-2" />
                                                         Permissions
                                                     </Button>
@@ -273,7 +266,6 @@ export default function DocumentsHistoryPage() {
                 </div>
             </main>
 
-            {/* Upload Dialog */}
             <Dialog open={isUploadOpen} onOpenChange={setIsUploadOpen}>
                 <DialogContent>
                     <DialogHeader><DialogTitle>Upload Document</DialogTitle></DialogHeader>

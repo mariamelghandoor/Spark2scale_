@@ -1,9 +1,12 @@
 ﻿using Microsoft.AspNetCore.Mvc;
 using Spark2Scale_.Server.Models;
+using System;
+using System.Linq;
 using System.Net.Http;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Threading.Tasks;
 
 namespace Spark2Scale_.Server.Controllers
 {
@@ -40,9 +43,87 @@ namespace Spark2Scale_.Server.Controllers
                 startup_stage = s.StartupStage,
                 logo_path = s.LogoPath,
                 current_role = role,
-                // If safeJson (from HttpClient) is provided, use it. Otherwise fall back to ORM data.
                 json_response = safeJson ?? (s.JsonResponse.HasValue && s.JsonResponse.Value.ValueKind != JsonValueKind.Undefined ? s.JsonResponse.Value : null)
             };
+
+        // ─────────────────────────────────────────────────────────────
+        // POST api/Startups/add  <-- THIS WAS MISSING!
+        // ─────────────────────────────────────────────────────────────
+        [HttpPost("add")]
+        public async Task<IActionResult> AddStartup([FromBody] StartupInsertDto input)
+        {
+            if (input == null || string.IsNullOrEmpty(input.startupname))
+                return BadRequest("Startup Name is required.");
+
+            try
+            {
+                // Safely parse the incoming JSON response from the frontend
+                JsonNode finalJsonNode = new JsonObject();
+                if (input.json_response != null)
+                {
+                    var rawJson = JsonSerializer.Serialize(input.json_response);
+                    finalJsonNode = JsonNode.Parse(rawJson)?.AsObject() ?? new JsonObject();
+                }
+
+                // Use HttpClient to bypass ORM limitations for large JSONB inserts
+                var supabaseUrl = Environment.GetEnvironmentVariable("SUPABASE_URL") ?? Environment.GetEnvironmentVariable("URL");
+                var supabaseKey = Environment.GetEnvironmentVariable("SUPABASE_KEY") ?? Environment.GetEnvironmentVariable("KEY");
+
+                var row = new JsonObject
+                {
+                    ["startupname"] = input.startupname,
+                    ["field"] = input.field,
+                    ["idea_description"] = input.idea_description,
+                    ["region"] = input.region,
+                    ["startup_stage"] = input.startup_stage,
+                    ["founder_id"] = input.founder_id.ToString(),
+                    ["logo_path"] = input.logo_path,
+                    ["json_response"] = finalJsonNode,
+                    ["current_iteration"] = 0
+                };
+
+                using var http = new HttpClient();
+                http.DefaultRequestHeaders.Add("apikey", supabaseKey);
+                http.DefaultRequestHeaders.Add("Authorization", $"Bearer {supabaseKey}");
+                http.DefaultRequestHeaders.Add("Prefer", "return=representation");
+
+                var content = new StringContent(row.ToJsonString(), Encoding.UTF8, "application/json");
+                var httpResp = await http.PostAsync($"{supabaseUrl}/rest/v1/startups", content);
+
+                if (!httpResp.IsSuccessStatusCode)
+                {
+                    var err = await httpResp.Content.ReadAsStringAsync();
+                    return StatusCode((int)httpResp.StatusCode, $"Insert failed: {err}");
+                }
+
+                var respBody = await httpResp.Content.ReadAsStringAsync();
+                var insertedJson = JsonNode.Parse(respBody)?[0]?.AsObject();
+
+                if (insertedJson == null) return StatusCode(500, "Failed to parse insertion response.");
+
+                var newSid = Guid.Parse(insertedJson["sid"]!.ToString());
+
+                // Initialize Workflow silently
+                try
+                {
+                    var defaultWorkflow = new StartupWorkflow { StartupId = newSid, UpdatedAt = DateTime.UtcNow };
+                    await _supabase.From<StartupWorkflow>().Insert(defaultWorkflow);
+                }
+                catch (Exception wfEx) { Console.WriteLine($"Workflow Init Warning: {wfEx.Message}"); }
+
+                return Ok(new StartupResponseDto
+                {
+                    sid = newSid,
+                    startupname = input.startupname,
+                    founder_id = input.founder_id,
+                    created_at = DateTime.UtcNow
+                });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, $"AddStartup error: {ex.Message}");
+            }
+        }
 
         // ─────────────────────────────────────────────────────────────
         // GET api/Startups
@@ -64,7 +145,6 @@ namespace Spark2Scale_.Server.Controllers
                 if (!string.IsNullOrEmpty(founderId) && Guid.TryParse(founderId, out Guid fId))
                     query = query.Where(s => s.FounderId == fId);
 
-                // Logic for contributor search remains consistent
                 var result = await query.Get();
 
                 var dtos = result.Models.Select(s => {
@@ -78,7 +158,7 @@ namespace Spark2Scale_.Server.Controllers
         }
 
         // ─────────────────────────────────────────────────────────────
-        // GET api/Startups/{id} (Safe JSON bypass)
+        // GET api/Startups/{id}
         // ─────────────────────────────────────────────────────────────
         [HttpGet("{id}")]
         public async Task<IActionResult> GetStartupById(string id)
@@ -91,12 +171,30 @@ namespace Spark2Scale_.Server.Controllers
                 var startup = result.Models.FirstOrDefault();
                 if (startup == null) return NotFound("Startup not found");
 
+                // 👇 RESTORE ROLE CHECKING LOGIC 👇
+                string? role = null;
+                var authHeader = Request.Headers["Authorization"].FirstOrDefault();
+                if (!string.IsNullOrEmpty(authHeader) && authHeader.StartsWith("Bearer "))
+                {
+                    try
+                    {
+                        var user = await _supabase.Auth.GetUser(authHeader.Replace("Bearer ", "").Trim());
+                        if (user != null && Guid.TryParse(user.Id, out Guid currentUserId))
+                        {
+                            // If the current user matches the founder ID, assign Founder role
+                            if (startup.FounderId == currentUserId) role = "Founder";
+                            else role = "Contributor"; // Or fetch from StartupContributor table
+                        }
+                    }
+                    catch { /* Ignore expired tokens */ }
+                }
+
                 // Safely fetch JSON via HttpClient
                 object? safeJsonData = null;
                 try
                 {
-                    var supabaseUrl = Environment.GetEnvironmentVariable("SUPABASE_URL");
-                    var supabaseKey = Environment.GetEnvironmentVariable("SUPABASE_KEY");
+                    var supabaseUrl = Environment.GetEnvironmentVariable("SUPABASE_URL") ?? Environment.GetEnvironmentVariable("URL");
+                    var supabaseKey = Environment.GetEnvironmentVariable("SUPABASE_KEY") ?? Environment.GetEnvironmentVariable("KEY");
                     using var http = new HttpClient();
                     http.DefaultRequestHeaders.Add("apikey", supabaseKey);
                     http.DefaultRequestHeaders.Add("Authorization", $"Bearer {supabaseKey}");
@@ -111,7 +209,8 @@ namespace Spark2Scale_.Server.Controllers
                 }
                 catch { /* log error but continue */ }
 
-                return Ok(ToDto(startup, null, safeJsonData));
+                // 👇 PASS THE ROLE TO THE DTO 👇
+                return Ok(ToDto(startup, role, safeJsonData));
             }
             catch (Exception ex) { return StatusCode(500, $"Error: {ex.Message}"); }
         }

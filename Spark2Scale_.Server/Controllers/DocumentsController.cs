@@ -7,6 +7,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
+using System.Text.Json;
 using System.Threading.Tasks;
 
 namespace Spark2Scale_.Server.Controllers
@@ -42,6 +43,7 @@ namespace Spark2Scale_.Server.Controllers
 
             try
             {
+                // We fetch the full document so the UI can read the AI analysis JSON
                 var query = _supabase.From<Document>()
                     .Where(x => x.StartupId == sId)
                     .Order("updated_at", Supabase.Postgrest.Constants.Ordering.Descending);
@@ -77,6 +79,19 @@ namespace Spark2Scale_.Server.Controllers
                         else { accessStatus = "locked"; path = null; }
                     }
 
+                    // 👇 FIX 1: Safely cast the object to a clean JSON string for the frontend to consume
+                    string? jsonString = null;
+                    if (d.JsonResponse != null)
+                    {
+                        try
+                        {
+                            if (d.JsonResponse is string str) jsonString = str;
+                            else if (d.JsonResponse is JsonElement je) jsonString = je.GetRawText();
+                            else jsonString = JsonSerializer.Serialize(d.JsonResponse);
+                        }
+                        catch { /* Ignore parse errors on corrupted rows */ }
+                    }
+
                     return new
                     {
                         did = d.Did,
@@ -88,7 +103,7 @@ namespace Spark2Scale_.Server.Controllers
                         canaccess = d.CanAccess,
                         updated_at = d.UpdatedAt,
                         access_status = accessStatus,
-                        json_response = d.JsonResponse != null ? Newtonsoft.Json.JsonConvert.SerializeObject(d.JsonResponse) : null
+                        json_response = jsonString
                     };
                 });
 
@@ -116,7 +131,6 @@ namespace Spark2Scale_.Server.Controllers
                 var publicUrl = _supabase.Storage.From("startup-docs").GetPublicUrl(fileName);
                 var now = DateTime.UtcNow;
 
-                // Logic to update existing vs create new doc
                 if (!string.IsNullOrEmpty(form.DocumentId) && Guid.TryParse(form.DocumentId, out Guid dId))
                 {
                     var existingRes = await _supabase.From<Document>().Where(x => x.Did == dId).Get();
@@ -127,12 +141,35 @@ namespace Spark2Scale_.Server.Controllers
                         currentDoc.CurrentVersion++;
                         currentDoc.UpdatedAt = now;
                         await _supabase.From<Document>().Upsert(currentDoc);
+
+                        await _supabase.From<DocumentVersion>().Insert(new DocumentVersion
+                        {
+                            DocumentId = dId,
+                            StartupId = sId,
+                            VersionNumber = currentDoc.CurrentVersion,
+                            Path = publicUrl,
+                            CreatedAt = now,
+                            GeneratedBy = "manual"
+                        });
+
                         return Ok(new { message = "Version updated" });
                     }
                 }
 
-                var newDoc = new Document { StartupId = sId, DocumentName = form.DocName, Type = form.Type, CurrentPath = publicUrl, CurrentVersion = 1, CanAccess = 1, UpdatedAt = now, CreatedAt = now, IsCurrent = true };
+                var newDid = Guid.NewGuid();
+                var newDoc = new Document { Did = newDid, StartupId = sId, DocumentName = form.DocName, Type = form.Type, CurrentPath = publicUrl, CurrentVersion = 1, CanAccess = 1, UpdatedAt = now, CreatedAt = now, IsCurrent = true };
                 await _supabase.From<Document>().Insert(newDoc);
+
+                await _supabase.From<DocumentVersion>().Insert(new DocumentVersion
+                {
+                    DocumentId = newDid,
+                    StartupId = sId,
+                    VersionNumber = 1,
+                    Path = publicUrl,
+                    CreatedAt = now,
+                    GeneratedBy = "manual"
+                });
+
                 return Ok(new { message = "File created" });
             }
             catch (Exception ex) { return StatusCode(500, ex.Message); }
@@ -162,28 +199,62 @@ namespace Spark2Scale_.Server.Controllers
         public async Task<IActionResult> SaveAIResponse([FromBody] SaveAIResponseDto input)
         {
             if (input.StartupId == Guid.Empty) return BadRequest("Invalid Startup ID.");
-            var supabaseUrl = Environment.GetEnvironmentVariable("SUPABASE_URL");
-            var supabaseKey = Environment.GetEnvironmentVariable("SUPABASE_KEY");
+            var supabaseUrl = Environment.GetEnvironmentVariable("SUPABASE_URL") ?? Environment.GetEnvironmentVariable("URL");
+            var supabaseKey = Environment.GetEnvironmentVariable("SUPABASE_KEY") ?? Environment.GetEnvironmentVariable("KEY");
 
             try
             {
                 var http = _httpClientFactory.CreateClient();
                 http.DefaultRequestHeaders.Add("apikey", supabaseKey);
                 http.DefaultRequestHeaders.Add("Authorization", $"Bearer {supabaseKey}");
+                http.DefaultRequestHeaders.Add("Prefer", "return=representation");
 
                 // Deactivate old
                 var patchUrl = $"{supabaseUrl}/rest/v1/documents?startup_id=eq.{input.StartupId}&type=eq.{input.Type}&is_current=eq.true";
                 var patchRequest = new HttpRequestMessage(new HttpMethod("PATCH"), patchUrl) { Content = new StringContent("{\"is_current\": false}", System.Text.Encoding.UTF8, "application/json") };
                 await http.SendAsync(patchRequest);
 
-                // Insert new
-                var insertPayload = new { did = Guid.NewGuid(), startup_id = input.StartupId, document_name = $"{input.Type} (AI Analysis)", type = input.Type, current_path = "", current_version = 1, canaccess = 1, updated_at = DateTime.UtcNow, created_at = DateTime.UtcNow, is_current = true, json_response = input.Content };
-                var insertRequest = new HttpRequestMessage(HttpMethod.Post, $"{supabaseUrl}/rest/v1/documents") { Content = new StringContent(System.Text.Json.JsonSerializer.Serialize(insertPayload), System.Text.Encoding.UTF8, "application/json") };
-                await http.SendAsync(insertRequest);
+                // Insert new Document
+                Guid newDid = Guid.NewGuid();
+                var insertPayload = new
+                {
+                    did = newDid,
+                    startup_id = input.StartupId,
+                    document_name = $"{input.Type} (AI Analysis)",
+                    type = input.Type,
+                    current_path = "",
+                    current_version = 1,
+                    canaccess = 1,
+                    updated_at = DateTime.UtcNow,
+                    created_at = DateTime.UtcNow,
+                    is_current = true,
+                    json_response = input.Content
+                };
+
+                var insertRequest = new HttpRequestMessage(HttpMethod.Post, $"{supabaseUrl}/rest/v1/documents") { Content = new StringContent(JsonSerializer.Serialize(insertPayload), System.Text.Encoding.UTF8, "application/json") };
+                var response = await http.SendAsync(insertRequest);
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    var err = await response.Content.ReadAsStringAsync();
+                    return StatusCode((int)response.StatusCode, $"Failed to save document to DB: {err}");
+                }
+
+                // 👇 FIX 2: CREATE THE DOCUMENT VERSION! The frontend hides documents that don't have a version.
+                var versionDoc = new DocumentVersion
+                {
+                    DocumentId = newDid,
+                    StartupId = input.StartupId,
+                    VersionNumber = 1,
+                    Path = "",
+                    CreatedAt = DateTime.UtcNow,
+                    GeneratedBy = "AI"
+                };
+                await _supabase.From<DocumentVersion>().Insert(versionDoc);
 
                 return Ok(new { message = "AI Response Saved" });
             }
-            catch (Exception ex) { return StatusCode(500, ex.Message); }
+            catch (Exception ex) { return StatusCode(500, $"Save failed: {ex.Message}"); }
         }
 
         [HttpPost("save-ai-evaluations")]
@@ -195,14 +266,20 @@ namespace Spark2Scale_.Server.Controllers
                 string founderUrl = await UploadHelper(input.FounderFile, "Founder_Report", sId);
                 string investorUrl = await UploadHelper(input.InvestorFile, "Investor_Memo", sId);
 
-                Dictionary<string, object>? parsedJson = string.IsNullOrEmpty(input.JsonResponse) ? null : Newtonsoft.Json.JsonConvert.DeserializeObject<Dictionary<string, object>>(input.JsonResponse);
+                // Safe parsing to prevent crashes from AI Hallucinations
+                object? parsedJson = null;
+                if (!string.IsNullOrEmpty(input.JsonResponse))
+                {
+                    try { parsedJson = JsonSerializer.Deserialize<object>(input.JsonResponse); }
+                    catch { parsedJson = new { raw_output = input.JsonResponse }; }
+                }
 
                 await CreateDocHelper("Founder Evaluation", founderUrl, 0, sId, parsedJson);
                 await CreateDocHelper("Investor Evaluation", investorUrl, 1, sId, parsedJson);
 
                 return Ok(new { success = true });
             }
-            catch (Exception ex) { return StatusCode(500, ex.Message); }
+            catch (Exception ex) { return StatusCode(500, $"Error saving evaluations: {ex.Message}"); }
         }
 
         // Helpers
@@ -215,18 +292,43 @@ namespace Spark2Scale_.Server.Controllers
             return _supabase.Storage.From("startup-docs").GetPublicUrl(fileName);
         }
 
-        private async Task CreateDocHelper(string type, string url, int access, Guid sId, Dictionary<string, object>? json)
+        private async Task CreateDocHelper(string type, string url, int access, Guid sId, object? json)
         {
-            var doc = new Document { Did = Guid.NewGuid(), StartupId = sId, DocumentName = type + ".pdf", Type = type, CurrentPath = url, CurrentVersion = 1, CanAccess = access, UpdatedAt = DateTime.UtcNow, CreatedAt = DateTime.UtcNow, IsCurrent = true, JsonResponse = json };
+            var docId = Guid.NewGuid();
+            var doc = new Document
+            {
+                Did = docId,
+                StartupId = sId,
+                DocumentName = type + ".pdf",
+                Type = type,
+                CurrentPath = url,
+                CurrentVersion = 1,
+                CanAccess = access,
+                UpdatedAt = DateTime.UtcNow,
+                CreatedAt = DateTime.UtcNow,
+                IsCurrent = true,
+                JsonResponse = json
+            };
             await _supabase.From<Document>().Insert(doc);
+
+            // 👇 FIX 3: CREATE THE DOCUMENT VERSION FOR EVALUATIONS TOO!
+            var versionDoc = new DocumentVersion
+            {
+                DocumentId = docId,
+                StartupId = sId,
+                VersionNumber = 1,
+                Path = url,
+                CreatedAt = DateTime.UtcNow,
+                GeneratedBy = "AI"
+            };
+            await _supabase.From<DocumentVersion>().Insert(versionDoc);
         }
     }
 
-    // DTOs (Placed outside the Controller class)
     public class SaveAIResponseDto
     {
         public Guid StartupId { get; set; }
         public string? Type { get; set; }
-        public System.Text.Json.JsonElement Content { get; set; }
+        public object Content { get; set; }
     }
 }
