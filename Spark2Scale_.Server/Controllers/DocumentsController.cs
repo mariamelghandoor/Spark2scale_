@@ -7,6 +7,8 @@ using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Collections.Generic;
+using System.Net.Http;
+using System.Text.Json;
 
 namespace Spark2Scale_.Server.Controllers
 {
@@ -16,11 +18,16 @@ namespace Spark2Scale_.Server.Controllers
     {
         private readonly Client _supabase;
         private readonly Spark2Scale_.Server.Services.AccessControlService _access;
+        private readonly IHttpClientFactory _httpClientFactory;
 
-        public DocumentsController(Client supabase, Spark2Scale_.Server.Services.AccessControlService access)
+        public DocumentsController(
+            Client supabase,
+            Spark2Scale_.Server.Services.AccessControlService access,
+            IHttpClientFactory httpClientFactory)
         {
             _supabase = supabase;
             _access = access;
+            _httpClientFactory = httpClientFactory;
         }
 
         private string GetToken()
@@ -388,35 +395,63 @@ namespace Spark2Scale_.Server.Controllers
         {
             if (input.StartupId == Guid.Empty) return BadRequest("Invalid Startup ID.");
 
-            // AUTH CHECK (Optional: Add token check here if strictly required)
-            // if (!await _access.IsFounderOrOwner(GetToken(), input.StartupId)) ...
+            var supabaseUrl = Environment.GetEnvironmentVariable("SUPABASE_URL");
+            var supabaseKey = Environment.GetEnvironmentVariable("SUPABASE_KEY");
 
             try
             {
-                var docName = $"{input.Type} (AI Analysis)";
-                var now = DateTime.UtcNow;
+                var http = _httpClientFactory.CreateClient();
+                http.DefaultRequestHeaders.Add("apikey", supabaseKey);
+                http.DefaultRequestHeaders.Add("Authorization", $"Bearer {supabaseKey}");
 
-                // 1. Create new Document record
-                var newDoc = new Document
+                // ── Step 1: Mark all previous Recommendation docs for this startup as is_current = false ──
+                var patchUrl = $"{supabaseUrl}/rest/v1/documents?startup_id=eq.{input.StartupId}&type=eq.{input.Type}&is_current=eq.true";
+                var patchPayload = new { is_current = false };
+                var patchJson = System.Text.Json.JsonSerializer.Serialize(patchPayload);
+                var patchRequest = new HttpRequestMessage(new HttpMethod("PATCH"), patchUrl)
                 {
-                    Did = Guid.NewGuid(),
-                    StartupId = input.StartupId,
-                    DocumentName = docName,
-                    Type = input.Type, // e.g., "Recommendation"
-                    CurrentPath = "", // No file path for JSON-only responses
-                    CurrentVersion = 1,
-                    CanAccess = 1, // Founder only or Restricted? 1=Public/Shared usually. Let's use 1.
-                    UpdatedAt = now,
-                    CreatedAt = now,
-                    IsCurrent = true,
-                    JsonResponse = input.Content // Save the JSON blob
+                    Content = new StringContent(patchJson, System.Text.Encoding.UTF8, "application/json")
+                };
+                await http.SendAsync(patchRequest);   // best-effort; no existing rows = no-op
+
+                // ── Step 2: Insert new document row with json_response as raw JSONB ──
+                var newDid   = Guid.NewGuid();
+                var now      = DateTime.UtcNow.ToString("o");
+                var docName  = $"{input.Type} (AI Analysis)";
+
+                // System.Text.Json serialises JsonElement as its raw JSON value,
+                // so json_response receives a proper JSONB object, not null.
+                var insertPayload = new
+                {
+                    did             = newDid,
+                    startup_id      = input.StartupId,
+                    document_name   = docName,
+                    type            = input.Type,
+                    current_path    = "",
+                    current_version = 1,
+                    canaccess       = 1,
+                    updated_at      = now,
+                    created_at      = now,
+                    is_current      = true,
+                    json_response   = input.Content   // JsonElement → serialised as raw JSON inline
                 };
 
-                // 2. Insert into Supabase
-                // Using Representation to get back the inserted ID if needed, though we set GUID manually.
-                var inserted = await _supabase.From<Document>().Insert(newDoc);
-                
-                return Ok(new { message = "AI Response Saved", docId = newDoc.Did });
+                var insertJson = System.Text.Json.JsonSerializer.Serialize(insertPayload);
+                var insertRequest = new HttpRequestMessage(HttpMethod.Post,
+                    $"{supabaseUrl}/rest/v1/documents")
+                {
+                    Content = new StringContent(insertJson, System.Text.Encoding.UTF8, "application/json")
+                };
+                insertRequest.Headers.Add("Prefer", "return=representation");
+                var insertRes = await http.SendAsync(insertRequest);
+
+                if (!insertRes.IsSuccessStatusCode)
+                {
+                    var body = await insertRes.Content.ReadAsStringAsync();
+                    return StatusCode((int)insertRes.StatusCode, $"Document insert failed: {body}");
+                }
+
+                return Ok(new { message = "AI Response Saved", docId = newDid });
             }
             catch (Exception ex)
             {
@@ -429,6 +464,6 @@ namespace Spark2Scale_.Server.Controllers
     {
         public Guid StartupId { get; set; }
         public string? Type { get; set; }
-        public object? Content { get; set; }
+        public System.Text.Json.JsonElement Content { get; set; }   // raw JSONB
     }
 }

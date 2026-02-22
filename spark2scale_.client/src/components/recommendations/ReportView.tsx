@@ -2,27 +2,27 @@
 
 /**
  * ReportView.tsx
- * ---------------
+ * ───────────────
  * Shared presentational components for the Recommendation Agent output.
  *
- *  • MarkdownRenderer  — converts the AI-generated markdown string to JSX
- *  • InvestmentMemoView — full A4-style memo layout used in modals and PDF export
- *
- * Both components are pure (no side-effects, no API calls) so they can be
- * imported by any page that needs to display a recommendation.
+ *  • MarkdownRenderer   — converts AI-generated markdown to JSX
+ *  • buildReportMarkdown — returns the main strategic-analysis markdown only
+ *                          (company overview and refined statements are
+ *                           rendered as dedicated React sections in InvestmentMemoView)
+ *  • InvestmentMemoView — full A4-style memo that matches the PDF theme:
+ *                          olive header band → mustard stripe
+ *                          → company overview → refined statements
+ *                          → strategic analysis → mustard footer
  */
 
 import React from "react";
-import { Bot } from "lucide-react";
 import { RecommendationContent } from "@/services/recommendationService";
 
 // ---------------------------------------------------------------------------
 // MarkdownRenderer
 // ---------------------------------------------------------------------------
 
-interface MarkdownRendererProps {
-    content: string;
-}
+interface MarkdownRendererProps { content: string; }
 
 export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content }) => {
     if (!content) return null;
@@ -32,7 +32,6 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content }) =
     let tableBuffer: string[] = [];
     let inTable = false;
 
-    /** Inline bold / italic parser */
     const parseLine = (text: string, key: number) => {
         const parts = text.split(/(\*\*.*?\*\*)/g);
         return (
@@ -51,12 +50,12 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content }) =
     const flushTable = (key: string) => {
         if (tableBuffer.length === 0) return null;
         return (
-            <div key={key} className="my-8 overflow-x-auto">
+            <div key={key} className="my-6 overflow-x-auto">
                 <table className="w-full text-sm text-left font-serif border-collapse">
                     <thead>
-                        <tr className="border-b-2 border-black">
+                        <tr className="bg-[#576238] text-white">
                             {tableBuffer[0].split("|").filter(c => c.trim()).map((h, i) => (
-                                <th key={i} className="py-2 px-2 font-bold text-black uppercase tracking-wide text-xs">
+                                <th key={i} className="py-2 px-3 font-bold uppercase tracking-wide text-xs">
                                     {h.trim()}
                                 </th>
                             ))}
@@ -64,9 +63,9 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content }) =
                     </thead>
                     <tbody>
                         {tableBuffer.slice(2).map((row, rI) => (
-                            <tr key={rI} className="border-b border-gray-200 last:border-0 hover:bg-gray-50">
+                            <tr key={rI} className={rI % 2 === 0 ? "bg-[#F4F1EA]" : "bg-white"}>
                                 {row.split("|").filter(c => c.trim()).map((cell, cI) => (
-                                    <td key={cI} className="py-3 px-2 align-top text-gray-800">
+                                    <td key={cI} className="py-2 px-3 align-top text-gray-800 border border-gray-200">
                                         {cell.replace(/[*_]/g, "").trim()}
                                     </td>
                                 ))}
@@ -81,7 +80,6 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content }) =
     lines.forEach((line, index) => {
         const trimmed = line.trim();
 
-        // --- Table rows ---
         if (trimmed.startsWith("|")) {
             inTable = true;
             tableBuffer.push(trimmed);
@@ -92,63 +90,48 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content }) =
             const tbl = flushTable(`table-${index}`);
             if (tbl) elements.push(tbl);
             tableBuffer = [];
-            // fall-through to process the current non-table line
         }
 
-        // Horizontal rule
         if (trimmed.startsWith("---")) {
-            elements.push(<hr key={index} className="my-8 border-t-2 border-black" />);
+            elements.push(<hr key={index} className="my-6 border-t border-[#576238]/30" />);
             return;
         }
-
-        // H3
-        if (trimmed.startsWith("### ")) {
+        if (/^###\s/.test(trimmed)) {
             elements.push(
-                <h3 key={index} className="text-lg font-bold text-[#576238] uppercase tracking-wider mt-10 mb-4 border-b border-[#576238]/20 pb-2 font-sans">
-                    {trimmed.replace("### ", "").trim()}
+                <h3 key={index} className="text-base font-bold text-[#576238] uppercase tracking-wider mt-8 mb-3 border-b border-[#576238]/20 pb-2 font-sans">
+                    {trimmed.replace(/^###\s+/, "").replace(/\*\*/g, "").trim()}
                 </h3>
             );
             return;
         }
-
-        // H4
-        if (trimmed.startsWith("#### ")) {
+        if (/^####\s/.test(trimmed)) {
             elements.push(
-                <h4 key={index} className="text-base font-bold text-black mt-6 mb-2 font-sans">
-                    {trimmed.replace("#### ", "").trim()}
+                <h4 key={index} className="text-sm font-bold text-gray-800 mt-5 mb-2 font-sans">
+                    {trimmed.replace(/^####\s+/, "").replace(/\*\*/g, "").trim()}
                 </h4>
             );
             return;
         }
-
-        // Unordered list item
         if (trimmed.startsWith("* ") || trimmed.startsWith("- ")) {
             elements.push(
                 <div key={index} className="flex gap-3 ml-4 mb-2 text-gray-800 font-serif">
-                    <span className="mt-2 h-1.5 w-1.5 rounded-full bg-black shrink-0" />
+                    <span className="mt-2 h-2 w-2 rounded-full bg-[#ffd95d] shrink-0" />
                     {parseLine(trimmed.substring(2), index)}
                 </div>
             );
             return;
         }
-
-        // Blockquote
         if (trimmed.startsWith("> ")) {
             elements.push(
-                <blockquote key={index} className="border-l-4 border-[#576238] pl-4 py-1 my-4 italic text-gray-600 bg-gray-50 rounded-r font-serif">
+                <blockquote key={index} className="border-l-4 border-[#ffd95d] pl-4 py-2 my-4 italic text-gray-600 bg-[#fffbea] rounded-r font-serif">
                     {trimmed.substring(2)}
                 </blockquote>
             );
             return;
         }
-
-        // Normal paragraph
-        if (trimmed) {
-            elements.push(parseLine(trimmed, index));
-        }
+        if (trimmed) elements.push(parseLine(trimmed, index));
     });
 
-    // Flush any trailing table
     if (inTable && tableBuffer.length > 0) {
         const tbl = flushTable("table-end");
         if (tbl) elements.push(tbl);
@@ -158,26 +141,22 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content }) =
 };
 
 // ---------------------------------------------------------------------------
-// Report content assembler (handles all possible API / DB field-name casings)
+// buildReportMarkdown — returns ONLY the strategic analysis markdown
+// (refined statements and company overview are handled separately)
 // ---------------------------------------------------------------------------
 
 export function buildReportMarkdown(data: any): string {
     const report =
         data?.recommendation_report ||
-        data?.recommendationReport ||
-        data?.final_report ||
-        data?.finalReport ||
+        data?.recommendationReport  ||
+        data?.final_report          ||
+        data?.finalReport           ||
         "";
 
-    let md = report;
+    let md = report.replace(/^### /gm, "\n### ");
 
-    // Ensure header spacing
-    md = md.replace(/^### /gm, "\n### ");
-
-    const isPlaceholder = (text: string) =>
-        !text ||
-        text.includes("See detailed report") ||
-        text.includes("Investment Memo Generated");
+    const isPlaceholder = (t: string) =>
+        !t || t.includes("See detailed report") || t.includes("Investment Memo Generated");
 
     const summary = data?.Summary || data?.summary || "";
     if (!isPlaceholder(summary)) md += `\n\n### Executive Summary\n${summary}`;
@@ -190,58 +169,159 @@ export function buildReportMarkdown(data: any): string {
     const actionPlan = data?.ActionPlan || data?.actionPlan || "";
     if (!isPlaceholder(actionPlan)) md += `\n\n### Strategic Action Plan\n${actionPlan}`;
 
-    const refined = data?.refined_statements || data?.refinedStatements || {};
-    if (refined && Object.keys(refined).length > 0 && !md.includes("Refined Foundation")) {
-        md += `\n\n### Refined Foundation\n`;
-        Object.entries(refined).forEach(([key, value]: [string, any]) => {
-            md += `* **${key.replace(/_/g, " ").toUpperCase()}**: ${value?.recommended ?? value}\n`;
-        });
-    }
-
     if (!md.trim()) {
         md =
-            "### Report Generation in Progress\n\nPlease wait while the AI analyses your startup data. " +
-            "If this persists, try regenerating the recommendation.";
+            "### Report Generation in Progress\n\nPlease wait while the AI analyses your " +
+            "startup data. If this persists, try regenerating the recommendation.";
     }
 
     return md;
 }
 
 // ---------------------------------------------------------------------------
-// InvestmentMemoView — full A4-style memo layout
+// InvestmentMemoView — full A4-style memo layout (matches PDF theme)
+// Structure:  olive header → mustard stripe → company overview
+//          → refined statements → strategic analysis → mustard footer
 // ---------------------------------------------------------------------------
 
-interface InvestmentMemoViewProps {
-    data: RecommendationContent | any;
-}
+interface InvestmentMemoViewProps { data: RecommendationContent | any; }
+
+const REFINED_LABELS: Record<string, string> = {
+    problem_statement:  "Problem Statement",
+    founder_market_fit: "Founder-Market Fit",
+    differentiation:    "Differentiation",
+    core_stickiness:    "Core Stickiness",
+    five_year_vision:   "Five-Year Vision",
+    beachhead_market:   "Beachhead Market",
+    gap_analysis:       "Gap Analysis",
+};
 
 export const InvestmentMemoView: React.FC<InvestmentMemoViewProps> = ({ data }) => {
+    const ins     = data?.insights ?? {};
+    const refined: Record<string, { original: string; recommended: string; why_better: string }> =
+        data?.refined_statements ?? data?.refinedStatements ?? {};
     const finalContent = buildReportMarkdown(data);
 
+    const overviewRows: [string, string][] = [
+        ins.company_name     && ["Company Name",  ins.company_name],
+        ins.stage            && ["Stage",         ins.stage],
+        ins.target_raise     && ["Target Raise",  ins.target_raise],
+        ins.problem_statement && ["Problem",       ins.problem_statement],
+    ].filter(Boolean) as [string, string][];
+
     return (
-        <div className="bg-white text-black p-12 md:p-16 shadow-2xl border border-gray-100 rounded-sm w-full max-w-4xl min-h-[1000px] relative mx-auto my-8">
-            {/* File header */}
-            <div className="flex justify-between items-center border-b-2 border-black pb-4 mb-8 font-mono text-xs text-gray-500 uppercase tracking-widest">
-                <span>recommendation.md</span>
-                <span>{new Date().toISOString().split("T")[0]}</span>
+        <div className="bg-white text-black w-full mx-auto shadow-2xl rounded overflow-hidden">
+
+            {/* ── Olive header band ── */}
+            <div className="bg-[#576238] text-white px-10 py-6">
+                <p className="text-xs uppercase tracking-widest opacity-70 mb-1 font-sans">Spark2Scale</p>
+                <h1 className="text-xl font-bold font-sans">Recommendation Agent</h1>
+                <p className="text-sm opacity-75 mt-1">Strategic Analysis Report</p>
             </div>
 
-            {/* Title */}
-            <div className="flex items-center gap-4 mb-10">
-                <Bot className="h-8 w-8 text-[#576238]" />
-                <h1 className="text-3xl font-serif font-bold text-[#576238]">
-                    Strategic Analysis &amp; Recommendations
-                </h1>
+            {/* ── Mustard accent stripe ── */}
+            <div className="h-1.5 bg-[#ffd95d]" />
+
+            <div className="px-10 py-8 space-y-10">
+
+                {/* ── Report date ── */}
+                <p className="text-xs text-gray-400">
+                    Generated: {new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })}
+                </p>
+
+                {/* ── Company Overview ── */}
+                {overviewRows.length > 0 && (
+                    <section>
+                        <SectionHeader title="Company Overview" />
+                        <table className="w-full border-collapse text-sm mt-1">
+                            <tbody>
+                                {overviewRows.map(([label, val], i) => (
+                                    <tr key={i} className={i % 2 === 0 ? "bg-[#F4F1EA]" : "bg-white"}>
+                                        <td className="font-bold text-[#576238] px-4 py-2.5 w-40 border border-gray-200 align-top">
+                                            {label}
+                                        </td>
+                                        <td className="px-4 py-2.5 text-gray-700 border border-gray-200">
+                                            {val}
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </section>
+                )}
+
+                {/* ── Refined Statements (BEFORE Strategic Analysis / Core Hypothesis) ── */}
+                {Object.keys(refined).length > 0 && (
+                    <section>
+                        <SectionHeader title="Refined Statements" />
+                        <p className="text-xs text-gray-500 italic mt-2 mb-4">
+                            AI-enhanced versions of your key statements for improved investor appeal.
+                        </p>
+
+                        <div className="space-y-6">
+                            {Object.entries(refined).map(([key, val]) => (
+                                <div key={key}>
+                                    {/* Statement label strip */}
+                                    <div className="flex items-stretch gap-0 bg-[#F4F1EA] overflow-hidden rounded-t">
+                                        <div className="w-1 bg-[#576238] shrink-0" />
+                                        <span className="font-bold text-[#576238] text-xs uppercase tracking-widest px-3 py-2">
+                                            {REFINED_LABELS[key] ?? key.replace(/_/g, " ")}
+                                        </span>
+                                    </div>
+
+                                    <div className="border border-t-0 border-gray-200 rounded-b px-4 pt-4 pb-3 space-y-3 bg-white">
+                                        {/* Original */}
+                                        <div>
+                                            <span className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1">
+                                                Original
+                                            </span>
+                                            <p className="text-sm text-gray-500 italic leading-relaxed">{val.original}</p>
+                                        </div>
+
+                                        {/* Refined (mustard highlight) */}
+                                        <div className="bg-[#fffbea] border border-[#ffd95d] rounded-md px-4 py-3">
+                                            <span className="text-xs font-bold text-[#576238] uppercase tracking-widest block mb-1">
+                                                Refined
+                                            </span>
+                                            <p className="text-sm font-semibold text-gray-900 leading-relaxed">{val.recommended}</p>
+                                        </div>
+
+                                        {/* Why Better */}
+                                        <div>
+                                            <span className="text-xs font-bold text-green-700 uppercase tracking-widest block mb-1">
+                                                Why Better
+                                            </span>
+                                            <p className="text-sm text-gray-600 italic leading-relaxed">{val.why_better}</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </section>
+                )}
+
+                {/* ── Strategic Analysis & Recommendations ── */}
+                <section>
+                    <SectionHeader title="Strategic Analysis & Recommendations" />
+                    <div className="mt-4">
+                        <MarkdownRenderer content={finalContent} />
+                    </div>
+                </section>
             </div>
 
-            {/* Body */}
-            <MarkdownRenderer content={finalContent} />
-
-            {/* Footer */}
-            <div className="absolute bottom-8 left-0 right-0 text-center text-xs text-gray-400 font-mono">
+            {/* ── Mustard footer ── */}
+            <div className="bg-[#ffd95d] px-10 py-3 text-center text-xs font-medium text-[#2c3e50]">
                 Generated by Spark2Scale Recommendation Agent
             </div>
         </div>
     );
 };
 
+// ---------------------------------------------------------------------------
+// Shared section-header component (olive band, white text)
+// ---------------------------------------------------------------------------
+const SectionHeader: React.FC<{ title: string }> = ({ title }) => (
+    <div className="bg-[#576238] text-white px-4 py-2 font-bold text-xs uppercase tracking-widest font-sans rounded-sm">
+        {title}
+    </div>
+);

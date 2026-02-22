@@ -62,10 +62,9 @@ namespace Spark2Scale_.Server.Controllers
         }
 
         // POST: api/Recommendations/save
-        // Each call deletes the previous report and inserts a fresh one.
-        // Uses raw HTTP (same as GET) so that the JsonElement content is serialised
-        // directly by System.Text.Json — this is the key fix: the Postgrest C# library
-        // does NOT reliably store JsonElement as JSONB (it can come back as null).
+        // Keeps ALL historical recommendations for this startup (no delete).
+        // Finds the current max version and inserts with version + 1.
+        // Uses raw HTTP so that JsonElement is serialised correctly into JSONB.
         [HttpPost("save")]
         public async Task<IActionResult> SaveRecommendation([FromBody] RecommendationInsertDto input)
         {
@@ -78,21 +77,33 @@ namespace Spark2Scale_.Server.Controllers
                 client.DefaultRequestHeaders.Add("apikey", supabaseKey);
                 client.DefaultRequestHeaders.Add("Authorization", $"Bearer {supabaseKey}");
 
-                // 1. Delete the previous report for this startup + type via raw HTTP
-                var deleteUrl = $"{supabaseUrl}/rest/v1/recommendations" +
-                                $"?startup_id=eq.{input.StartupId}" +
-                                $"&type=eq.{Uri.EscapeDataString(input.Type)}";
-                await client.DeleteAsync(deleteUrl);
+                // 1. Find the current max version so we can insert version + 1
+                int nextVersion = 1;
+                try
+                {
+                    var versionUrl = $"{supabaseUrl}/rest/v1/recommendations" +
+                                     $"?startup_id=eq.{input.StartupId}" +
+                                     $"&type=eq.{Uri.EscapeDataString(input.Type)}" +
+                                     $"&select=version&order=version.desc&limit=1";
+                    var versionResp = await client.GetAsync(versionUrl);
+                    if (versionResp.IsSuccessStatusCode)
+                    {
+                        var versionJson = await versionResp.Content.ReadAsStringAsync();
+                        using var doc = JsonDocument.Parse(versionJson);
+                        var arr = doc.RootElement;
+                        if (arr.ValueKind == JsonValueKind.Array && arr.GetArrayLength() > 0)
+                            nextVersion = arr[0].GetProperty("version").GetInt32() + 1;
+                    }
+                }
+                catch { /* non-fatal — defaults to version 1 */ }
 
-                // 2. Insert the new recommendation via raw HTTP.
-                //    System.Text.Json serialises JsonElement as its raw JSON value,
-                //    so the 'content' column receives a proper JSONB object — not null.
+                // 2. Insert the new recommendation (history preserved).
                 var insertPayload = new
                 {
                     startup_id = input.StartupId,
                     type       = input.Type,
-                    content    = input.Content,   // JsonElement → serialised as raw JSON inline
-                    version    = 1,
+                    content    = input.Content,   // JsonElement → raw JSONB
+                    version    = nextVersion,
                     created_at = DateTime.UtcNow.ToString("o"),
                     is_current = true
                 };
@@ -103,7 +114,7 @@ namespace Spark2Scale_.Server.Controllers
                                         System.Text.Encoding.UTF8,
                                         "application/json");
 
-                client.DefaultRequestHeaders.TryAddWithoutValidation("Prefer", "return=minimal");
+                client.DefaultRequestHeaders.TryAddWithoutValidation("Prefer", "return=representation");
 
                 var insertUrl      = $"{supabaseUrl}/rest/v1/recommendations";
                 var insertResponse = await client.PostAsync(insertUrl, httpContent);
@@ -115,8 +126,7 @@ namespace Spark2Scale_.Server.Controllers
                                      $"Failed to insert recommendation: {errBody}");
                 }
 
-                // 3. Sync json_response + current_iteration on the startups row.
-                //    Non-fatal — log a warning but never fail the whole request.
+                // 3. Sync json_response + current_iteration on the startups row (non-fatal).
                 try
                 {
                     var startupRow = await _supabase.From<Spark2Scale_.Server.Models.Startup>()
@@ -136,11 +146,46 @@ namespace Spark2Scale_.Server.Controllers
                     Console.WriteLine($"[Recommendations/save] Warning – could not sync startup row: {syncEx.Message}");
                 }
 
-                return Ok(new { message = "Saved" });
+                // Return the inserted row's rid so the frontend can show a delete button
+                var insertedJson = await insertResponse.Content.ReadAsStringAsync();
+                return new ContentResult { Content = insertedJson, ContentType = "application/json", StatusCode = 200 };
             }
             catch (Exception ex)
             {
                 return StatusCode(500, $"Error saving recommendation: {ex.Message}");
+            }
+        }
+
+        // DELETE: api/Recommendations/delete/{rid}
+        // Removes a single recommendation record by its primary key.
+        [HttpDelete("delete/{rid}")]
+        public async Task<IActionResult> DeleteRecommendation(string rid)
+        {
+            if (!Guid.TryParse(rid, out _)) return BadRequest("Invalid recommendation ID");
+
+            try
+            {
+                var supabaseUrl = Environment.GetEnvironmentVariable("SUPABASE_URL");
+                var supabaseKey = Environment.GetEnvironmentVariable("SUPABASE_KEY");
+
+                var client = _httpClientFactory.CreateClient();
+                client.DefaultRequestHeaders.Add("apikey", supabaseKey);
+                client.DefaultRequestHeaders.Add("Authorization", $"Bearer {supabaseKey}");
+
+                var url    = $"{supabaseUrl}/rest/v1/recommendations?rid=eq.{rid}";
+                var result = await client.DeleteAsync(url);
+
+                if (!result.IsSuccessStatusCode)
+                {
+                    var err = await result.Content.ReadAsStringAsync();
+                    return StatusCode((int)result.StatusCode, $"Delete failed: {err}");
+                }
+
+                return Ok(new { message = "Deleted" });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, $"Error deleting recommendation: {ex.Message}");
             }
         }
 

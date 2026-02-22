@@ -3,23 +3,17 @@
 /**
  * RecommendationCard.tsx
  * -----------------------
- * Reusable rectangular card for a single recommendation report.
- * Each generation replaces the previous one — no versioning displayed.
+ * Card for a single recommendation report.
+ * Supports:
+ *  • Incremental naming  — "Recommendation 1", "Recommendation 2", …
+ *  • View in modal       — full InvestmentMemoView
+ *  • Download PDF        — jsPDF text-only (Spark2Scale branded, no html2canvas)
  *
- * Layout
- * ─────────────────────────────────────────────────────────────────
- *   ┌────────────────────────────────────────────────────────────┐
- *   │  📄  Recommendations              [View]  [Download PDF]  │
- *   │      Generated 19 Feb 2026 · Pre-Seed                     │
- *   └────────────────────────────────────────────────────────────┘
- *
- * PDF export uses jsPDF text-layout (no html2canvas) so it is
- * immune to the "unsupported color function lab/oklch" crash that
- * html2canvas throws when parsing modern Tailwind / Radix CSS.
+ * "Mark as Complete" lives on the PAGE, not on each card.
  */
 
 import React, { useState } from "react";
-import { Eye, Download, Loader2 } from "lucide-react";
+import { Eye, Download, Loader2, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
     Dialog,
@@ -27,6 +21,8 @@ import {
     DialogHeader,
     DialogTitle,
     DialogTrigger,
+    DialogDescription,
+    DialogFooter,
 } from "@/components/ui/dialog";
 import jsPDF from "jspdf";
 import { DBRecommendation, RecommendationContent } from "@/services/recommendationService";
@@ -36,36 +32,17 @@ import { InvestmentMemoView, buildReportMarkdown } from "./ReportView";
 // Helpers
 // ---------------------------------------------------------------------------
 
-/**
- * safeParseContent
- * ----------------
- * Normalises whatever the DB hands back for the `content` JSONB column into
- * a plain JS object so that buildReportMarkdown can find `recommendation_report`.
- *
- * Edge-cases handled:
- *  1. Already a plain object  → return as-is
- *  2. JSON string             → parse once
- *  3. Double-encoded string   → parse twice  (can happen when the Postgrest
- *                                              library serialises JsonElement as a
- *                                              string instead of raw JSON)
- */
 function safeParseContent(raw: any): RecommendationContent | any {
     if (!raw) return {};
-
-    // Unwrap strings – handles both single and double encoding
     let value = raw;
     for (let i = 0; i < 2; i++) {
         if (typeof value !== "string") break;
         try { value = JSON.parse(value); } catch { return {}; }
     }
-
     if (typeof value !== "object" || value === null) return {};
-
-    // Debug: log which keys arrived so it's easy to spot field-name mismatches
     if (process.env.NODE_ENV !== "production") {
         console.debug("[RecommendationCard] content keys:", Object.keys(value));
     }
-
     return value;
 }
 
@@ -75,152 +52,469 @@ function formatDate(dateStr: string): string {
         return new Date(dateStr).toLocaleDateString("en-GB", {
             day: "numeric", month: "short", year: "numeric",
         });
-    } catch {
-        return dateStr;
-    }
+    } catch { return dateStr; }
 }
 
 // ---------------------------------------------------------------------------
-// PDF export — jsPDF text-only (no html2canvas, no CSS parsing)
+// PDF Export — Spark2Scale branded, jsPDF text-only
+// Inspired by the Python reportlab OutputManager structure:
+//   1. Olive header band
+//   2. Company Overview table
+//   3. Evaluation Scores table
+//   4. Refined Statements (original → refined → why better)
+//   5. Strategic Analysis (full markdown)
+//   6. Mustard-accented footers
 // ---------------------------------------------------------------------------
 
-/**
- * Converts the markdown recommendation report to a downloadable PDF using
- * jsPDF's native text-layout API.  This approach is 100% immune to the
- * html2canvas "unsupported color function lab/oklch" crash because it never
- * touches the DOM or any CSS at all.
- */
-function exportToPDF(contentData: any, filename: string): void {
-    const md = buildReportMarkdown(contentData);
+type RGB = [number, number, number];
+// Exact hex values from InvestmentMemoView / ReportView.tsx
+const OLIVE:   RGB = [87,  98,  56];   // #576238  (header, section headers, table header)
+const MUSTARD: RGB = [255, 217, 93];   // #ffd95d  (accent stripe, bullets, refined box border)
+const ALT_ROW: RGB = [244, 241, 234];  // #F4F1EA  (alternating table row — matches Tailwind class)
+const DARK:    RGB = [44,  62,  80];   // #2c3e50  (body text)
+const MID:     RGB = [80,  80,  80];   // mid-grey
+const GREY:    RGB = [150, 150, 150];  // light grey (date, subtitle)
+const WHITE:   RGB = [255, 255, 255];
+const GREEN_W: RGB = [39,  120, 80];   // "Why Better" label (green-700 ≈ #166534)
 
-    const pdf      = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" });
-    const pageW    = pdf.internal.pageSize.getWidth();
-    const pageH    = pdf.internal.pageSize.getHeight();
-    const margin   = 60;
-    const maxW     = pageW - margin * 2;
-    const BRAND    = [87, 98, 56]  as [number, number, number];  // #576238
-    const DARK     = [30, 30, 30]  as [number, number, number];
-    const GREY     = [100, 100, 100] as [number, number, number];
+/** Renders inline **bold** text with word-wrap, returns new Y. */
+function renderInline(
+    pdf: jsPDF,
+    rawText: string,
+    x: number,
+    startY: number,
+    maxW: number,
+    fontSize: number,
+    color: RGB,
+    lineH: number,
+    pageH: number,
+    addPageFn: () => void,
+): number {
+    pdf.setFontSize(fontSize);
+    pdf.setTextColor(...color);
 
-    let y = margin;
+    const segments: { text: string; bold: boolean }[] = [];
+    rawText.split(/(\*\*[^*]+\*\*)/g).forEach(part => {
+        if (!part) return;
+        if (part.startsWith("**") && part.endsWith("**") && part.length > 4)
+            segments.push({ text: part.slice(2, -2), bold: true });
+        else
+            segments.push({ text: part, bold: false });
+    });
 
-    const newPage = () => { pdf.addPage(); y = margin; };
-    const check   = (need: number) => { if (y + need > pageH - margin) newPage(); };
+    let cx = x, cy = startY;
+    for (const seg of segments) {
+        pdf.setFont("helvetica", seg.bold ? "bold" : "normal");
+        for (const word of seg.text.split(" ").map((w, i, a) => w + (i < a.length - 1 ? " " : ""))) {
+            const ww = pdf.getTextWidth(word);
+            if (cx + ww > x + maxW && cx > x) {
+                cy += lineH;
+                if (cy > pageH - 50) { addPageFn(); cy = 60; }
+                cx = x;
+            }
+            pdf.text(word, cx, cy);
+            cx += ww;
+        }
+    }
+    return cy + lineH;
+}
 
-    // ── Cover header ──────────────────────────────────────────────────────
-    pdf.setFontSize(20);
+// ── Shared PDF section-header band (mirrors SectionHeader React component) ──
+function pdfSectionHeader(
+    pdf: jsPDF, title: string, x: number, y: number, w: number,
+): number {
+    const H = 22;
+    pdf.setFillColor(...OLIVE);
+    pdf.roundedRect(x, y, w, H, 2, 2, "F");
     pdf.setFont("helvetica", "bold");
-    pdf.setTextColor(...BRAND);
-    pdf.text("Strategic Analysis & Recommendations", margin, y);
-    y += 28;
-
     pdf.setFontSize(9);
+    pdf.setTextColor(...WHITE);
+    pdf.text(title.toUpperCase(), x + 10, y + H / 2 + 3);
+    return y + H + 8;   // return next y (header height + small gap below)
+}
+
+function exportToPDF(contentData: any, _cardName: string, filename: string): void {
+    const md    = buildReportMarkdown(contentData);
+    const pdf   = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" });
+    const pageW = pdf.internal.pageSize.getWidth();
+    const pageH = pdf.internal.pageSize.getHeight();
+    const M     = 50;                   // left / right margin
+    const maxW  = pageW - M * 2;
+    const FOOTER_H = 28;                // reserved for mustard footer
+    const LINE_H   = 14;               // body line-height  (≈ leading-relaxed at 9pt)
+
+    let y = 0;
+    const addPage = () => {
+        pdf.addPage();
+        // Olive header micro-band on continuation pages
+        pdf.setFillColor(...OLIVE);
+        pdf.rect(0, 0, pageW, 22, "F");
+        pdf.setFillColor(...MUSTARD);
+        pdf.rect(0, 22, pageW, 4, "F");
+        y = 40;
+    };
+    const check = (n: number) => { if (y + n > pageH - FOOTER_H - M) addPage(); };
+
+    // ─────────────────────────────────────────────────────────────────────
+    // 1.  OLIVE HEADER BAND  (matches <div className="bg-[#576238]…">)
+    // ─────────────────────────────────────────────────────────────────────
+    pdf.setFillColor(...OLIVE);
+    pdf.rect(0, 0, pageW, 82, "F");
+
+    // "SPARK2SCALE"  — tiny uppercase label (opacity-70 white)
+    pdf.setFontSize(7.5);
+    pdf.setFont("helvetica", "bold");
+    pdf.setTextColor(190, 205, 175);          // approximates white at 70 % opacity on olive
+    pdf.text("SPARK2SCALE", M, 20);
+
+    // "Recommendation Agent"  — h1 bold
+    pdf.setFontSize(18);
+    pdf.setFont("helvetica", "bold");
+    pdf.setTextColor(...WHITE);
+    pdf.text("Recommendation Agent", M, 46);
+
+    // "Strategic Analysis Report"  — subtitle (opacity-75 white)
+    pdf.setFontSize(10);
+    pdf.setFont("helvetica", "normal");
+    pdf.setTextColor(210, 220, 200);          // ≈ white at 75 % opacity
+    pdf.text("Strategic Analysis Report", M, 66);
+
+    // Mustard accent stripe (h-1.5)
+    pdf.setFillColor(...MUSTARD);
+    pdf.rect(0, 82, pageW, 6, "F");
+
+    y = 106;
+
+    // ─────────────────────────────────────────────────────────────────────
+    // 2.  GENERATED DATE  (matches <p className="text-xs text-gray-400">)
+    // ─────────────────────────────────────────────────────────────────────
+    pdf.setFontSize(8.5);
     pdf.setFont("helvetica", "normal");
     pdf.setTextColor(...GREY);
-    pdf.text(
-        `Generated by Spark2Scale Recommendation Agent  ·  ${new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })}`,
-        margin, y,
-    );
-    y += 6;
+    const dateStr = new Date().toLocaleDateString("en-GB", {
+        day: "numeric", month: "long", year: "numeric",
+    });
+    pdf.text(`Generated: ${dateStr}`, M, y);
+    y += 28;                                  // space-y-10 gap before first section
 
-    pdf.setDrawColor(0);
-    pdf.setLineWidth(1.5);
-    pdf.line(margin, y, pageW - margin, y);
-    y += 20;
+    // ─────────────────────────────────────────────────────────────────────
+    // 3.  COMPANY OVERVIEW  (matches <section> … SectionHeader + <table>)
+    // ─────────────────────────────────────────────────────────────────────
+    const ins = contentData?.insights ?? {};
+    const overviewRows: [string, string][] = ([
+        ins.company_name      && ["Company Name",  String(ins.company_name)],
+        ins.stage             && ["Stage",         String(ins.stage)],
+        ins.target_raise      && ["Target Raise",  String(ins.target_raise)],
+        ins.problem_statement && ["Problem",       String(ins.problem_statement)],
+    ].filter(Boolean)) as [string, string][];
 
-    // ── Markdown body ─────────────────────────────────────────────────────
-    const lines = md.split("\n");
+    if (overviewRows.length > 0) {
+        check(90);
+        y = pdfSectionHeader(pdf, "Company Overview", M, y, maxW);
 
-    for (const line of lines) {
-        const trimmed = line.trim();
+        const labelW = 120;
+        const valW   = maxW - labelW;
 
-        // blank line → small gap
-        if (!trimmed) { y += 8; continue; }
+        overviewRows.forEach(([label, val], ri) => {
+            pdf.setFontSize(9);
+            const valLines = pdf.splitTextToSize(val, valW - 12);
+            const rowH = Math.max(valLines.length * LINE_H, 14) + 8;   // py-2.5 ≈ 10pt
+            check(rowH);
 
-        // horizontal rule
-        if (trimmed.startsWith("---")) {
+            // Row fill (alternating #F4F1EA / white — matches Tailwind class)
+            pdf.setFillColor(...(ri % 2 === 0 ? ALT_ROW : WHITE));
+            pdf.rect(M, y, maxW, rowH, "F");
+
+            // Row border (border border-gray-200)
+            pdf.setDrawColor(200, 200, 200);
+            pdf.setLineWidth(0.3);
+            pdf.rect(M, y, maxW, rowH, "S");
+            pdf.line(M + labelW, y, M + labelW, y + rowH);  // column divider
+
+            // Label cell (font-bold text-[#576238])
+            pdf.setFont("helvetica", "bold");
+            pdf.setTextColor(...OLIVE);
+            pdf.text(label, M + 8, y + 10);
+
+            // Value cell
+            pdf.setFont("helvetica", "normal");
+            pdf.setTextColor(...DARK);
+            pdf.text(valLines, M + labelW + 8, y + 10);
+
+            y += rowH;
+        });
+        y += 28;    // space-y-10 between sections
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // 4.  REFINED STATEMENTS  (matches <section> with statement blocks)
+    // ─────────────────────────────────────────────────────────────────────
+    const refined: Record<string, { original: string; recommended: string; why_better: string }> =
+        contentData?.refined_statements ?? contentData?.refinedStatements ?? {};
+
+    if (Object.keys(refined).length > 0) {
+        check(50);
+        y = pdfSectionHeader(pdf, "Refined Statements", M, y, maxW);
+
+        // Subtitle: AI-enhanced versions…
+        pdf.setFont("helvetica", "italic");
+        pdf.setFontSize(8.5);
+        pdf.setTextColor(...GREY);
+        pdf.text(
+            "AI-enhanced versions of your key statements for improved investor appeal.",
+            M, y,
+        );
+        y += 18;    // mt-2 mb-4
+
+        const LABELS: Record<string, string> = {
+            problem_statement:  "Problem Statement",
+            founder_market_fit: "Founder-Market Fit",
+            differentiation:    "Differentiation",
+            core_stickiness:    "Core Stickiness",
+            five_year_vision:   "Five-Year Vision",
+            beachhead_market:   "Beachhead Market",
+            gap_analysis:       "Gap Analysis",
+        };
+
+        Object.entries(refined).forEach(([key, data]) => {
+            const label  = LABELS[key] ?? key.replace(/_/g, " ");
+            const origW  = pdf.splitTextToSize(String(data.original    ?? ""), maxW - 20);
+            const recW   = pdf.splitTextToSize(String(data.recommended ?? ""), maxW - 28);
+            const whyW   = pdf.splitTextToSize(String(data.why_better  ?? ""), maxW - 20);
+            const estH   = 26 + origW.length * LINE_H + 14      // label strip + orig
+                         + recW.length * LINE_H + 36             // refined box
+                         + whyW.length * LINE_H + 30;            // why better + separator
+            check(estH);
+
+            // ── Label strip  (bg-[#F4F1EA] + olive left bar + LABELS[key] bold) ──
+            const STRIP_H = 22;
+            pdf.setFillColor(...ALT_ROW);
+            pdf.roundedRect(M, y, maxW, STRIP_H, 2, 2, "F");
+            pdf.setFillColor(...OLIVE);
+            pdf.rect(M, y, 4, STRIP_H, "F");   // olive left accent bar (w-1)
+            pdf.setFont("helvetica", "bold");
+            pdf.setFontSize(8.5);
+            pdf.setTextColor(...OLIVE);
+            pdf.text(label.toUpperCase(), M + 12, y + STRIP_H / 2 + 3);
+            y += STRIP_H + 10;                  // strip height + pt-4
+
+            // ── ORIGINAL ──
+            pdf.setFont("helvetica", "bold");
+            pdf.setFontSize(7.5);
+            pdf.setTextColor(160, 160, 160);    // text-gray-400 uppercase label
+            pdf.text("ORIGINAL", M + 6, y);
+            y += 11;
+            pdf.setFont("helvetica", "italic");
+            pdf.setFontSize(9);
+            pdf.setTextColor(120, 120, 120);    // text-gray-500 italic
+            pdf.text(origW, M + 6, y);
+            y += origW.length * LINE_H + 10;
+
+            // ── REFINED (bg-[#fffbea] border border-[#ffd95d] rounded) ──
+            const recBoxH = recW.length * LINE_H + 26;
+            pdf.setFillColor(255, 251, 234);    // #fffbea
+            pdf.setDrawColor(...MUSTARD);
+            pdf.setLineWidth(1);
+            pdf.roundedRect(M + 4, y, maxW - 4, recBoxH, 3, 3, "FD");
+            pdf.setFont("helvetica", "bold");
+            pdf.setFontSize(7.5);
+            pdf.setTextColor(...OLIVE);
+            pdf.text("REFINED", M + 10, y + 11);
+            pdf.setFont("helvetica", "bold");
+            pdf.setFontSize(9.5);
+            pdf.setTextColor(...DARK);
+            pdf.text(recW, M + 10, y + 22);
+            y += recBoxH + 10;
+
+            // ── WHY BETTER ──
+            pdf.setFont("helvetica", "bold");
+            pdf.setFontSize(7.5);
+            pdf.setTextColor(...GREEN_W);        // text-green-700
+            pdf.text("WHY BETTER", M + 6, y);
+            y += 11;
+            pdf.setFont("helvetica", "italic");
+            pdf.setFontSize(9);
+            pdf.setTextColor(70, 110, 70);       // italic green-ish
+            pdf.text(whyW, M + 6, y);
+            y += whyW.length * LINE_H + 8;
+
+            // ── Divider between statements ──
+            pdf.setDrawColor(210, 215, 200);
+            pdf.setLineWidth(0.4);
+            pdf.line(M, y, pageW - M, y);
+            y += 20;    // space-y-6
+        });
+
+        y += 16;    // space-y-10
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // 5.  STRATEGIC ANALYSIS  (markdown body via MarkdownRenderer-equivalent)
+    // ─────────────────────────────────────────────────────────────────────
+    check(36);
+    y = pdfSectionHeader(pdf, "Strategic Analysis & Recommendations", M, y, maxW);
+    y += 6;     // mt-4
+
+    let tableBuf: string[] = [];
+
+    const flushPdfTable = () => {
+        if (tableBuf.length === 0) return;
+        // Skip separator-only rows (|:---|)
+        const rows = tableBuf
+            .map(r => r.split("|").filter(c => c.trim()).map(c => c.replace(/\*\*/g, "").trim()))
+            .filter(cells => cells.length > 0 && !cells.every(c => /^[-: ]+$/.test(c)));
+        if (rows.length === 0) { tableBuf = []; return; }
+
+        const cols = Math.max(...rows.map(r => r.length));
+        const colW = maxW / cols;
+        const rowH = 20;    // py-2 px-3 in View table
+
+        check(rows.length * rowH + 16);
+        // Add my-6 gap above table
+        y += 8;
+
+        rows.forEach((cells, ri) => {
+            const isHdr = ri === 0;
+            pdf.setFillColor(...(isHdr ? OLIVE : (ri % 2 === 1 ? ALT_ROW : WHITE)));
+            pdf.rect(M, y, maxW, rowH, "F");
+            pdf.setDrawColor(200, 200, 200);
+            pdf.setLineWidth(0.3);
+            pdf.rect(M, y, maxW, rowH, "S");
+
+            cells.forEach((cell, ci) => {
+                if (ci > 0) {
+                    pdf.line(M + ci * colW, y, M + ci * colW, y + rowH);
+                }
+                pdf.setFont("helvetica", isHdr ? "bold" : "normal");
+                pdf.setFontSize(8.5);
+                pdf.setTextColor(...(isHdr ? WHITE : DARK));
+                const cellLines = pdf.splitTextToSize(cell, colW - 8);
+                pdf.text(cellLines[0] ?? "", M + ci * colW + 4, y + 13);
+            });
+            y += rowH;
+        });
+
+        tableBuf = [];
+        y += 14;    // my-6 gap below table
+    };
+
+    for (const line of md.split("\n")) {
+        const t = line.trim();
+
+        if (t.startsWith("|")) { tableBuf.push(t); continue; }
+        if (tableBuf.length > 0) flushPdfTable();
+
+        // Blank line  (mb-3 paragraph gap)
+        if (!t) { y += 12; continue; }
+
+        // Horizontal rule  (border-t border-[#576238]/30 my-6)
+        if (/^-{3,}$/.test(t)) {
             check(20);
-            pdf.setDrawColor(...DARK);
+            y += 6;
+            pdf.setDrawColor(...OLIVE);
             pdf.setLineWidth(0.5);
-            pdf.line(margin, y, pageW - margin, y);
+            pdf.line(M, y, pageW - M, y);
             y += 14;
             continue;
         }
 
-        // H2 (##)
-        if (/^##\s/.test(trimmed)) {
-            const text = trimmed.replace(/^##\s+/, "").replace(/\*\*/g, "");
-            check(36);
-            pdf.setFontSize(15);
-            pdf.setFont("helvetica", "bold");
-            pdf.setTextColor(...BRAND);
-            const wrapped = pdf.splitTextToSize(text.toUpperCase(), maxW);
-            pdf.text(wrapped, margin, y);
-            y += wrapped.length * 20 + 4;
-            pdf.setDrawColor(...BRAND);
-            pdf.setLineWidth(0.5);
-            pdf.line(margin, y, pageW - margin, y);
-            y += 10;
+        // ## H2 — full olive section-header (same as SectionHeader component)
+        if (/^##\s/.test(t)) {
+            const text = t.replace(/^##\s+/, "").replace(/\*\*/g, "").trim();
+            check(38);
+            y += 8;
+            y = pdfSectionHeader(pdf, text, M, y, maxW);
             continue;
         }
 
-        // H3 (###)
-        if (/^###\s/.test(trimmed)) {
-            const text = trimmed.replace(/^###\s+/, "").replace(/\*\*/g, "");
-            check(30);
-            pdf.setFontSize(12);
+        // ### H3 — olive bold uppercase + thin border-b line  (text-base mt-8 mb-3)
+        if (/^###\s/.test(t)) {
+            const text = t.replace(/^###\s+/, "").replace(/\*\*/g, "").trim();
+            check(34);
+            y += 18;    // mt-8
+            pdf.setFontSize(10);
             pdf.setFont("helvetica", "bold");
-            pdf.setTextColor(...BRAND);
+            pdf.setTextColor(...OLIVE);
             const wrapped = pdf.splitTextToSize(text.toUpperCase(), maxW);
-            pdf.text(wrapped, margin, y);
-            y += wrapped.length * 16 + 6;
+            pdf.text(wrapped, M, y);
+            y += wrapped.length * 14;
+            // border-b border-[#576238]/20 pb-2
+            pdf.setDrawColor(87, 98, 56, 0.2);  // olive at 20% — fallback below
+            pdf.setDrawColor(185, 195, 170);
+            pdf.setLineWidth(0.4);
+            pdf.line(M, y + 2, pageW - M, y + 2);
+            y += 14;    // mb-3 + pb-2
             continue;
         }
 
-        // H4 (####)
-        if (/^####\s/.test(trimmed)) {
-            const text = trimmed.replace(/^####\s+/, "").replace(/\*\*/g, "");
+        // #### H4 — dark bold  (text-sm mt-5 mb-2)
+        if (/^####\s/.test(t)) {
+            const text = t.replace(/^####\s+/, "").replace(/\*\*/g, "").trim();
             check(22);
-            pdf.setFontSize(11);
+            y += 12;    // mt-5
+            pdf.setFontSize(9.5);
             pdf.setFont("helvetica", "bold");
             pdf.setTextColor(...DARK);
             const wrapped = pdf.splitTextToSize(text, maxW);
-            pdf.text(wrapped, margin, y);
-            y += wrapped.length * 14 + 4;
+            pdf.text(wrapped, M, y);
+            y += wrapped.length * 13 + 6;   // mb-2
             continue;
         }
 
-        // bullet (*, -)
-        if (/^[*-]\s/.test(trimmed)) {
-            const text = trimmed.substring(2).replace(/\*\*/g, "").replace(/_/g, "");
-            pdf.setFontSize(10);
-            pdf.setFont("helvetica", "normal");
-            pdf.setTextColor(...DARK);
-            const wrapped = pdf.splitTextToSize(`•  ${text}`, maxW - 12);
-            check(wrapped.length * 13 + 4);
-            pdf.text(wrapped, margin + 8, y);
-            y += wrapped.length * 13 + 4;
+        // Blockquote >  (border-l-4 border-[#ffd95d] pl-4 bg-[#fffbea] my-4)
+        if (/^>\s/.test(t)) {
+            const text = t.substring(2);
+            check(26);
+            const bqLines = pdf.splitTextToSize(text, maxW - 22);
+            const bqH = bqLines.length * LINE_H + 14;
+            y += 6;
+            pdf.setFillColor(255, 251, 234);
+            pdf.rect(M, y, maxW, bqH, "F");
+            pdf.setFillColor(...MUSTARD);
+            pdf.rect(M, y, 4, bqH, "F");
+            pdf.setFont("helvetica", "italic");
+            pdf.setFontSize(9);
+            pdf.setTextColor(100, 100, 100);
+            pdf.text(bqLines, M + 14, y + 10);
+            y += bqH + 10;
             continue;
         }
 
-        // normal paragraph
-        const text = trimmed.replace(/\*\*/g, "").replace(/_/g, "");
-        pdf.setFontSize(10);
-        pdf.setFont("helvetica", "normal");
-        pdf.setTextColor(...DARK);
-        const wrapped = pdf.splitTextToSize(text, maxW);
-        check(wrapped.length * 13 + 4);
-        pdf.text(wrapped, margin, y);
-        y += wrapped.length * 13 + 4;
+        // Bullet * or -  (flex gap-3 ml-4 mb-2 + mustard dot h-2 w-2)
+        if (/^[*-]\s/.test(t)) {
+            check(LINE_H + 4);
+            pdf.setFillColor(...MUSTARD);
+            pdf.circle(M + 5, y - 3.5, 2.5, "F");
+            y = renderInline(pdf, t.substring(2), M + 14, y, maxW - 14, 9, DARK, LINE_H, pageH, addPage);
+            y += 4;     // mb-2
+            continue;
+        }
+
+        // Normal paragraph  (mb-3 leading-relaxed text-base)
+        check(LINE_H);
+        y = renderInline(pdf, t, M, y, maxW, 9, DARK, LINE_H, pageH, addPage);
+        y += 6;     // mb-3 equivalent gap after paragraph
     }
 
-    // ── Page numbers ──────────────────────────────────────────────────────
+    if (tableBuf.length > 0) flushPdfTable();
+
+    // ─────────────────────────────────────────────────────────────────────
+    // 6.  MUSTARD FOOTER on every page
+    //     (matches <div className="bg-[#ffd95d] … text-center text-xs">)
+    // ─────────────────────────────────────────────────────────────────────
     const total = (pdf.internal as any).getNumberOfPages();
     for (let i = 1; i <= total; i++) {
         pdf.setPage(i);
+        pdf.setFillColor(...MUSTARD);
+        pdf.rect(0, pageH - FOOTER_H, pageW, FOOTER_H, "F");
         pdf.setFontSize(8);
-        pdf.setTextColor(...GREY);
-        pdf.text(`Page ${i} of ${total}`, pageW / 2, pageH - 20, { align: "center" });
+        pdf.setFont("helvetica", "normal");
+        pdf.setTextColor(...DARK);
+        pdf.text(
+            `Generated by Spark2Scale Recommendation Agent  ·  Page ${i} of ${total}`,
+            pageW / 2, pageH - FOOTER_H / 2 + 3,
+            { align: "center" },
+        );
     }
 
     pdf.save(filename);
@@ -233,32 +527,35 @@ function exportToPDF(contentData: any, filename: string): void {
 export interface RecommendationCardProps {
     recommendation: DBRecommendation;
     startupId: string;
-    /** Optional: let the parent handle PDF export (e.g. to share a loading state). */
+    /** e.g. "Recommendation 1", "Recommendation 2" */
+    name?: string;
     onDownloadPDF?: (rec: DBRecommendation) => Promise<void>;
+    /** When provided, a trash button is shown that calls this handler */
+    onDelete?: () => void;
 }
 
 export const RecommendationCard: React.FC<RecommendationCardProps> = ({
     recommendation,
     startupId,
+    name = "Recommendations",
     onDownloadPDF,
+    onDelete,
 }) => {
-    const [isPDFLoading, setIsPDFLoading] = useState(false);
+    const [isPDFLoading,    setIsPDFLoading]    = useState(false);
+    const [isDeleting,      setIsDeleting]      = useState(false);
+    const [confirmOpen,     setConfirmOpen]     = useState(false);
 
     const contentData = safeParseContent(
-        recommendation.Content ?? (recommendation as any).content
+        recommendation.Content ?? (recommendation as any).content,
     );
-
     const createdAt = recommendation.CreatedAt ?? (recommendation as any).created_at ?? "";
     const stage     = contentData?.stage ?? contentData?.insights?.stage ?? "";
 
-    // -----------------------------------------------------------------------
-    // PDF download
-    // -----------------------------------------------------------------------
     const handleDownload = async () => {
         if (onDownloadPDF) { await onDownloadPDF(recommendation); return; }
         setIsPDFLoading(true);
         try {
-            exportToPDF(contentData, `Spark2Scale_Recommendation_${startupId}.pdf`);
+            exportToPDF(contentData, name, `Spark2Scale_${name.replace(/\s+/g, "_")}_${startupId}.pdf`);
         } catch (err) {
             console.error("PDF export failed:", err);
             alert("Failed to generate PDF. Please try again.");
@@ -267,16 +564,12 @@ export const RecommendationCard: React.FC<RecommendationCardProps> = ({
         }
     };
 
-    // -----------------------------------------------------------------------
-    // Render
-    // -----------------------------------------------------------------------
     return (
         <div className="flex items-center justify-between gap-4 rounded-xl border border-[#576238]/40 bg-white px-6 py-5 shadow-sm ring-1 ring-[#576238]/10 transition-shadow hover:shadow-md">
 
             {/* Left: icon + metadata */}
             <div className="flex items-start gap-4 min-w-0">
                 <div className="shrink-0 rounded-lg bg-[#576238]/10 p-3">
-                    {/* File-text icon */}
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
                         stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
                         className="h-5 w-5 text-[#576238]">
@@ -287,56 +580,133 @@ export const RecommendationCard: React.FC<RecommendationCardProps> = ({
                         <polyline points="10 9 9 9 8 9" />
                     </svg>
                 </div>
-
                 <div className="min-w-0">
-                    <h3 className="text-sm font-semibold text-gray-900">
-                        Recommendations
-                    </h3>
+                    <h3 className="text-sm font-semibold text-gray-900">{name}</h3>
                     <p className="mt-0.5 text-xs text-gray-500">
-                        Generated {formatDate(createdAt)}
-                        {stage ? ` · ${stage}` : ""}
+                        Generated {formatDate(createdAt)}{stage ? ` · ${stage}` : ""}
                     </p>
                 </div>
             </div>
 
-            {/* Right: action buttons */}
+            {/* Right: View + Download */}
             <div className="flex items-center gap-2 shrink-0">
-                {/* View */}
                 <Dialog>
                     <DialogTrigger asChild>
-                        <Button
-                            variant="outline"
-                            size="sm"
-                            className="border-[#576238] text-[#576238] hover:bg-[#576238]/5 gap-1.5"
-                        >
-                            <Eye className="h-4 w-4" />
-                            View
+                        <Button variant="outline" size="sm"
+                            className="border-[#576238] text-[#576238] hover:bg-[#576238]/5 gap-1.5">
+                            <Eye className="h-4 w-4" /> View
                         </Button>
                     </DialogTrigger>
-
-                    <DialogContent className="max-w-[90vw] h-[90vh] overflow-y-auto p-0 bg-[#F4F1EA]">
+                    {/*
+                      * inline style forces size — Tailwind max-w-* is overridden by
+                      * shadcn's own stylesheet, but inline style always wins.
+                      *
+                      * Scroll lives on the INNER div, NOT on DialogContent.
+                      * Reason: DialogContent uses display:grid; setting height on a
+                      * grid container does not make it scroll — content just overflows.
+                      * The inner div has a real block height + overflow-y-auto.
+                      */}
+                    <DialogContent
+                        style={{ width: "95vw", maxWidth: "95vw", height: "94vh" }}
+                        className="p-0 bg-[#F4F1EA] overflow-hidden flex flex-col"
+                    >
                         <DialogHeader className="sr-only">
-                            <DialogTitle>Recommendations</DialogTitle>
+                            <DialogTitle>{name}</DialogTitle>
                         </DialogHeader>
-                        <div className="py-8">
+
+                        {/* This div is the actual scrollable document area */}
+                        <div className="flex-1 overflow-y-auto">
                             <InvestmentMemoView data={contentData} />
                         </div>
                     </DialogContent>
                 </Dialog>
 
-                {/* Download PDF */}
-                <Button
-                    variant="outline"
-                    size="sm"
+                <Button variant="outline" size="sm"
                     className="border-[#576238] text-[#576238] hover:bg-[#576238]/5 gap-1.5"
                     onClick={handleDownload}
-                    disabled={isPDFLoading}
-                >
+                    disabled={isPDFLoading}>
                     {isPDFLoading
                         ? <Loader2 className="h-4 w-4 animate-spin" />
                         : <Download className="h-4 w-4" />}
                     Download PDF
                 </Button>
+
+                {/* Delete button — only shown when the parent passes onDelete */}
+                {onDelete && (
+                    <>
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-red-400 hover:text-red-600 hover:bg-red-50 gap-1.5 px-2"
+                            disabled={isDeleting}
+                            onClick={() => setConfirmOpen(true)}
+                            title="Delete this report"
+                        >
+                            {isDeleting
+                                ? <Loader2 className="h-4 w-4 animate-spin" />
+                                : <Trash2 className="h-4 w-4" />}
+                        </Button>
+
+                        {/* ── Themed confirmation dialog ── */}
+                        <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+                            <DialogContent
+                                style={{ maxWidth: "420px" }}
+                                className="p-0 overflow-hidden rounded-xl border-0 shadow-2xl"
+                            >
+                                {/* Olive header band */}
+                                <div className="bg-[#576238] px-6 py-4">
+                                    <DialogHeader>
+                                        <DialogTitle className="text-white text-base font-bold">
+                                            Delete Report
+                                        </DialogTitle>
+                                        <DialogDescription className="text-[#cdd9b8] text-sm mt-0.5">
+                                            This action cannot be undone.
+                                        </DialogDescription>
+                                    </DialogHeader>
+                                </div>
+
+                                {/* Mustard accent stripe */}
+                                <div className="h-1 bg-[#ffd95d]" />
+
+                                {/* Body */}
+                                <div className="px-6 py-5">
+                                    <p className="text-sm text-gray-700 leading-relaxed">
+                                        Are you sure you want to delete{" "}
+                                        <span className="font-semibold text-[#576238]">"{name}"</span>?
+                                    </p>
+                                </div>
+
+                                {/* Footer actions */}
+                                <DialogFooter className="px-6 pb-5 gap-2">
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className="border-gray-300 text-gray-600 hover:bg-gray-50"
+                                        onClick={() => setConfirmOpen(false)}
+                                    >
+                                        Cancel
+                                    </Button>
+                                    <Button
+                                        size="sm"
+                                        disabled={isDeleting}
+                                        className="bg-red-500 hover:bg-red-600 text-white gap-1.5"
+                                        onClick={async () => {
+                                            setIsDeleting(true);
+                                            setConfirmOpen(false);
+                                            try { onDelete(); }
+                                            finally { setIsDeleting(false); }
+                                        }}
+                                    >
+                                        {isDeleting
+                                            ? <Loader2 className="h-4 w-4 animate-spin" />
+                                            : <Trash2 className="h-4 w-4" />}
+                                        Delete
+                                    </Button>
+                                </DialogFooter>
+                            </DialogContent>
+                        </Dialog>
+                    </>
+                )}
             </div>
         </div>
     );

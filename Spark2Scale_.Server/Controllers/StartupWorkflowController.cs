@@ -204,6 +204,31 @@ namespace Spark2Scale_.Server.Controllers
             }
         }
 
+        // POST: api/StartupWorkflow/complete-recommendation/{startupId}
+        [HttpPost("complete-recommendation/{startupId}")]
+        public async Task<IActionResult> CompleteRecommendationStage(Guid startupId)
+        {
+            if (!await _access.IsFounderOrOwner(GetToken(), startupId))
+                return Unauthorized(new { message = "Unauthorized." });
+            try
+            {
+                var update = await _supabase.From<StartupWorkflow>()
+                    .Where(x => x.StartupId == startupId)
+                    .Set(x => x.Recommendation, true)
+                    .Set(x => x.UpdatedAt, DateTime.UtcNow)
+                    .Update();
+
+                var result = update.Models.FirstOrDefault();
+                if (result == null) return NotFound("Workflow not found for this startup.");
+
+                return Ok(new { message = "Recommendation stage marked as complete.", recommendation = true });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, $"Error updating workflow: {ex.Message}");
+            }
+        }
+
         [HttpPost("complete-pitch/{startupId}")]
         public async Task<IActionResult> CompletePitchDeckStage(Guid startupId)
         {

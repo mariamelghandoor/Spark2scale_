@@ -275,7 +275,7 @@ export interface RecommendationContent {
         strength_score: number;
         template: string;
     }[];
-    patterns_detected?: any[]; // Deprecated/Legacy
+    patterns_detected?: unknown[]; // Deprecated/Legacy
 
     // Legacy Fields for UI Compatibility
     final_report?: string;
@@ -314,7 +314,17 @@ export interface WorkflowState {
     pitchDeck: boolean;
 }
 
-// 3. Payload for Updating Workflow (Matches C# DTO PascalCase)
+// 3. Raw API response for workflow (may be camelCase or PascalCase)
+interface WorkflowApiResponse {
+    ideaCheck?: boolean;      IdeaCheck?: boolean;
+    marketResearch?: boolean; MarketResearch?: boolean;
+    evaluation?: boolean;     Evaluation?: boolean;
+    recommendation?: boolean; Recommendation?: boolean;
+    documents?: boolean;      Documents?: boolean;
+    pitchDeck?: boolean;      PitchDeck?: boolean;
+}
+
+// 4. Payload for Updating Workflow (Matches C# DTO PascalCase)
 export interface WorkflowUpdatePayload {
     StartupId: string;
     IdeaCheck: boolean;
@@ -329,7 +339,7 @@ export const recommendationService = {
     // 1. Fetch Recommendations for the specific Startup ID
     async getRecommendations(startupId: string): Promise<DBRecommendation[]> {
         try {
-            const response = await apiClient.get<any>(`/api/Recommendations/${startupId}/recommendation`);
+            const response = await apiClient.get<DBRecommendation[]>(`/api/Recommendations/${startupId}/recommendation`);
             return response.data;
         } catch (error) {
             console.error("Error in getRecommendations:", error);
@@ -345,7 +355,7 @@ export const recommendationService = {
         };
 
         try {
-            const response = await apiClient.get<any>(`/api/StartupWorkflow/${startupId}`);
+            const response = await apiClient.get<WorkflowApiResponse>(`/api/StartupWorkflow/${startupId}`);
             const json = response.data;
 
             // Normalize data (API might return PascalCase or camelCase)
@@ -370,28 +380,25 @@ export const recommendationService = {
         await apiClient.post(`/api/StartupWorkflow/update`, payload);
     },
 
-    // 2. Action: Complete Stage
+    // 2. Action: Complete Stage — calls the dedicated endpoint that does a
+    //    targeted SET recommendation=true (same pattern as complete-pitch).
+    //    The generic /update endpoint has ORM-level issues; this one does not.
     async completeStage(startupId: string): Promise<boolean> {
         try {
-            const current = await this._getWorkflowState(startupId);
-
-            // Create the payload
-            const payload: WorkflowUpdatePayload = {
-                StartupId: startupId,
-                IdeaCheck: current.ideaCheck,
-                MarketResearch: current.marketResearch,
-                Evaluation: current.evaluation,
-                Recommendation: true, // Mark Complete
-                Documents: current.documents,
-                PitchDeck: current.pitchDeck
-            };
-
-            // Use the payload (Fixes "assigned but never used")
-            await this._updateWorkflow(payload);
-
+            const res = await apiClient.post(
+                `/api/StartupWorkflow/complete-recommendation/${startupId}`,
+                {},   // empty body — startupId travels in the URL
+            );
+            console.debug("[completeStage] OK:", res.status, res.data);
             return true;
-        } catch (error) {
-            console.error("Error completing stage:", error);
+        } catch (error: unknown) {
+            const e = error as { response?: { data?: { message?: string } }; message?: string };
+            const serverMsg =
+                e?.response?.data?.message ??
+                JSON.stringify(e?.response?.data) ??
+                e?.message ??
+                "unknown error";
+            console.error(`[completeStage] 401/500 for startup ${startupId}:`, serverMsg);
             return false;
         }
     },
@@ -460,7 +467,7 @@ export const recommendationService = {
     // Sends MOCK_STARTUP_DATA + MOCK_EVALUATION_OUTPUT as the input payload.
     // Falls back to local mock data if the API is unavailable / over-quota.
     // ---------------------------------------------------------
-    async generateAIRecommendation(_startupData?: any, _evaluationContent?: any): Promise<RecommendationContent | null> {
+    async generateAIRecommendation(): Promise<RecommendationContent | null> {
         const AI_AGENT_URL = "https://spark2scale-ai-server.azurewebsites.net/api/v1/recommend";
         const requestId    = `req_${Date.now()}`;
 
@@ -478,7 +485,7 @@ export const recommendationService = {
                 stage:              snapshot.current_stage,
                 target_raise:       `${snapshot.current_round.target_amount}k`,
                 problem_statement:  problem.problem_statement,
-                founder_experience: founders.map((f: any) => `${f.name} (${f.role}) — ${f.prior_experience}`).join("; "),
+                founder_experience: founders.map(f => `${f.name} (${f.role}) — ${f.prior_experience}`).join("; "),
                 founder_market_fit: founders[0]?.founder_market_fit_statement ?? "",
                 customer_quotes:    problem.evidence.customer_quotes,
                 differentiation:    product.differentiation,
@@ -540,7 +547,28 @@ export const recommendationService = {
                 timestamp:             new Date().toISOString(),
                 recommendation_report: MOCK_AI_RESPONSE,
                 insights:              buildInsights(),
-                refined_statements:    {},
+                refined_statements: {
+                    problem_statement: {
+                        original:    "Early-stage founders lack a structured system to validate ideas, develop essential business documents, and reach investors.",
+                        recommended: "MENA early-stage founders lose 18+ months building products without validated market demand because no trusted, data-driven framework exists to assess idea viability before committing resources.",
+                        why_better:  "Quantifies the pain with a time metric, specifies the geography (MENA), and anchors the problem to a measurable outcome investors care about.",
+                    },
+                    founder_market_fit: {
+                        original:    "Because we have done real research and already knew different startup owners.",
+                        recommended: "As builders who interviewed 40+ MENA founders and operated within two regional AI companies, we translate the gap we lived into a product the market needs.",
+                        why_better:  "Replaces a vague claim with a specific credibility indicator (40+ interviews) and connects personal experience directly to market insight.",
+                    },
+                    differentiation: {
+                        original:    "AI-powered structured system for startup validation.",
+                        recommended: "The only MENA-native AI platform that combines multi-agent validation, investor-grade scoring, and actionable document generation in a single workflow — trained on regional founder data.",
+                        why_better:  "Owns the geography, specifies the unique mechanism (multi-agent + regional training), and clarifies the value output (documents), making it immune to generic SaaS comparisons.",
+                    },
+                    five_year_vision: {
+                        original:    "Become the leading platform for startup validation in the MENA region.",
+                        recommended: "By 2030, Spark2Scale will be the default infrastructure layer for startup readiness in MENA — the system accelerators, VC firms, and founders use before any capital changes hands.",
+                        why_better:  "Sets a concrete year, shifts from 'leading platform' (a feature claim) to 'infrastructure layer' (a category-defining position), and names the specific stakeholders that validate its success.",
+                    },
+                },
                 matched_patterns:      [],
                 patterns_detected:     [],
                 evaluation_scores:     MOCK_EVALUATION_OUTPUT.scores,
@@ -554,7 +582,7 @@ export const recommendationService = {
 
     // New: Persist the AI result to the Backend (Recommendations Table)
     // --- Document integration ---
-    async saveToDocuments(startupId: string, content: any): Promise<boolean> {
+    async saveToDocuments(startupId: string, content: RecommendationContent): Promise<boolean> {
         try {
             const payload = {
                 StartupId: startupId,
@@ -568,34 +596,43 @@ export const recommendationService = {
             return false;
         }
     },
-    async saveRecommendation(startupId: string, content: RecommendationContent): Promise<boolean> {
+    // Returns the rid (DB primary key) of the newly saved row, or null on error.
+    async saveRecommendation(startupId: string, content: RecommendationContent): Promise<string | null> {
         try {
-            // HYBRID PAYLOAD: Include legacy fields to satisfy backend validation
             const compatibleContent = {
-                ...content, // Include our new data
-                // Add Legacy fields required by the C# validator (even if we don't use them)
-                Summary: "Investment Memo Generated",
-                Score: 0,
-                KeyPoints: ["See detailed report"],
-                ActionPlan: "See detailed report"
+                ...content,
+                Summary:    "Investment Memo Generated",
+                Score:      0,
+                KeyPoints:  ["See detailed report"],
+                ActionPlan: "See detailed report",
             };
 
-            const payload = {
-                StartupId: startupId,
-                Type: "recommendation",
-                Content: compatibleContent
-            };
-            console.log("Saving Payload:", JSON.stringify(payload, null, 2));
+            const payload = { StartupId: startupId, Type: "recommendation", Content: compatibleContent };
+            const res = await apiClient.post<unknown>(`/api/Recommendations/save`, payload);
 
-            await apiClient.post(`/api/Recommendations/save`, payload);
-            return true;
-        } catch (error: any) {
+            // Backend now returns the inserted row(s) via "return=representation"
+            type RowWithRid = { rid?: string };
+            const rows: RowWithRid[] = Array.isArray(res.data)
+                ? (res.data as RowWithRid[])
+                : res.data
+                    ? [res.data as RowWithRid]
+                    : [];
+            const rid = rows[0]?.rid ?? null;
+            return rid ?? "saved";  // fallback to truthy string if rid missing
+        } catch (error: unknown) {
             console.error("Error saving recommendation:", error);
-            if (error.response) {
-                console.error("Backend Error Data:", JSON.stringify(error.response.data, null, 2));
-                console.error("Backend Error Status:", error.response.status);
-            }
+            return null;
+        }
+    },
+
+    // Deletes a single recommendation by its DB primary key (rid).
+    async deleteRecommendation(rid: string): Promise<boolean> {
+        try {
+            await apiClient.delete(`/api/Recommendations/delete/${rid}`);
+            return true;
+        } catch (error) {
+            console.error("Error deleting recommendation:", error);
             return false;
         }
-    }
+    },
 };
