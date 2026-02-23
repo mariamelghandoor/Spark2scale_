@@ -47,19 +47,28 @@ namespace Spark2Scale_.Server.Controllers
             int totalLikes = 0,
             bool hasGap = false)
         {
-            string? stringifiedJson = null;
+            object? finalJson = null;
             var sourceJson = safeJson ?? s.JsonResponse;
 
+            // 👇 THE FIX: Handle serialization perfectly to avoid the "Parent Loop" crash
             if (sourceJson != null)
             {
                 if (sourceJson is Newtonsoft.Json.Linq.JToken jToken)
-                    stringifiedJson = jToken.ToString(Newtonsoft.Json.Formatting.None);
-                else if (sourceJson is System.Text.Json.JsonElement je)
-                    stringifiedJson = je.GetRawText();
+                {
+                    try { finalJson = System.Text.Json.JsonSerializer.Deserialize<JsonElement>(jToken.ToString(Newtonsoft.Json.Formatting.None)); }
+                    catch { finalJson = jToken.ToString(); }
+                }
                 else if (sourceJson is string str)
-                    stringifiedJson = str;
+                {
+                    try { finalJson = System.Text.Json.JsonSerializer.Deserialize<JsonElement>(str); }
+                    catch { finalJson = str; }
+                }
                 else
-                    stringifiedJson = JsonConvert.SerializeObject(sourceJson);
+                {
+                    // If it is already a JsonNode or JsonElement, ASP.NET handles it natively.
+                    // DO NOT use Newtonsoft here, otherwise it triggers the self-referencing loop!
+                    finalJson = sourceJson;
+                }
             }
 
             return new StartupResponseDto
@@ -78,7 +87,7 @@ namespace Spark2Scale_.Server.Controllers
                 progress_count = progressCount,
                 total_likes = totalLikes,
                 progress_has_gap = hasGap,
-                json_response = stringifiedJson
+                json_response = finalJson
             };
         }
 
@@ -117,7 +126,6 @@ namespace Spark2Scale_.Server.Controllers
                 http.DefaultRequestHeaders.Add("Authorization", $"Bearer {supabaseKey}");
                 http.DefaultRequestHeaders.Add("Prefer", "return=representation");
 
-                // 👇 FIX: Fully qualified System.Text.Encoding.UTF8
                 var content = new StringContent(row.ToJsonString(), System.Text.Encoding.UTF8, "application/json");
                 var httpResp = await http.PostAsync($"{supabaseUrl}/rest/v1/startups", content);
 
@@ -316,7 +324,7 @@ namespace Spark2Scale_.Server.Controllers
 
             try
             {
-                var startup = (await _supabase.From<Startup>().Where(s => s.Sid == sId).Get()).Models.FirstOrDefault();
+                var startup = (await _supabase.From<Startup>().Select(SAFE_COLS).Where(s => s.Sid == sId).Get()).Models.FirstOrDefault();
                 if (startup == null) return NotFound("Startup not found");
 
                 string jsonContent = "";
@@ -340,8 +348,17 @@ namespace Spark2Scale_.Server.Controllers
                     jsonContent = await response.Content.ReadAsStringAsync();
                 }
 
+                // 1. Safely Parse JSON
+                object jsonObjectToSave;
+                try { jsonObjectToSave = JsonConvert.DeserializeObject<Dictionary<string, object>>(jsonContent); }
+                catch
+                {
+                    try { jsonObjectToSave = JsonConvert.DeserializeObject<List<object>>(jsonContent); }
+                    catch { jsonObjectToSave = new { raw_output = jsonContent }; }
+                }
+
+                // 2. Upload to Storage
                 var fileName = $"{sId}/market_research_{DateTime.UtcNow.Ticks}.json";
-                // 👇 FIX: Fully qualified System.Text.Encoding.UTF8
                 var fileBytes = System.Text.Encoding.UTF8.GetBytes(jsonContent);
                 string publicUrl = "";
 
@@ -352,57 +369,46 @@ namespace Spark2Scale_.Server.Controllers
                 }
                 catch (Exception ex) { _logger.LogWarning($"Storage upload failed: {ex.Message}"); }
 
+                // 👇 3. THE FIX: Use native Supabase ORM instead of manual HttpClient (No URL space errors!)
                 try
                 {
-                    var supabaseUrl = Environment.GetEnvironmentVariable("SUPABASE_URL") ?? Environment.GetEnvironmentVariable("URL");
-                    var supabaseKey = Environment.GetEnvironmentVariable("SUPABASE_KEY") ?? Environment.GetEnvironmentVariable("KEY");
-                    using var supabaseHttp = new HttpClient();
-                    supabaseHttp.DefaultRequestHeaders.Add("apikey", supabaseKey);
-                    supabaseHttp.DefaultRequestHeaders.Add("Authorization", $"Bearer {supabaseKey}");
-                    supabaseHttp.DefaultRequestHeaders.Add("Prefer", "return=representation");
-
-                    // 👇 FIX: Fully qualified System.Text.Encoding.UTF8
-                    var patchUrl = $"{supabaseUrl}/rest/v1/documents?startup_id=eq.{sId}&type=eq.Market Research&is_current=eq.true";
-                    var patchRequest = new HttpRequestMessage(new HttpMethod("PATCH"), patchUrl) { Content = new StringContent("{\"is_current\": false}", System.Text.Encoding.UTF8, "application/json") };
-                    await supabaseHttp.SendAsync(patchRequest);
-
-                    var existingDocs = await _supabase.From<Document>().Select("did, current_version")
+                    // Find old active documents
+                    var existingDocs = await _supabase.From<Document>()
                         .Filter("startup_id", Supabase.Postgrest.Constants.Operator.Equals, sId.ToString())
                         .Filter("type", Supabase.Postgrest.Constants.Operator.Equals, "Market Research")
-                        .Order("current_version", Supabase.Postgrest.Constants.Ordering.Descending).Get();
+                        .Filter("is_current", Supabase.Postgrest.Constants.Operator.Equals, "true")
+                        .Get();
 
-                    int nextVersion = (existingDocs.Models.FirstOrDefault()?.CurrentVersion ?? 0) + 1;
+                    var currentDoc = existingDocs.Models.FirstOrDefault();
+                    int nextVersion = 1;
 
-                    object finalJsonObj;
-                    try { finalJsonObj = System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(jsonContent); }
-                    catch { finalJsonObj = new { raw_output = jsonContent }; }
-
-                    var newDocId = Guid.NewGuid();
-                    var insertPayload = new
+                    // Archive old document if it exists
+                    if (currentDoc != null)
                     {
-                        did = newDocId,
-                        startup_id = sId,
-                        document_name = $"Market Research Analysis v{nextVersion}",
-                        type = "Market Research",
-                        current_path = publicUrl,
-                        current_version = nextVersion,
-                        canaccess = 1,
-                        updated_at = DateTime.UtcNow,
-                        created_at = DateTime.UtcNow,
-                        is_current = true,
-                        json_response = finalJsonObj
-                    };
-
-                    // 👇 FIX: Fully qualified System.Text.Encoding.UTF8
-                    var content = new StringContent(System.Text.Json.JsonSerializer.Serialize(insertPayload), System.Text.Encoding.UTF8, "application/json");
-                    var res = await supabaseHttp.PostAsync($"{supabaseUrl}/rest/v1/documents", content);
-
-                    if (!res.IsSuccessStatusCode)
-                    {
-                        var err = await res.Content.ReadAsStringAsync();
-                        throw new Exception($"Supabase Insert failed: {err}");
+                        currentDoc.IsCurrent = false;
+                        await _supabase.From<Document>().Update(currentDoc);
+                        nextVersion = currentDoc.CurrentVersion + 1;
                     }
 
+                    // Insert the New Document
+                    var newDocId = Guid.NewGuid();
+                    var newDoc = new Document
+                    {
+                        Did = newDocId,
+                        StartupId = sId,
+                        DocumentName = $"Market Research Analysis v{nextVersion}",
+                        Type = "Market Research",
+                        CurrentPath = publicUrl,
+                        CurrentVersion = nextVersion,
+                        CanAccess = 1,
+                        UpdatedAt = DateTime.UtcNow,
+                        CreatedAt = DateTime.UtcNow,
+                        IsCurrent = true,
+                        JsonResponse = jsonObjectToSave
+                    };
+                    await _supabase.From<Document>().Insert(newDoc);
+
+                    // Insert the New Document Version
                     var versionDoc = new DocumentVersion
                     {
                         DocumentId = newDocId,

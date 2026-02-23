@@ -82,6 +82,8 @@ export default function FounderDashboard() {
         return () => clearTimeout(loaderTimer);
     }, [user]);
 
+    // ─── FIXED: Correctly destructure the nested API response ───────────────────
+    // API shape: { data: { startup_evaluation: { company_snapshot, problem_definition, ... } } }
     const handlePdfUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (!file) return;
@@ -93,6 +95,7 @@ export default function FounderDashboard() {
             console.log("🚀 Starting extraction flow...");
             const response = await pdfService.extractFromPdf(file);
 
+            // Unwrap nested structure
             const evaluation =
                 response?.data?.startup_evaluation ??
                 response?.startup_evaluation ??
@@ -105,6 +108,7 @@ export default function FounderDashboard() {
 
             console.log("✅ Parsed evaluation object:", evaluation);
 
+            // Destructure all sub-sections with safe fallbacks
             const snap = evaluation.company_snapshot ?? {};
             const founder = evaluation.founder_and_team ?? {};
             const problem = evaluation.problem_definition ?? {};
@@ -117,6 +121,8 @@ export default function FounderDashboard() {
 
             setNewStartup(prev => ({
                 ...prev,
+
+                // ── 1. Company Snapshot ──────────────────────────────────────
                 name: snap.company_name || snap.name || prev.name,
                 website_url: snap.website_url || snap.website || prev.website_url,
                 hq_location: snap.hq_location || snap.hq || prev.hq_location,
@@ -127,6 +133,7 @@ export default function FounderDashboard() {
                 target_close_date: snap.target_close_date || prev.target_close_date,
                 existing_investors: snap.existing_investors || vis.existing_investors || prev.existing_investors,
 
+                // ── 2. Founder & Team ────────────────────────────────────────
                 full_time_start: founder.full_time_start || prev.full_time_start,
                 shipments: typeof founder.execution === "string"
                     ? founder.execution
@@ -134,6 +141,7 @@ export default function FounderDashboard() {
                         ? founder.execution.key_shipments.join("\n")
                         : founder.shipments || prev.shipments,
 
+                // ── 3. Problem Definition ────────────────────────────────────
                 customer_profile:
                     (typeof problem.customer_profile === "object"
                         ? problem.customer_profile?.description
@@ -149,17 +157,20 @@ export default function FounderDashboard() {
                     ? problem.customer_quotes.join("\n")
                     : (problem.customer_quotes || prev.customer_quotes),
 
+                // ── 4. Product & Solution ────────────────────────────────────
                 product_status: product.product_stage || product.product_status || prev.product_status,
                 demo_link: product.demo_link || prev.demo_link,
                 core_use_case: product.core_stickiness || product.core_use_case || prev.core_use_case,
                 differentiation: product.differentiation || prev.differentiation,
                 defensibility: product.defensibility || product.moat || prev.defensibility,
 
+                // ── 5. Market & Scope ────────────────────────────────────────
                 beachhead_market: market.beachhead_market || market.beachhead || prev.beachhead_market,
                 market_size: market.market_size || prev.market_size,
                 vision: vis.five_year_vision || vis.long_term_vision || vis.vision || prev.vision,
                 expansion_strategy: market.expansion_strategy || prev.expansion_strategy,
 
+                // ── 6. Traction ──────────────────────────────────────────────
                 active_users: Number(traction.user_count || traction.active_users_monthly || traction.active_users || prev.active_users),
                 design_partners: Array.isArray(traction.design_partners)
                     ? traction.design_partners.join(", ")
@@ -170,18 +181,21 @@ export default function FounderDashboard() {
                 paying_customers: Number(traction.paying_customers || prev.paying_customers),
                 acv: traction.acv || prev.acv,
 
+                // ── 7. GTM ───────────────────────────────────────────────────
                 buyer_vs_user: gtm.buyer_persona || gtm.buyer_vs_user || prev.buyer_vs_user,
                 acquisition_channel: gtm.primary_acquisition_channel || gtm.acquisition_channel || prev.acquisition_channel,
                 sales_motion: gtm.sales_motion || prev.sales_motion,
                 avg_sales_cycle: gtm.avg_sales_cycle || prev.avg_sales_cycle,
                 deal_closer: gtm.deal_closer || prev.deal_closer,
 
+                // ── 8. Business Model ────────────────────────────────────────
                 pricing_model: biz.pricing_model || prev.pricing_model,
                 avg_price: String(biz.average_price_per_customer || biz.avg_price || prev.avg_price),
                 gross_margin: String(biz.gross_margin || prev.gross_margin),
                 monthly_burn: String(biz.monthly_burn || prev.monthly_burn),
                 runway: String(biz.runway_months || biz.runway || prev.runway),
 
+                // ── 9. Vision & Fundraising ──────────────────────────────────
                 category_definition: vis.category_definition || prev.category_definition,
                 primary_risk: vis.primary_risk || vis.risk || prev.primary_risk,
                 round_milestones: vis.round_milestones || vis.milestones || prev.round_milestones,
@@ -216,29 +230,10 @@ export default function FounderDashboard() {
         category_definition: "", primary_risk: "", round_milestones: "", funds_priorities: "", existing_investors: ""
     });
 
-    // 👇 ARIA-HIDDEN FIX 1: Blur the active element before triggering the open state
-    const handleTriggerClick = () => {
-        setIsBlockDropped(true);
-        setTimeout(() => {
-            if (document.activeElement instanceof HTMLElement) {
-                document.activeElement.blur();
-            }
-            setOpen(true);
-        }, 600);
-    };
+    const handleTriggerClick = () => { setIsBlockDropped(true); setTimeout(() => setOpen(true), 600); };
 
-    // 👇 ARIA-HIDDEN FIX 2: Ensure any lingering focus is dropped when Dialog fires onOpenChange
     const handleOpenChange = (isOpen: boolean) => {
-        if (isOpen) {
-            setTimeout(() => {
-                if (document.activeElement instanceof HTMLElement) {
-                    document.activeElement.blur();
-                }
-            }, 0);
-        }
-
         setOpen(isOpen);
-
         if (!isOpen) {
             setExtractionSuccess(false);
             if (startups.length === 0) setTimeout(() => setIsBlockDropped(false), 200);
@@ -254,6 +249,7 @@ export default function FounderDashboard() {
         try {
             const desc = newStartup.problem_statement?.trim() || newStartup.description || "None";
 
+            // ─── Build the nested startup_evaluation structure ─────────────────
             const structuredJson = {
                 startup_evaluation: {
                     meta_data: {
@@ -379,14 +375,17 @@ export default function FounderDashboard() {
 
     if (authLoading) return <div className="h-screen w-full flex items-center justify-center bg-[#F0EADC]"><LegoLoader /></div>;
 
+    // ── Shared modal content (used in both empty-state and list-state dialogs) ──
     const ModalContent = () => (
         <DialogContent className="sm:max-w-[800px] p-0 overflow-hidden bg-white border-none shadow-2xl rounded-2xl">
+            {/* ─── Redesigned Upload Header ─────────────────────────────────── */}
             <div className="bg-[#576238] px-6 pt-5 pb-5">
                 <div className="flex items-center gap-2 mb-3">
                     <Sparkles className="h-5 w-5 text-[#FFD95D]" />
                     <h3 className="font-bold text-white text-base tracking-tight">AI Startup Builder</h3>
                 </div>
 
+                {/* Prominent drag-target upload zone */}
                 <label
                     htmlFor="pdf-upload-main"
                     className={`
@@ -522,6 +521,7 @@ export default function FounderDashboard() {
     );
 }
 
+// ─── EVALUATION WIZARD ───────────────────────────────────────────────────────
 function EvaluationWizard({ data, setData, loading, onSubmit }: any) {
     const [step, setStep] = useState(1);
     const totalSteps = 8;

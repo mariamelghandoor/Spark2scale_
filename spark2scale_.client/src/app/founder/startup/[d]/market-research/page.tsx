@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { ArrowLeft, Download, Filter, Sparkles, CheckCircle, RotateCcw, Loader2, TrendingUp, DollarSign, Users, Code } from "lucide-react";
+import { ArrowLeft, Download, Filter, Sparkles, CheckCircle, RotateCcw, Loader2, TrendingUp, DollarSign, Users } from "lucide-react";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { useParams, useRouter } from "next/navigation";
@@ -67,15 +67,12 @@ export default function MarketResearchPage() {
 
         setIsGenerating(true);
         try {
-            // Pass parameters to the service
             const jsonResult = await marketResearchService.generateResearch(startupId, region, category);
 
             if (jsonResult) {
                 setResearchData(jsonResult);
+                // When new research is generated, the stage is no longer "complete"
                 setIsWorkflowComplete(false);
-
-                // Optional: Automatically trigger PDF download
-                // generateMarketResearchPDF(jsonResult);
             }
         } catch (error) {
             alert("Generation failed. Please verify your startup idea exists in the database.");
@@ -88,27 +85,34 @@ export default function MarketResearchPage() {
         if (researchData) generateMarketResearchPDF(researchData);
     };
 
+    // 👇 FIX 1: Cleaned up regenerate logic. Unlocks the state properly.
     const handleRegenerateClick = () => {
         setResearchData(null);
         setIsWorkflowComplete(false);
     };
 
+    // 👇 FIX 2: Added a finalize handler so the UI updates to "Stage Completed" instantly
+    const handleFinalize = async () => {
+        const success = await marketResearchService.completeStage(startupId);
+        if (success) {
+            setIsWorkflowComplete(true);
+        } else {
+            alert("Failed to mark stage as complete.");
+        }
+    };
+
     const renderMarkdown = (text: string) => {
         if (!text) return null;
 
-        // Simple parser for headers, bold, and paragraphs
         const lines = text.split('\n');
         const filteredLines = lines.filter(line => {
             const trimmed = line.trim();
-            // Filter out standard headers that are redundant
             if (/^(\*\*|#+\s*)?Investment Memo/i.test(trimmed)) return false;
-            // Filter out "Executive Summary" only if it's a header, to avoid removing it from text body if pertinent
             if (/^(\*\*|#+\s*)?Executive Summary/i.test(trimmed)) return false;
             if (/^(\*\*|#+\s*)?1\.\s*Executive Summary/i.test(trimmed)) return false;
             return true;
         });
 
-        // 2. Reduce multiple empty lines to single
         const reducedLines: string[] = [];
         let lastWasEmpty = false;
         for (const line of filteredLines) {
@@ -118,30 +122,16 @@ export default function MarketResearchPage() {
             lastWasEmpty = isEmpty;
         }
 
-        // 3. Remove leading empty lines
         while (reducedLines.length > 0 && reducedLines[0].trim().length === 0) {
             reducedLines.shift();
         }
 
         return reducedLines.map((line, index) => {
-            // Headers
-            if (line.startsWith('### ')) {
-                return <h3 key={index} className="text-lg font-bold mt-4 mb-2 text-[#576238]">{line.replace('### ', '')}</h3>;
-            }
-            if (line.startsWith('## ')) {
-                return <h2 key={index} className="text-xl font-bold mt-6 mb-3 text-[#576238] border-b pb-1">{line.replace('## ', '')}</h2>;
-            }
-            if (line.startsWith('# ')) {
-                return <h1 key={index} className="text-2xl font-bold mt-6 mb-4 text-[#576238]">{line.replace('# ', '')}</h1>;
-            }
-            if (line.trim() === '---') {
-                return <hr key={index} className="my-4 border-gray-300" />;
-            }
-
-            // Paragraphs with Bold parsing
-            if (line.trim().length === 0) {
-                return <br key={index} />;
-            }
+            if (line.startsWith('### ')) return <h3 key={index} className="text-lg font-bold mt-4 mb-2 text-[#576238]">{line.replace('### ', '')}</h3>;
+            if (line.startsWith('## ')) return <h2 key={index} className="text-xl font-bold mt-6 mb-3 text-[#576238] border-b pb-1">{line.replace('## ', '')}</h2>;
+            if (line.startsWith('# ')) return <h1 key={index} className="text-2xl font-bold mt-6 mb-4 text-[#576238]">{line.replace('# ', '')}</h1>;
+            if (line.trim() === '---') return <hr key={index} className="my-4 border-gray-300" />;
+            if (line.trim().length === 0) return <br key={index} />;
 
             const parts = line.split(/(\*\*.*?\*\*)/g);
             return (
@@ -160,7 +150,6 @@ export default function MarketResearchPage() {
     if (isLoading) {
         return (
             <div className="min-h-screen flex items-center justify-center bg-[#F0EADC]">
-                {/* Use LegoLoader here for initial load as well if desired, or standard spinner */}
                 <LegoLoader />
             </div>
         );
@@ -168,7 +157,6 @@ export default function MarketResearchPage() {
 
     return (
         <div className="min-h-screen bg-[#FDFCFB]">
-            {/* Top Navigation */}
             <div className="border-b bg-white/80 sticky top-0 z-10 backdrop-blur-md">
                 <div className="container mx-auto px-4 py-4 flex justify-between items-center">
                     <div className="flex items-center gap-4">
@@ -182,7 +170,8 @@ export default function MarketResearchPage() {
                     </div>
                     {researchData && !isGenerating && (
                         <div className="flex gap-2">
-                            <Button variant="outline" size="sm" onClick={handleRegenerateClick} disabled={isWorkflowComplete}>
+                            {/* 👇 FIX 3: Removed the disabled={isWorkflowComplete} lock so it is always clickable! */}
+                            <Button variant="outline" size="sm" onClick={handleRegenerateClick}>
                                 <RotateCcw className="h-4 w-4 mr-2" /> Regenerate
                             </Button>
                             <Button onClick={handleDownloadReport} variant="outline" className="border-[#576238] text-[#576238]">
@@ -194,15 +183,12 @@ export default function MarketResearchPage() {
             </div>
 
             <main className="container mx-auto px-4 py-8 max-w-5xl">
-
-                {/* 1. Generating State: Show Lego Research Loader */}
                 {isGenerating && (
                     <div className="flex justify-center w-full">
                         <LegoResearchLoader />
                     </div>
                 )}
 
-                {/* 2. Form State: Show Inputs if no data and not generating */}
                 {!researchData && !isGenerating && (
                     <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
                         <Card className="border-2 border-[#FFD95D]">
@@ -246,10 +232,8 @@ export default function MarketResearchPage() {
                     </motion.div>
                 )}
 
-                {/* 3. Results State: Show Data if available */}
                 {researchData && !isGenerating && (
                     <div className="space-y-8">
-                        {/* Summary Metrics */}
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                             <Card className="bg-[#576238] text-white">
                                 <CardContent className="pt-6 text-center">
@@ -276,7 +260,6 @@ export default function MarketResearchPage() {
                             </Card>
                         </div>
 
-                        {/* Executive Summary */}
                         <Card>
                             <CardHeader><CardTitle className="text-[#576238] font-bold">Executive Summary</CardTitle></CardHeader>
                             <CardContent className="text-gray-700 leading-relaxed">
@@ -284,7 +267,6 @@ export default function MarketResearchPage() {
                             </CardContent>
                         </Card>
 
-                        {/* Competitors */}
                         <Card>
                             <CardHeader><CardTitle className="flex items-center gap-2"><Users className="h-5 w-5" /> Competitors</CardTitle></CardHeader>
                             <CardContent>
@@ -299,10 +281,10 @@ export default function MarketResearchPage() {
                             </CardContent>
                         </Card>
 
-                        {/* Workflow Action */}
                         <div className="flex justify-center pt-4">
+                            {/* 👇 FIX 4: Use the new handleFinalize function so the UI updates instantly */}
                             <Button
-                                onClick={() => marketResearchService.completeStage(startupId)}
+                                onClick={handleFinalize}
                                 disabled={isWorkflowComplete}
                                 className="min-w-[300px] bg-[#FFD95D] text-black hover:bg-[#ffe58a] font-bold"
                             >
@@ -310,9 +292,6 @@ export default function MarketResearchPage() {
                                 {isWorkflowComplete ? "Stage Completed" : "Finalize Research Stage"}
                             </Button>
                         </div>
-
-
-
                     </div>
                 )}
             </main>
