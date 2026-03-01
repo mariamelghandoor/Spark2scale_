@@ -357,91 +357,86 @@ namespace Spark2Scale_.Server.Controllers
                     catch { jsonObjectToSave = new { raw_output = jsonContent }; }
                 }
 
-                // 2. Upload to Storage
-                var fileName = $"{sId}/market_research_{DateTime.UtcNow.Ticks}.json";
-                var fileBytes = System.Text.Encoding.UTF8.GetBytes(jsonContent);
-                string publicUrl = "";
-
-                try
+                // 2. Fire and Forget: Run Storage & DB saves in the background to avoid UI latency
+                _ = Task.Run(async () =>
                 {
-                    await _supabase.Storage.From("startup-docs").Upload(fileBytes, fileName);
-                    publicUrl = _supabase.Storage.From("startup-docs").GetPublicUrl(fileName);
-                }
-                catch (Exception ex) { _logger.LogWarning($"Storage upload failed: {ex.Message}"); }
-
-                // 👇 3. THE FIX: Use native Supabase ORM instead of manual HttpClient (No URL space errors!)
-                try
-                {
-                    // Find old active documents
-                    var existingDocs = await _supabase.From<Document>()
-                        .Filter("startup_id", Supabase.Postgrest.Constants.Operator.Equals, sId.ToString())
-                        .Filter("type", Supabase.Postgrest.Constants.Operator.Equals, "Market Research")
-                        .Filter("is_current", Supabase.Postgrest.Constants.Operator.Equals, "true")
-                        .Get();
-
-                    var currentDoc = existingDocs.Models.FirstOrDefault();
-                    int nextVersion = 1;
-
-                    // Archive old document if it exists
-                    if (currentDoc != null)
+                    try
                     {
-                        currentDoc.IsCurrent = false;
-                        await _supabase.From<Document>().Update(currentDoc);
-                        nextVersion = currentDoc.CurrentVersion + 1;
+                        // Upload to Storage
+                        var fileName = $"{sId}/market_research_{DateTime.UtcNow.Ticks}.json";
+                        var fileBytes = System.Text.Encoding.UTF8.GetBytes(jsonContent);
+                        string publicUrl = "";
+
+                        try
+                        {
+                            await _supabase.Storage.From("startup-docs").Upload(fileBytes, fileName);
+                            publicUrl = _supabase.Storage.From("startup-docs").GetPublicUrl(fileName);
+                        }
+                        catch (Exception ex) { _logger.LogWarning($"Storage upload failed: {ex.Message}"); }
+
+                        // Save to DB
+                        var existingDocs = await _supabase.From<Document>()
+                            .Filter("startup_id", Supabase.Postgrest.Constants.Operator.Equals, sId.ToString())
+                            .Filter("type", Supabase.Postgrest.Constants.Operator.Equals, "Market Research")
+                            .Filter("is_current", Supabase.Postgrest.Constants.Operator.Equals, "true")
+                            .Get();
+
+                        var currentDoc = existingDocs.Models.FirstOrDefault();
+                        int nextVersion = 1;
+
+                        // Archive old document if it exists
+                        if (currentDoc != null)
+                        {
+                            currentDoc.IsCurrent = false;
+                            await _supabase.From<Document>().Update(currentDoc);
+                            nextVersion = currentDoc.CurrentVersion + 1;
+                        }
+
+                        // Insert the New Document
+                        var newDocId = Guid.NewGuid();
+                        var newDoc = new Document
+                        {
+                            Did = newDocId,
+                            StartupId = sId,
+                            DocumentName = $"Market Research Analysis v{nextVersion}",
+                            Type = "Market Research",
+                            CurrentPath = publicUrl,
+                            CurrentVersion = nextVersion,
+                            CanAccess = 1,
+                            UpdatedAt = DateTime.UtcNow,
+                            CreatedAt = DateTime.UtcNow,
+                            IsCurrent = true,
+                            JsonResponse = jsonObjectToSave
+                        };
+                        await _supabase.From<Document>().Insert(newDoc);
+
+                        // Insert the New Document Version
+                        var versionDoc = new DocumentVersion
+                        {
+                            DocumentId = newDocId,
+                            StartupId = sId,
+                            VersionNumber = nextVersion,
+                            Path = publicUrl,
+                            CreatedAt = DateTime.UtcNow,
+                            GeneratedBy = "AI"
+                        };
+
+                        // 👇 THE FIX: Correctly targeting DocumentVersion instead of Document!
+                        await _supabase.From<DocumentVersion>().Insert(versionDoc);
                     }
-
-                    // Insert the New Document
-                    var newDocId = Guid.NewGuid();
-                    var newDoc = new Document
+                    catch (Exception dbEx)
                     {
-                        Did = newDocId,
-                        StartupId = sId,
-                        DocumentName = $"Market Research Analysis v{nextVersion}",
-                        Type = "Market Research",
-                        CurrentPath = publicUrl,
-                        CurrentVersion = nextVersion,
-                        CanAccess = 1,
-                        UpdatedAt = DateTime.UtcNow,
-                        CreatedAt = DateTime.UtcNow,
-                        IsCurrent = true,
-                        JsonResponse = jsonObjectToSave
-                    };
-                    await _supabase.From<Document>().Insert(newDoc);
+                        _logger.LogError($"Background DB Save Failed: {dbEx.Message}");
+                    }
+                });
 
-                    // Insert the New Document Version
-                    var versionDoc = new DocumentVersion
-                    {
-                        DocumentId = newDocId,
-                        StartupId = sId,
-                        VersionNumber = nextVersion,
-                        Path = publicUrl,
-                        CreatedAt = DateTime.UtcNow,
-                        GeneratedBy = "AI"
-                    };
-                    await _supabase.From<DocumentVersion>().Insert(versionDoc);
-                }
-                catch (Exception dbEx) { return StatusCode(500, new { error = "Database Save Failed", details = dbEx.Message }); }
-
+                // 3. Return JSON immediately to frontend while DB saves in background!
                 return Content(jsonContent, "application/json");
             }
-            catch (Exception ex) { return StatusCode(500, new { error = "Internal Server Error", message = ex.Message }); }
-        }
-
-        [HttpPut("{id}/recommendation")]
-        public async Task<IActionResult> UpdateRecommendationData(string id, [FromBody] StartupRecommendationUpdateDto input)
-        {
-            if (!Guid.TryParse(id, out Guid sId)) return BadRequest();
-
-            var rawJson = input.JsonResponse.GetRawText();
-            var supabaseSafeJson = JsonConvert.DeserializeObject<object>(rawJson);
-
-            await _supabase.From<Startup>()
-                .Where(s => s.Sid == sId)
-                .Set(s => s.JsonResponse, supabaseSafeJson)
-                .Set(s => s.CurrentIteration, input.CurrentIteration)
-                .Update();
-
-            return Ok(new { message = "Recommendation saved.", iteration = input.CurrentIteration });
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { error = "Internal Server Error", message = ex.Message });
+            }
         }
     }
 }

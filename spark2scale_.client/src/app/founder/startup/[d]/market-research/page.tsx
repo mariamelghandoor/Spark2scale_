@@ -71,11 +71,28 @@ export default function MarketResearchPage() {
 
             if (jsonResult) {
                 setResearchData(jsonResult);
-                // When new research is generated, the stage is no longer "complete"
                 setIsWorkflowComplete(false);
             }
-        } catch (error) {
-            alert("Generation failed. Please verify your startup idea exists in the database.");
+        } catch (error: any) {
+            // 🔥 THIS IS THE MAGIC BULLET 🔥
+            console.error("🔥 FULL ERROR DETAILS:", error);
+
+            let errorMessage = "Unknown error occurred.";
+
+            if (error.response) {
+                // The request was made and the server responded with a status code
+                // that falls out of the range of 2xx
+                errorMessage = `Server Error (${error.response.status}): ` +
+                    (typeof error.response.data === 'object' ? JSON.stringify(error.response.data) : error.response.data);
+            } else if (error.request) {
+                // The request was made but no response was received
+                errorMessage = "No response received from the server (Timeout or Network Error).";
+            } else {
+                // Something happened in setting up the request that triggered an Error
+                errorMessage = error.message;
+            }
+
+            alert(`Generation Failed!\n\nReason: ${errorMessage}`);
         } finally {
             setIsGenerating(false);
         }
