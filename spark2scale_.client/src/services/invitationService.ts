@@ -8,7 +8,6 @@ export interface InvitationResponse {
     role: string;
     status: string;
     expiresAt: string;
-    // PascalCase fallbacks
     StartupId?: string;
     StartupName?: string;
     Email?: string;
