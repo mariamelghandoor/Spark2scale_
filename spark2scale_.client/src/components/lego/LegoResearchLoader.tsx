@@ -4,23 +4,57 @@ import { motion, Variants } from "framer-motion";
 import { useState, useEffect } from "react";
 import LegoBlock from "./LegoBlock"; // Make sure this path is correct based on your folder structure
 
-export default function LegoResearchLoader() {
+export type LoaderType = "Market" | "Evaluate" | "Recommend";
+
+interface LegoResearchLoaderProps {
+    type?: LoaderType;
+}
+
+export default function LegoResearchLoader({ type = "Market" }: LegoResearchLoaderProps) {
     const [messageIndex, setMessageIndex] = useState(0);
 
-    const messages = [
-        "Gathering market insights...",
-        "Analyzing competitors...",
-        "Stacking the data blocks...",
-        "Building your report...",
-        "Almost there! 🚀"
-    ];
+    // Dynamic configuration based on the type prop
+    const loaderConfig = {
+        Market: {
+            title: "Building Your Research",
+            messages: [
+                "Gathering market insights...",
+                "Analyzing competitors...",
+                "Calculating TAM / SAM / SOM...",
+                "Building your report...",
+                "Almost there! 🚀"
+            ]
+        },
+        Evaluate: {
+            title: "Evaluating Startup",
+            messages: [
+                "Scanning business model...",
+                "Checking for logical contradictions...",
+                "Scoring founder experience...",
+                "Compiling final verdict...",
+                "Almost there! 🎯"
+            ]
+        },
+        Recommend: {
+            title: "Drafting Strategy",
+            messages: [
+                "Reviewing evaluation scores...",
+                "Identifying critical gaps...",
+                "Formulating top 3 priorities...",
+                "Generating strategic advice...",
+                "Almost there! 💡"
+            ]
+        }
+    };
+
+    const { title, messages } = loaderConfig[type];
 
     useEffect(() => {
         const interval = setInterval(() => {
             setMessageIndex((prev) => (prev + 1) % messages.length);
         }, 3000);
         return () => clearInterval(interval);
-    }, []);
+    }, [messages.length]);
 
     const blockVariants: Variants = {
         hidden: { y: -50, opacity: 0 },
@@ -39,7 +73,7 @@ export default function LegoResearchLoader() {
     };
 
     return (
-        <div className="flex flex-col items-center justify-center py-20">
+        <div className="flex flex-col items-center justify-center py-20 w-full">
             {/* Lego Structure Animation - Reverted to the flex-col-reverse stacking theme */}
             <div className="relative w-32 h-40 flex flex-col-reverse items-center mb-8">
 
@@ -89,7 +123,7 @@ export default function LegoResearchLoader() {
 
             {/* Loading Message */}
             <div className="h-16 flex flex-col items-center">
-                <h3 className="text-xl font-bold text-[#576238]">Building Your Research</h3>
+                <h3 className="text-xl font-bold text-[#576238]">{title}</h3>
                 <motion.div
                     key={messageIndex}
                     initial={{ opacity: 0, y: 10 }}

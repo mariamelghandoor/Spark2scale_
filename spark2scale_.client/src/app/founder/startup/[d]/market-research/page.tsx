@@ -202,7 +202,7 @@ export default function MarketResearchPage() {
             <main className="container mx-auto px-4 py-8 max-w-5xl">
                 {isGenerating && (
                     <div className="flex justify-center w-full">
-                        <LegoResearchLoader />
+                        <LegoResearchLoader type="Market" />
                     </div>
                 )}
 

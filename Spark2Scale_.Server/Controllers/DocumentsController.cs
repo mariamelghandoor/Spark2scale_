@@ -210,7 +210,6 @@ namespace Spark2Scale_.Server.Controllers
                 http.DefaultRequestHeaders.Add("Authorization", $"Bearer {supabaseKey}");
                 http.DefaultRequestHeaders.Add("Prefer", "return=representation");
 
-                // 👇 FIX: Fully qualified System.Text.Encoding.UTF8
                 var patchUrl = $"{supabaseUrl}/rest/v1/documents?startup_id=eq.{input.StartupId}&type=eq.{input.Type}&is_current=eq.true";
                 var patchRequest = new HttpRequestMessage(new HttpMethod("PATCH"), patchUrl) { Content = new StringContent("{\"is_current\": false}", System.Text.Encoding.UTF8, "application/json") };
                 await http.SendAsync(patchRequest);
@@ -231,7 +230,6 @@ namespace Spark2Scale_.Server.Controllers
                     json_response = input.Content
                 };
 
-                // 👇 FIX: Fully qualified System.Text.Encoding.UTF8
                 var insertRequest = new HttpRequestMessage(HttpMethod.Post, $"{supabaseUrl}/rest/v1/documents") { Content = new StringContent(System.Text.Json.JsonSerializer.Serialize(insertPayload), System.Text.Encoding.UTF8, "application/json") };
                 var response = await http.SendAsync(insertRequest);
 
@@ -261,26 +259,48 @@ namespace Spark2Scale_.Server.Controllers
         public async Task<IActionResult> SaveAiEvaluations([FromForm] SaveAiEvaluationsFormDto input)
         {
             if (!Guid.TryParse(input.StartupId, out Guid sId)) return BadRequest("Invalid ID.");
+            if (input.FounderFile == null || input.InvestorFile == null) return BadRequest("Missing PDF files.");
+
             try
             {
                 string founderUrl = await UploadHelper(input.FounderFile, "Founder_Report", sId);
                 string investorUrl = await UploadHelper(input.InvestorFile, "Investor_Memo", sId);
 
-                object? parsedJson = null;
-                if (!string.IsNullOrEmpty(input.JsonResponse))
+                // 1. Safely Parse the JSON String into a strong JSON element
+                System.Text.Json.JsonElement? finalJsonElement = null;
+
+                if (!string.IsNullOrWhiteSpace(input.JsonResponse))
                 {
-                    try { parsedJson = JsonConvert.DeserializeObject<object>(input.JsonResponse); }
-                    catch { parsedJson = new { raw_output = input.JsonResponse }; }
+                    try
+                    {
+                        // Use System.Text.Json to strictly parse the string into a valid JSON Document
+                        using (System.Text.Json.JsonDocument document = System.Text.Json.JsonDocument.Parse(input.JsonResponse))
+                        {
+                            finalJsonElement = document.RootElement.Clone();
+                        }
+                    }
+                    catch (System.Text.Json.JsonException jsonEx)
+                    {
+                        Console.WriteLine($"Failed to parse AI JSON. Falling back to wrapper. Error: {jsonEx.Message}");
+                        // Fallback wrapper if the string is completely mangled
+                        finalJsonElement = System.Text.Json.JsonDocument.Parse($"{{\"raw_output\": {System.Text.Json.JsonSerializer.Serialize(input.JsonResponse)}}}").RootElement.Clone();
+                    }
                 }
 
-                await CreateDocHelper("Founder Evaluation", founderUrl, 0, sId, parsedJson);
-                await CreateDocHelper("Investor Evaluation", investorUrl, 1, sId, parsedJson);
+                // 2. Pass the strongly parsed JsonElement down to the helper
+                await CreateDocHelper("Founder Evaluation", founderUrl, 0, sId, finalJsonElement);
+                await CreateDocHelper("Investor Evaluation", investorUrl, 1, sId, finalJsonElement);
 
                 return Ok(new { success = true });
             }
-            catch (Exception ex) { return StatusCode(500, $"Error saving evaluations: {ex.Message}"); }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error saving evaluations: {ex.Message}");
+                return StatusCode(500, new { success = false, message = ex.Message });
+            }
         }
 
+        // --- RESTORED UPLOAD HELPER ---
         private async Task<string> UploadHelper(IFormFile file, string prefix, Guid sId)
         {
             var fileName = $"{sId}/{DateTime.Now.Ticks}_{prefix}.pdf";
@@ -290,13 +310,54 @@ namespace Spark2Scale_.Server.Controllers
             return _supabase.Storage.From("startup-docs").GetPublicUrl(fileName);
         }
 
-        private async Task CreateDocHelper(string type, string url, int access, Guid sId, object? json)
+        // --- UPDATED CREATE DOC HELPER ---
+        private async Task CreateDocHelper(string type, string url, int access, Guid sId, System.Text.Json.JsonElement? parsedJson)
         {
             var docId = Guid.NewGuid();
-            var doc = new Document { Did = docId, StartupId = sId, DocumentName = type + ".pdf", Type = type, CurrentPath = url, CurrentVersion = 1, CanAccess = access, UpdatedAt = DateTime.UtcNow, CreatedAt = DateTime.UtcNow, IsCurrent = true, JsonResponse = json };
+            var now = DateTime.UtcNow;
+
+            // Archive existing docs of this type
+            var existingDocs = await _supabase.From<Document>()
+                .Where(x => x.StartupId == sId && x.Type == type && x.IsCurrent == true)
+                .Get();
+
+            var currentDoc = existingDocs.Models.FirstOrDefault();
+            int nextVersion = 1;
+
+            if (currentDoc != null)
+            {
+                currentDoc.IsCurrent = false;
+                await _supabase.From<Document>().Update(currentDoc);
+                nextVersion = currentDoc.CurrentVersion + 1;
+            }
+
+            // Insert the Document (using the parsedJson object)
+            var doc = new Document
+            {
+                Did = docId,
+                StartupId = sId,
+                DocumentName = type + $" v{nextVersion}.pdf",
+                Type = type,
+                CurrentPath = url,
+                CurrentVersion = nextVersion,
+                CanAccess = access,
+                UpdatedAt = now,
+                CreatedAt = now,
+                IsCurrent = true,
+                JsonResponse = parsedJson // This is now a clean JsonElement!
+            };
             await _supabase.From<Document>().Insert(doc);
 
-            var versionDoc = new DocumentVersion { DocumentId = docId, StartupId = sId, VersionNumber = 1, Path = url, CreatedAt = DateTime.UtcNow, GeneratedBy = "AI" };
+            // Insert the Version
+            var versionDoc = new DocumentVersion
+            {
+                DocumentId = docId,
+                StartupId = sId,
+                VersionNumber = nextVersion,
+                Path = url,
+                CreatedAt = now,
+                GeneratedBy = "AI"
+            };
             await _supabase.From<DocumentVersion>().Insert(versionDoc);
         }
     }
