@@ -34,7 +34,8 @@ async function handleResponse<T>(res: Response): Promise<ApiResponse<T>> {
   return { data: (await res.text()) as unknown as T };
 }
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:5231";
+const rawBase = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:5231";
+const API_BASE = rawBase.startsWith("http") ? rawBase : `http://${rawBase}`;
 
 const apiClient = {
   async get<T = unknown>(path: string): Promise<ApiResponse<T>> {
@@ -114,4 +115,4 @@ const apiClient = {
   },
 };
 
-export default apiClient;
+export default apiClient;   

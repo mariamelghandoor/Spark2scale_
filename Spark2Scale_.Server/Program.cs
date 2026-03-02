@@ -7,12 +7,14 @@ using Microsoft.Extensions.Hosting;
 using System.Text.Json;
 using System;
 
+
 // Load .env
 Env.Load();
 
 var builder = WebApplication.CreateBuilder(args);
 
 // CORS policy name
+builder.Services.AddHttpClient();
 var MyAllowSpecificOrigins = "_myAllowSpecificOrigins";
 
 // CORS – allow Next.js dev server
