@@ -184,11 +184,14 @@ export default function StartupDashboard() {
     return (
         <div className="min-h-screen bg-gradient-to-br from-[#F0EADC] via-[#fff] to-[#FFD95D]/20">
             {/* Top Navigation Bar */}
-            <div className="border-b bg-white/80 backdrop-blur-lg">
-                <div className="container mx-auto px-4 py-4 flex justify-between items-center">
+            {/* Top Navigation Bar */}
+            <div className="border-b bg-white/80 sticky top-0 z-50 backdrop-blur-md shadow-sm">
+                <div className="flex w-full items-center justify-between px-6 md:px-12 py-4">
                     <div className="flex items-center gap-4">
                         <Link href="/founder/dashboard">
-                            <Button variant="ghost" size="icon"><ArrowLeft className="h-5 w-5" /></Button>
+                            <Button variant="ghost" size="icon">
+                                <ArrowLeft className="h-5 w-5" />
+                            </Button>
                         </Link>
                         <div>
                             <h1 className="text-xl font-bold text-[#576238]">Hello {userName} 👋</h1>
@@ -196,18 +199,26 @@ export default function StartupDashboard() {
                         </div>
                     </div>
                     <div className="flex items-center gap-2">
-                        <div className="flex items-center gap-4">
-                            <Link href="/schedule"><Button variant="ghost" size="icon"><CalendarIcon className="h-5 w-5" /></Button></Link>
+                        <div className="flex items-center gap-2">
+                            <Link href="/schedule">
+                                <Button variant="ghost" size="icon">
+                                    <CalendarIcon className="h-5 w-5" />
+                                </Button>
+                            </Link>
                             <NotificationsDropdown />
-                            <Link href="/profile"><Button variant="ghost" size="icon"><User className="h-5 w-5" /></Button></Link>
+                            <Link href="/profile">
+                                <Button variant="ghost" size="icon">
+                                    <User className="h-5 w-5" />
+                                </Button>
+                            </Link>
                         </div>
                         {userRole === "Founder" && (
-                            <Button variant="outline" onClick={() => setInviteDialogOpen(true)}>
+                            <Button variant="outline" onClick={() => setInviteDialogOpen(true)} className="ml-2">
                                 <Share2 className="mr-2 h-4 w-4" /> Invite Team
                             </Button>
                         )}
                         {userRole !== "Founder" && (
-                            <div className="px-3 py-1 bg-gray-100 rounded-md text-xs font-medium text-gray-500 border border-gray-200">
+                            <div className="px-3 py-1 bg-gray-100 rounded-md text-xs font-medium text-gray-500 border border-gray-200 ml-2">
                                 {userRole} View
                             </div>
                         )}

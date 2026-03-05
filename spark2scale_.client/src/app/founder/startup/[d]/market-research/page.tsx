@@ -238,28 +238,33 @@ export default function MarketResearchPage() {
 
     return (
         <div className="min-h-screen bg-[#FDFCFB] pb-16">
+            {/* Top Navigation Bar */}
             <div className="border-b bg-white/80 sticky top-0 z-50 backdrop-blur-md shadow-sm">
-                <div className="flex h-16 w-full items-center justify-between px-6 md:px-12">
+                <div className="flex w-full items-center justify-between px-6 md:px-12 py-4">
                     <div className="flex items-center gap-4">
                         <Link href={`/founder/startup/${startupId}`}>
-                            <Button variant="ghost" size="icon" className="hover:bg-[#576238]/10 hover:text-[#576238] h-8 w-8">
-                                <ArrowLeft className="h-4 w-4" />
+                            <Button variant="ghost" size="icon" className="hover:bg-[#576238]/10 hover:text-[#576238]">
+                                <ArrowLeft className="h-5 w-5" />
                             </Button>
                         </Link>
                         <div className="flex flex-col justify-center">
-                            <h1 className="text-lg font-bold text-gray-900 leading-tight flex items-center gap-2">
+                            <h1 className="text-xl font-bold text-[#576238] leading-tight flex items-center gap-2">
                                 Market Intelligence
                             </h1>
-                            <p className="text-[11px] text-muted-foreground font-medium uppercase tracking-wider">Stage 3 of 6 • {userRole}</p>
+                            <p className="text-sm text-muted-foreground">
+                                Stage 2 of 6 • {userRole} View
+                            </p>
                         </div>
                     </div>
+
+                    {/* Restored standard-sized action buttons */}
                     {researchData && !isGenerating && (
-                        <div className="flex items-center gap-2">
-                            <Button variant="outline" size="sm" onClick={handleRegenerateClick} className="hover:bg-gray-50 h-8 text-xs font-semibold">
-                                <RotateCcw className="h-3 w-3 mr-1.5" /> Regenerate
+                        <div className="flex items-center gap-3">
+                            <Button variant="outline" size="sm" onClick={handleRegenerateClick} className="hover:bg-gray-50">
+                                <RotateCcw className="h-4 w-4 mr-2" /> Regenerate
                             </Button>
-                            <Button onClick={handleDownloadReport} variant="outline" size="sm" className="border-[#576238] text-[#576238] hover:bg-[#576238] hover:text-white transition-colors h-8 text-xs font-semibold">
-                                <Download className="h-3 w-3 mr-1.5" /> Download PDF
+                            <Button onClick={handleDownloadReport} variant="outline" size="sm" className="border-[#576238] text-[#576238] hover:bg-[#576238] hover:text-white transition-colors">
+                                <Download className="h-4 w-4 mr-2" /> Download PDF
                             </Button>
                         </div>
                     )}

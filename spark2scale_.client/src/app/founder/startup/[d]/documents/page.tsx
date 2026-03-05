@@ -272,17 +272,23 @@ export default function DocumentsPage() {
     return (
         <div className="min-h-screen bg-[#F5F7F2]">
             {/* Top Bar */}
-            <div className="bg-white border-b sticky top-0 z-20 shadow-sm">
-                <div className="container mx-auto px-6 py-4 flex justify-between items-center">
+            {/* Top Navigation Bar */}
+            <div className="border-b bg-white/80 backdrop-blur-lg sticky top-0 z-50 shadow-sm">
+                {/* 👇 Edge-to-edge width (w-full) with thicker padding (py-4) */}
+                <div className="flex w-full items-center justify-between px-6 md:px-12 py-4">
                     <div className="flex items-center gap-4">
                         <Link href={`/founder/startup/${cleanId}`}>
-                            <Button variant="ghost" size="icon" className="hover:bg-gray-100">
+                            <Button variant="ghost" size="icon" className="hover:bg-[#576238]/10 hover:text-[#576238]">
                                 <ArrowLeft className="h-5 w-5" />
                             </Button>
                         </Link>
-                        <div>
-                            <h1 className="text-xl font-bold text-[#576238]">Documents</h1>
-                            <p className="text-xs text-muted-foreground">Manage and generate your startup files</p>
+                        <div className="flex flex-col justify-center">
+                            <h1 className="text-xl font-bold text-[#576238] leading-tight">
+                                Documents
+                            </h1>
+                            <p className="text-sm text-muted-foreground">
+                                Manage and generate your startup files
+                            </p>
                         </div>
                     </div>
                 </div>
