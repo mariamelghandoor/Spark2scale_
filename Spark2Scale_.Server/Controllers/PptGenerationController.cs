@@ -19,7 +19,6 @@ namespace Spark2Scale_.Server.Controllers
         private readonly Supabase.Client _supabase;
         private readonly AccessControlService _access;
         private readonly IHttpClientFactory _httpClientFactory;
-
         private const string AI_SERVER_BASE = "https://spark2scale-ai-server.azurewebsites.net";
 
         public PptGenerationController(
@@ -38,7 +37,6 @@ namespace Spark2Scale_.Server.Controllers
             return header?.StartsWith("Bearer ") == true ? header.Substring(7) : "";
         }
 
-        // POST: api/PptGeneration/generate/{startupId}
         [HttpPost("generate/{startupId}")]
         public async Task<IActionResult> GeneratePpt(string startupId)
         {
@@ -59,8 +57,7 @@ namespace Spark2Scale_.Server.Controllers
                     return StatusCode(500, new { message = "Server configuration error." });
 
                 // ----------------------------------------------------------------
-                // 1. Fetch startup json_response & logo_path via raw HTTP
-                //    (same pattern used in StartupsController to avoid ORM JSONB crash)
+                // 1. Fetch startup json_response & logo_path
                 // ----------------------------------------------------------------
                 using var rawClient = new HttpClient();
                 rawClient.DefaultRequestHeaders.Add("apikey", supabaseKey);
@@ -120,24 +117,20 @@ namespace Spark2Scale_.Server.Controllers
                 // ----------------------------------------------------------------
                 using var multipartContent = new MultipartFormDataContent();
 
-                // startup_id
                 multipartContent.Add(new StringContent(sId.ToString()), "startup_id");
 
-                // startup_info.json
                 var startupInfoBytes = Encoding.UTF8.GetBytes(startupInfoNode.ToJsonString());
                 var startupInfoPart = new ByteArrayContent(startupInfoBytes);
                 startupInfoPart.Headers.ContentType =
                     new System.Net.Http.Headers.MediaTypeHeaderValue("application/json");
                 multipartContent.Add(startupInfoPart, "startup_info_file", "startup_info.json");
 
-                // market_research.json
                 var marketBytes = Encoding.UTF8.GetBytes(marketResearchNode.ToJsonString());
                 var marketPart = new ByteArrayContent(marketBytes);
                 marketPart.Headers.ContentType =
                     new System.Net.Http.Headers.MediaTypeHeaderValue("application/json");
                 multipartContent.Add(marketPart, "market_research_file", "market_research.json");
 
-                // logo (optional) – download from Supabase storage public URL
                 bool hasLogo = !string.IsNullOrWhiteSpace(logoPath);
                 if (hasLogo)
                 {
@@ -152,28 +145,22 @@ namespace Spark2Scale_.Server.Controllers
                             ".webp" => "image/webp",
                             _ => "image/png"
                         };
-                        var logoFileName = $"logo{extension}";
                         var logoPart = new ByteArrayContent(logoBytes);
                         logoPart.Headers.ContentType =
                             new System.Net.Http.Headers.MediaTypeHeaderValue(mimeType);
-                        multipartContent.Add(logoPart, "logo", logoFileName);
-
-                        // Tell the AI to derive colours from the logo
+                        multipartContent.Add(logoPart, "logo", $"logo{extension}");
                         multipartContent.Add(new StringContent("false"), "use_default_colors");
                         Console.WriteLine($"[PptGeneration] Logo attached from: {logoPath}");
                     }
                     catch (Exception logoEx)
                     {
-                        // Logo download failed – proceed without it
                         Console.WriteLine($"[PptGeneration] Could not download logo, proceeding without it: {logoEx.Message}");
                         hasLogo = false;
                     }
                 }
 
                 if (!hasLogo)
-                {
                     multipartContent.Add(new StringContent("true"), "use_default_colors");
-                }
 
                 // ----------------------------------------------------------------
                 // 4. Call AI server
@@ -193,14 +180,13 @@ namespace Spark2Scale_.Server.Controllers
                 {
                     if ((int)aiResponse.StatusCode == 429)
                         return StatusCode(429, new { message = "AI quota exceeded. Please wait a minute and try again." });
-
                     return StatusCode(500, new { message = $"AI server error: {aiBody}" });
                 }
 
                 var aiResult = JsonNode.Parse(aiBody)?.AsObject();
-                var status = aiResult?["status"]?.ToString();
+                var aiStatus = aiResult?["status"]?.ToString();
 
-                if (status != "success")
+                if (aiStatus != "success")
                     return StatusCode(500, new { message = "PPT generation did not complete successfully." });
 
                 var pptPath = aiResult?["ppt_path"]?.ToString();
@@ -210,56 +196,16 @@ namespace Spark2Scale_.Server.Controllers
                     return StatusCode(500, new { message = "AI server did not return a file path." });
 
                 // ----------------------------------------------------------------
-                // 5. Download the generated PPTX from AI server
-                //    The AI saves to OUTPUT_DIR and we retrieve it via the
-                //    /api/v1/ppt/file/{filename} endpoint.
-                //    If that endpoint is not yet available, ask the Python team
-                //    to add: @router.get("/file/{filename}") → FileResponse(path)
+                // 5. AI already uploaded to Supabase and returned the public URL
                 // ----------------------------------------------------------------
-                var fileName = Path.GetFileName(pptPath);
-                byte[] pptBytes;
-
-                var downloadUrl = $"{AI_SERVER_BASE}/api/v1/ppt/file/{fileName}";
-                Console.WriteLine($"[PptGeneration] Downloading PPTX from: {downloadUrl}");
-
-                var downloadRes = await aiClient.GetAsync(downloadUrl);
-
-                if (!downloadRes.IsSuccessStatusCode)
-                {
-                    // Fallback: try /static/ path (in case FastAPI mounts OUTPUT_DIR as /static)
-                    var fallbackUrl = $"{AI_SERVER_BASE}/static/{fileName}";
-                    Console.WriteLine($"[PptGeneration] Primary download failed, trying fallback: {fallbackUrl}");
-                    downloadRes = await aiClient.GetAsync(fallbackUrl);
-                }
-
-                if (!downloadRes.IsSuccessStatusCode)
-                {
-                    return StatusCode(500, new
-                    {
-                        message = "PPT was generated but could not be downloaded from the AI server. " +
-                                  "The AI server needs a file-serving endpoint (see PptGenerationController.cs comments).",
-                        ai_status = status,
-                        ai_path = pptPath
-                    });
-                }
-
-                pptBytes = await downloadRes.Content.ReadAsByteArrayAsync();
+                var publicUrl = pptPath;
+                Console.WriteLine($"[PptGeneration] PPT already in Supabase at: {publicUrl}");
 
                 // ----------------------------------------------------------------
-                // 6. Upload PPTX to Supabase storage (startup-docs bucket)
-                // ----------------------------------------------------------------
-                var timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-                var storagePath = $"{sId}/ppt_{timestamp}.pptx";
-
-                await _supabase.Storage.From("startup-docs").Upload(pptBytes, storagePath);
-                var publicUrl = _supabase.Storage.From("startup-docs").GetPublicUrl(storagePath);
-
-                // ----------------------------------------------------------------
-                // 7. Upsert document record (archive previous PPT first)
+                // 6. Upsert document record (archive previous PPT first)
                 // ----------------------------------------------------------------
                 var now = DateTime.UtcNow;
 
-                // Archive any existing AI PPT documents for this startup
                 await _supabase.From<Document>()
                     .Where(d => d.StartupId == sId && d.Type == "Pitch Deck (PPT)")
                     .Set(d => d.IsCurrent, false)
@@ -300,7 +246,6 @@ namespace Spark2Scale_.Server.Controllers
                 }
 
                 Console.WriteLine($"[PptGeneration] Done. Stored at: {publicUrl}");
-
                 return Ok(new
                 {
                     message = "Pitch deck presentation generated successfully.",
@@ -320,8 +265,6 @@ namespace Spark2Scale_.Server.Controllers
             }
         }
 
-        // GET: api/PptGeneration/status/{startupId}
-        // Returns whether a generated PPT already exists for this startup
         [HttpGet("status/{startupId}")]
         public async Task<IActionResult> GetPptStatus(string startupId)
         {
@@ -336,7 +279,6 @@ namespace Spark2Scale_.Server.Controllers
                     .Get();
 
                 var doc = result.Models.FirstOrDefault();
-
                 return Ok(new
                 {
                     has_ppt = doc != null,

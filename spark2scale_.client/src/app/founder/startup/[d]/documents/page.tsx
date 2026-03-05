@@ -100,7 +100,9 @@ export default function DocumentsPage() {
         if (!cleanId) return;
         setIsPptGenerating(true);
         try {
-            const response = await fetch(`/api/PptGeneration/generate/${cleanId}`, {
+            const token = typeof window !== "undefined" ? localStorage.getItem("auth_token") : null;
+            const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:5231";
+            const response = await fetch(`${API_BASE}/api/PptGeneration/generate/${cleanId}`, {
                 method: "POST",
                 headers: {
                     "Authorization": `Bearer ${token}`,
