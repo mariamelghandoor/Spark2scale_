@@ -12,6 +12,9 @@ import { evaluationService, EvaluationDocument } from "@/services/evaluationServ
 import { startupService } from "@/services/startupService";
 import { Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer } from 'recharts';
 
+// Import the Lego Loader
+import LegoResearchLoader from "@/components/lego/LegoResearchLoader";
+
 export default function EvaluatePage() {
     const params = useParams();
     const startupId = params?.d as string;
@@ -178,7 +181,15 @@ export default function EvaluatePage() {
 
             <main className="container mx-auto px-4 py-8">
                 <div className="max-w-4xl mx-auto">
-                    {!evalDoc && userRole === 'Founder' && (
+
+                    {/* 👇 Display the Lego Loader when generating */}
+                    {isGenerating && (
+                        <div className="flex justify-center w-full py-12">
+                            <LegoResearchLoader type="Evaluate" />
+                        </div>
+                    )}
+
+                    {!evalDoc && userRole === 'Founder' && !isGenerating && (
                         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
                             <Card className="mb-6 border-2 border-[#FFD95D]">
                                 <CardHeader className="bg-gradient-to-r from-[#FFD95D]/20 to-transparent">
@@ -199,7 +210,7 @@ export default function EvaluatePage() {
                         </motion.div>
                     )}
 
-                    {evalDoc && (
+                    {evalDoc && !isGenerating && (
                         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
                             <div className="flex flex-col items-end mb-4">
                                 <Button variant="outline" onClick={handleRunEvaluation} disabled={isGenerating || userRole !== 'Founder'}>

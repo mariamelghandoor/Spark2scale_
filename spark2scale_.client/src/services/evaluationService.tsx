@@ -99,7 +99,7 @@ export const evaluationService = {
     async generateEvaluation(startupId: string): Promise<boolean> {
         try {
             console.log("🚀 Step 1: Fetching startup data...");
-            const startupRes = await apiClient.get(`/api/Startups/${startupId}`);
+            const startupRes = await apiClient.get<any>(`/api/Startups/${startupId}`);
             const startupData = startupRes.data;
 
             const parsedForm = typeof startupData.json_response === 'string'
@@ -170,19 +170,16 @@ export const evaluationService = {
             const founderPdfBlob = await unzipped.files[founderFileKey].async("blob");
             const investorPdfBlob = await unzipped.files[investorFileKey].async("blob");
 
-            console.log("☁️ Step 6: Sending files to C# Backend...");
+            // ☁️ Step 6: Sending files to C# Backend...
             const formData = new FormData();
             formData.append("StartupId", startupId);
             formData.append("JsonResponse", JSON.stringify(finalResult));
             formData.append("FounderFile", founderPdfBlob, "Founder_Report.pdf");
             formData.append("InvestorFile", investorPdfBlob, "Investor_Memo.pdf");
 
-            // FIX: Explicitly tell Axios to send this as a Form with files, NOT as JSON
-            await apiClient.post(`/api/Documents/save-ai-evaluations`, formData, {
-                headers: {
-                    'Content-Type': 'multipart/form-data'
-                }
-            });
+            // REMOVE THE HEADERS OBJECT ENTIRELY
+            await apiClient.post(`/api/Documents/save-ai-evaluations`, formData);
+
 
             return true;
         } catch (error) {
