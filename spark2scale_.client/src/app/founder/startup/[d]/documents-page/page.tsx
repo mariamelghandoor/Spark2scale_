@@ -135,15 +135,27 @@ export default function DocumentsHistoryPage() {
     // 3. Render
     return (
         <div className="min-h-screen bg-gradient-to-br from-[#F0EADC] via-[#fff] to-[#FFD95D]/20">
-            <div className="border-b bg-white/80 backdrop-blur-lg">
-                <div className="container mx-auto px-4 py-4 flex justify-between items-center">
-                    <Link href={`/founder/startup/${startupId}`}>
-                        <Button variant="ghost" size="icon"><ArrowLeft className="h-5 w-5" /></Button>
-                    </Link>
-                    <h1 className="text-2xl font-bold text-[#576238]">📁 Documents</h1>
+            {/* Top Navigation Bar */}
+            <div className="border-b bg-white/80 backdrop-blur-lg sticky top-0 z-50 shadow-sm">
+                {/* 👇 Edge-to-edge width (w-full) with thicker padding (py-4) */}
+                <div className="flex w-full items-center px-6 md:px-12 py-4">
+                    <div className="flex items-center gap-4">
+                        <Link href={`/founder/startup/${startupId}`}>
+                            <Button variant="ghost" size="icon" className="hover:bg-[#576238]/10 hover:text-[#576238]">
+                                <ArrowLeft className="h-5 w-5" />
+                            </Button>
+                        </Link>
+                        <div className="flex flex-col justify-center">
+                            <h1 className="text-xl font-bold text-[#576238] leading-tight flex items-center gap-2">
+                                Documents
+                            </h1>
+                            <p className="text-sm text-muted-foreground">
+                                Document version history and access control
+                            </p>
+                        </div>
+                    </div>
                 </div>
             </div>
-
             <main className="container mx-auto px-4 py-8">
                 <div className="max-w-5xl mx-auto space-y-8">
                     <div className="grid md:grid-cols-1 gap-6">

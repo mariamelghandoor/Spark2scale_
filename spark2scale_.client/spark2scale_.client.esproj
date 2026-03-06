@@ -15,6 +15,5 @@
   <ItemGroup>
     <Folder Include="src\app\contributor\startup\" />
     <Folder Include="src\lib\api\" />
-    <Folder Include="src\pdf-formats\" />
   </ItemGroup>
 </Project>

@@ -162,22 +162,29 @@ export default function RecommendationsPage() {
         <div className="min-h-screen bg-[#F4F1EA] font-sans pb-24">
 
             {/* ── Top navigation bar ── */}
-            <div className="bg-white border-b sticky top-0 z-10 shadow-sm">
-                <div className="container mx-auto px-4 py-4 flex items-center gap-4">
-                    <Link href={`/founder/startup/${cleanId}`}>
-                        <Button variant="ghost" size="icon">
-                            <ArrowLeft className="h-5 w-5" />
-                        </Button>
-                    </Link>
-                    <div>
-                        <h1 className="text-xl font-bold text-[#576238]">Recommendation Agent</h1>
-                        <p className="text-sm text-muted-foreground">AI-Powered Strategic Analysis</p>
+            <div className="bg-white border-b sticky top-0 z-50 shadow-sm">
+                {/* 👇 Edge-to-edge width (w-full) with thicker padding (py-4) */}
+                <div className="flex w-full items-center justify-between px-6 md:px-12 py-4">
+                    <div className="flex items-center gap-4">
+                        <Link href={`/founder/startup/${cleanId}`}>
+                            <Button variant="ghost" size="icon" className="hover:bg-[#576238]/10 hover:text-[#576238]">
+                                <ArrowLeft className="h-5 w-5" />
+                            </Button>
+                        </Link>
+                        <div className="flex flex-col justify-center">
+                            <h1 className="text-xl font-bold text-[#576238] leading-tight">
+                                Recommendation Agent
+                            </h1>
+                            <p className="text-sm text-muted-foreground">
+                                AI-Powered Strategic Analysis
+                            </p>
+                        </div>
                     </div>
                     {/* Stage-complete badge in top bar */}
                     {stageIsComplete && (
-                        <span className="ml-auto flex items-center gap-1.5 rounded-full bg-green-100 px-3 py-1 text-xs font-semibold text-green-700">
-                            <CheckCircle2 className="h-3.5 w-3.5" /> Stage Completed
-                        </span>
+                        <div className="px-4 py-1.5 bg-green-100 text-green-700 rounded-full text-sm font-medium border border-green-200 flex items-center">
+                            <CheckCircle2 className="h-4 w-4 mr-1.5" /> Stage Completed
+                        </div>
                     )}
                 </div>
             </div>

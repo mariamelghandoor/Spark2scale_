@@ -267,7 +267,7 @@ export default function DocumentsPage() {
                 <div className="container mx-auto px-6 py-4 flex justify-between items-center">
                     <div className="flex items-center gap-4">
                         <Link href={`/founder/startup/${cleanId}`}>
-                            <Button variant="ghost" size="icon" className="hover:bg-gray-100">
+                            <Button variant="ghost" size="icon" className="hover:bg-[#576238]/10 hover:text-[#576238]">
                                 <ArrowLeft className="h-5 w-5" />
                             </Button>
                         </Link>

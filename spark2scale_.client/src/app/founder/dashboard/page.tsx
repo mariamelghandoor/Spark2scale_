@@ -450,13 +450,24 @@ export default function FounderDashboard() {
 
     return (
         <div className="h-screen w-full overflow-y-auto bg-gradient-to-br from-[#F0EADC] via-[#fff] to-[#FFD95D]/20">
-            <div className="sticky top-0 z-40 border-b bg-white/80 backdrop-blur-lg">
-                <div className="container mx-auto px-4 py-4 flex justify-between items-center">
-                    <h1 className="text-2xl font-bold text-[#576238]">Hello {userName} 👋</h1>
-                    <div className="flex items-center gap-4">
-                        <Link href="/schedule"><Button variant="ghost" size="icon"><Calendar className="h-5 w-5" /></Button></Link>
+            {/* Top Navigation Bar */}
+            <div className="border-b bg-white/80 backdrop-blur-lg sticky top-0 z-50 shadow-sm">
+                <div className="flex w-full items-center justify-between px-6 md:px-12 py-4">
+                    <h1 className="text-xl font-bold text-[#576238] leading-tight">
+                        Hello {userName} 👋
+                    </h1>
+                    <div className="flex items-center gap-2">
+                        <Link href="/schedule">
+                            <Button variant="ghost" size="icon" className="hover:bg-[#576238]/10 hover:text-[#576238]">
+                                <Calendar className="h-5 w-5" />
+                            </Button>
+                        </Link>
                         <NotificationsDropdown />
-                        <Link href="/profile"><Button variant="ghost" size="icon"><User className="h-5 w-5" /></Button></Link>
+                        <Link href="/profile">
+                            <Button variant="ghost" size="icon" className="hover:bg-[#576238]/10 hover:text-[#576238]">
+                                <User className="h-5 w-5" />
+                            </Button>
+                        </Link>
                     </div>
                 </div>
             </div>

@@ -361,22 +361,31 @@ export default function IdeaCheckPage() {
     return (
         <div className="min-h-screen bg-gradient-to-br from-[#F0EADC] via-[#fff] to-[#FFD95D]/20 flex flex-col">
 
+            {/* 👇 FIX: 100% full width (w-full) Navbar! */}
             {/* Top Navigation Bar */}
-            <div className="border-b bg-white/80 backdrop-blur-lg sticky top-0 z-10">
-                <div className="container mx-auto px-4 py-4 flex justify-between items-center">
+            <div className="border-b bg-white/80 backdrop-blur-lg sticky top-0 z-50 shadow-sm">
+                {/* 👇 Restored py-4 padding to make it thicker, but kept w-full for edge-to-edge! */}
+                <div className="flex w-full items-center justify-between px-6 md:px-12 py-4">
                     <div className="flex items-center gap-4">
                         <Link href={`/founder/startup/${cleanId}`}>
-                            <Button variant="ghost" size="icon">
+                            <Button variant="ghost" size="icon" className="hover:bg-[#576238]/10 hover:text-[#576238]">
+                                {/* 👇 Restored larger h-5 w-5 back button */}
                                 <ArrowLeft className="h-5 w-5" />
                             </Button>
                         </Link>
-                        <div>
-                            <h1 className="text-xl font-bold text-[#576238]">💡 Idea Check</h1>
-                            <p className="text-sm text-muted-foreground">{startupName} • {userRole} View</p>
+                        <div className="flex flex-col justify-center">
+                            {/* 👇 Restored text-xl and text-[#576238] colors */}
+                            <h1 className="text-xl font-bold text-[#576238] leading-tight flex items-center gap-2">
+                                Idea Check
+                            </h1>
+                            {/* 👇 Restored text-sm without the uppercase/tracking */}
+                            <p className="text-sm text-muted-foreground">
+                                {startupName} • {userRole} View
+                            </p>
                         </div>
                     </div>
                     {isStageCompleted && (
-                        <div className="px-3 py-1 bg-green-100 text-green-700 rounded-full text-sm font-medium border border-green-200">
+                        <div className="px-4 py-1.5 bg-green-100 text-green-700 rounded-full text-sm font-medium border border-green-200">
                             ✓ Verified & Completed
                         </div>
                     )}

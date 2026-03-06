@@ -140,7 +140,7 @@ namespace Spark2Scale_.Server.Controllers
 
                 // 4. Send Email
                 // FIX: Load CLIENT_URL from Environment (Azure) or default to Localhost
-                var clientBaseUrl = Environment.GetEnvironmentVariable("CLIENT_URL") ?? "http://localhost:5173";
+                var clientBaseUrl = Environment.GetEnvironmentVariable("CLIENT_URL") ?? "http://localhost:5231";
                 var inviteLink = $"{clientBaseUrl}/invite/accept?token={token}";
 
                 await _emailService.SendInvitationEmailAsync(request.Email, startup.StartupName, inviteLink);
