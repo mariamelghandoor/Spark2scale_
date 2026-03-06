@@ -253,7 +253,7 @@ namespace Spark2Scale_.Server.Controllers
                 return Ok(new { message = "AI Response Saved" });
             }
             catch (Exception ex) { return StatusCode(500, $"Save failed: {ex.Message}"); }
-        }
+        }   
 
         [HttpPost("save-ai-evaluations")]
         public async Task<IActionResult> SaveAiEvaluations([FromForm] SaveAiEvaluationsFormDto input)
@@ -266,30 +266,26 @@ namespace Spark2Scale_.Server.Controllers
                 string founderUrl = await UploadHelper(input.FounderFile, "Founder_Report", sId);
                 string investorUrl = await UploadHelper(input.InvestorFile, "Investor_Memo", sId);
 
-                // 1. Safely Parse the JSON String into a strong JSON element
-                System.Text.Json.JsonElement? finalJsonElement = null;
+                // 1. Safely Parse the JSON String using Newtonsoft
+                object finalJsonObject = null;
 
                 if (!string.IsNullOrWhiteSpace(input.JsonResponse))
                 {
                     try
                     {
-                        // Use System.Text.Json to strictly parse the string into a valid JSON Document
-                        using (System.Text.Json.JsonDocument document = System.Text.Json.JsonDocument.Parse(input.JsonResponse))
-                        {
-                            finalJsonElement = document.RootElement.Clone();
-                        }
+                        // JObject strictly forces it into Newtonsoft's format, completely avoiding System.Text.Json
+                        finalJsonObject = Newtonsoft.Json.Linq.JObject.Parse(input.JsonResponse);
                     }
-                    catch (System.Text.Json.JsonException jsonEx)
+                    catch (Exception ex)
                     {
-                        Console.WriteLine($"Failed to parse AI JSON. Falling back to wrapper. Error: {jsonEx.Message}");
-                        // Fallback wrapper if the string is completely mangled
-                        finalJsonElement = System.Text.Json.JsonDocument.Parse($"{{\"raw_output\": {System.Text.Json.JsonSerializer.Serialize(input.JsonResponse)}}}").RootElement.Clone();
+                        Console.WriteLine($"Failed to parse AI JSON. Falling back to wrapper. Error: {ex.Message}");
+                        finalJsonObject = new { raw_output = input.JsonResponse };
                     }
                 }
 
-                // 2. Pass the strongly parsed JsonElement down to the helper
-                await CreateDocHelper("Founder Evaluation", founderUrl, 0, sId, finalJsonElement);
-                await CreateDocHelper("Investor Evaluation", investorUrl, 1, sId, finalJsonElement);
+                // 2. Pass the strongly parsed object down to the helper
+                await CreateDocHelper("Founder Evaluation", founderUrl, 0, sId, finalJsonObject);
+                await CreateDocHelper("Investor Evaluation", investorUrl, 1, sId, finalJsonObject);
 
                 return Ok(new { success = true });
             }
@@ -311,7 +307,8 @@ namespace Spark2Scale_.Server.Controllers
         }
 
         // --- UPDATED CREATE DOC HELPER ---
-        private async Task CreateDocHelper(string type, string url, int access, Guid sId, System.Text.Json.JsonElement? parsedJson)
+        // Parameter changed to `object parsedJson` to accept Newtonsoft objects
+        private async Task CreateDocHelper(string type, string url, int access, Guid sId, object parsedJson)
         {
             var docId = Guid.NewGuid();
             var now = DateTime.UtcNow;
@@ -346,14 +343,16 @@ namespace Spark2Scale_.Server.Controllers
                 UpdatedAt = now,
                 CreatedAt = now,
                 IsCurrent = true,
-                JsonResponse = parsedJson // This is now a clean JsonElement!
+                JsonResponse = parsedJson // Clean object
             };
-            await _supabase.From<Document>().Insert(doc);
+
+            // FIX: Upsert forces Supabase to respect your exact local docId!
+            await _supabase.From<Document>().Upsert(doc);
 
             // Insert the Version
             var versionDoc = new DocumentVersion
             {
-                DocumentId = docId,
+                DocumentId = docId, // Now perfectly matches the parent!
                 StartupId = sId,
                 VersionNumber = nextVersion,
                 Path = url,
