@@ -33,7 +33,6 @@ export default function DocumentsPage() {
     const [uploadingId, setUploadingId] = useState<string | null>(null);
     const [deletingId, setDeletingId] = useState<string | null>(null);
     const [isCompleting, setIsCompleting] = useState(false);
-    const [isWorkflowComplete, setIsWorkflowComplete] = useState(false);
 
     // PPT State
     const [isPptGenerating, setIsPptGenerating] = useState(false);
@@ -65,10 +64,7 @@ export default function DocumentsPage() {
         if (!cleanId) return;
         setIsLoadingData(true);
         try {
-            const [dbDocs, workflowState] = await Promise.all([
-                documentsService.getDocuments(cleanId),
-                documentsService.getWorkflow(cleanId)
-            ]);
+            const dbDocs = await documentsService.getDocuments(cleanId);
 
             // Check for existing PPT
             const pptDoc = dbDocs.find(d => d.type.toLowerCase() === "pitch deck (ppt)");
@@ -91,12 +87,6 @@ export default function DocumentsPage() {
                 }
             });
             setDocStates(mergedState);
-
-            // Check if Documents stage is complete
-            if (workflowState) {
-                const isComplete = workflowState.documents === true || workflowState.Documents === true;
-                setIsWorkflowComplete(isComplete);
-            }
         } finally {
             setIsLoadingData(false);
         }
@@ -110,9 +100,7 @@ export default function DocumentsPage() {
         if (!cleanId) return;
         setIsPptGenerating(true);
         try {
-            const token = typeof window !== "undefined" ? localStorage.getItem("auth_token") : null;
-            const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:5231";
-            const response = await fetch(`${API_BASE}/api/PptGeneration/generate/${cleanId}`, {
+            const response = await fetch(`/api/PptGeneration/generate/${cleanId}`, {
                 method: "POST",
                 headers: {
                     "Authorization": `Bearer ${token}`,
@@ -293,47 +281,52 @@ export default function DocumentsPage() {
                             </div>
                         </Card>
 
-                        {/* ── PPT Generation Row — same style as other doc cards ── */}
+                        {/* ── PPT Generation Row ── */}
                         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
-                            <Card className={`group overflow-hidden border transition-all duration-200 ${pptUrl ? "bg-white border-green-100 shadow-sm" : "bg-white border-gray-200 hover:border-[#576238]/50 hover:shadow-md"}`}>
+                            <Card className="overflow-hidden border border-[#576238]/30 bg-gradient-to-r from-[#F0EADC]/60 to-white shadow-sm">
                                 <div className="p-5 flex flex-col sm:flex-row gap-5">
-                                    <div className={`flex-shrink-0 w-12 h-12 rounded-xl flex items-center justify-center ${pptUrl ? "bg-green-50 text-green-700" : "bg-gray-100 text-gray-400"}`}>
+                                    <div className="flex-shrink-0 w-12 h-12 rounded-xl flex items-center justify-center bg-[#576238]/10 text-[#576238]">
                                         <Presentation className="h-6 w-6" />
                                     </div>
                                     <div className="flex-1 min-w-0">
                                         <div className="flex items-center justify-between mb-1">
-                                            <h3 className="font-bold text-[#576238] truncate">Pitch Deck (PPT)</h3>
+                                            <h3 className="font-bold text-[#576238]">AI Pitch Deck (PPT)</h3>
                                             {pptUrl && (
-                                                <span className="text-[10px] bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium flex items-center gap-1">
+                                                <span className="text-[10px] bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium">
                                                     Generated
                                                 </span>
                                             )}
                                         </div>
-                                        <p className="text-xs text-muted-foreground mb-4 line-clamp-2">
-                                            AI-generated PPTX from your evaluation & market research. Requires Idea Check and Market Research docs.
+                                        <p className="text-xs text-muted-foreground mb-4">
+                                            Auto-generated from your startup evaluation & market research. Requires Idea Check and Market Research to be complete.
                                         </p>
-                                        <input
-                                            type="file"
-                                            accept=".pptx,.ppt,.pdf"
-                                            className="hidden"
-                                            ref={(el) => { fileInputRefs.current["ppt_generation"] = el; }}
-                                            onChange={async (e) => {
-                                                if (!e.target.files?.[0] || !cleanId) return;
-                                                const file = e.target.files[0];
-                                                setUploadingId("ppt_generation");
-                                                try {
-                                                    const success = await documentsService.uploadDocument(cleanId, "Pitch Deck (PPT)", file);
-                                                    if (success) await fetchData();
-                                                    else alert("Upload failed");
-                                                } finally {
-                                                    setUploadingId(null);
-                                                }
-                                            }}
-                                        />
                                         <div className="flex flex-wrap items-center gap-2">
-                                            {pptUrl ? (
+                                            {/* Generate / Regenerate button — triggers the deployed endpoint */}
+                                            {isFounder && (
+                                                <Button
+                                                    size="sm"
+                                                    className="h-8 text-xs bg-[#576238] hover:bg-[#464f2d] text-white shadow-sm"
+                                                    onClick={handleGeneratePPT}
+                                                    disabled={isPptGenerating}
+                                                >
+                                                    {isPptGenerating
+                                                        ? <><Loader2 className="h-3 w-3 mr-1.5 animate-spin" /> Generating…</>
+                                                        : pptUrl
+                                                            ? <><RefreshCw className="h-3 w-3 mr-1.5" /> Regenerate</>
+                                                            : <><Sparkles className="h-3 w-3 mr-1.5" /> Generate PPT</>
+                                                    }
+                                                </Button>
+                                            )}
+
+                                            {/* View / Download — only shown when PPT exists */}
+                                            {pptUrl && (
                                                 <>
-                                                    <Button variant="outline" size="sm" className="h-8 text-xs border-gray-200" onClick={() => window.open(pptUrl, "_blank")}>
+                                                    <Button
+                                                        variant="outline"
+                                                        size="sm"
+                                                        className="h-8 text-xs border-gray-200"
+                                                        onClick={() => window.open(pptUrl, "_blank")}
+                                                    >
                                                         <Eye className="h-3 w-3 mr-1.5" /> View
                                                     </Button>
                                                     <a href={pptUrl} download>
@@ -341,42 +334,6 @@ export default function DocumentsPage() {
                                                             <Download className="h-3 w-3 mr-1.5" /> Download
                                                         </Button>
                                                     </a>
-                                                    {isFounder && (
-                                                        <>
-                                                            <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-400 hover:text-[#576238] ml-auto" title="Re-upload" onClick={() => fileInputRefs.current["ppt_generation"]?.click()} disabled={uploadingId === "ppt_generation"}>
-                                                                {uploadingId === "ppt_generation" ? <Loader2 className="h-3 w-3 animate-spin" /> : <Upload className="h-3 w-3" />}
-                                                            </Button>
-                                                            <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-400 hover:text-[#576238]" title="Regenerate" onClick={handleGeneratePPT} disabled={isPptGenerating}>
-                                                                {isPptGenerating ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
-                                                            </Button>
-                                                        </>
-                                                    )}
-                                                </>
-                                            ) : (
-                                                <>
-                                                    <Button
-                                                        variant="outline"
-                                                        size="sm"
-                                                        className="h-8 text-xs border-gray-300 hover:bg-gray-50"
-                                                        onClick={() => fileInputRefs.current["ppt_generation"]?.click()}
-                                                        disabled={uploadingId === "ppt_generation"}
-                                                    >
-                                                        {uploadingId === "ppt_generation"
-                                                            ? <><Loader2 className="h-3 w-3 mr-1.5 animate-spin" /> Uploading…</>
-                                                            : <><Upload className="h-3 w-3 mr-1.5" /> Upload</>
-                                                        }
-                                                    </Button>
-                                                    <Button
-                                                        size="sm"
-                                                        className="h-8 text-xs bg-[#576238] hover:bg-[#464f2d] text-white shadow-sm"
-                                                        onClick={handleGeneratePPT}
-                                                        disabled={isPptGenerating}
-                                                    >
-                                                        {isPptGenerating
-                                                            ? <><Loader2 className="h-3 w-3 mr-1.5 animate-spin" /> Generating…</>
-                                                            : <><Sparkles className="h-3 w-3 mr-1.5" /> AI Generate</>
-                                                        }
-                                                    </Button>
                                                 </>
                                             )}
                                         </div>
