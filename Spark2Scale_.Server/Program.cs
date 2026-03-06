@@ -6,18 +6,13 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using System.Text.Json;
 using System;
-using Microsoft.OpenApi.Models;
-using Swashbuckle.AspNetCore.SwaggerUI;
 
 // Load .env for local development
 Env.Load();
 
-// 1. Load environment variables
-DotNetEnv.Env.Load();
-
 var builder = WebApplication.CreateBuilder(args);
 
-// 2. CORS configuration
+// CORS policy name
 var MyAllowSpecificOrigins = "_myAllowSpecificOrigins";
 
 // CORS configuration
@@ -29,7 +24,7 @@ builder.Services.AddCors(options =>
         policy.SetIsOriginAllowed(origin => new Uri(origin).Host == "localhost" || origin.Contains("azurestaticapps.net") || origin == Environment.GetEnvironmentVariable("CLIENT_URL"))
               .AllowAnyHeader()
               .AllowAnyMethod()
-              .AllowCredentials(); // <-- ADDED THIS LINE: Required for frontend credentials/cookies
+              .AllowCredentials(); // <--- ADDED THIS LINE
     });
 });
 
@@ -42,7 +37,7 @@ builder.Services.AddControllers()
     .AddJsonOptions(options =>
     {
         options.JsonSerializerOptions.PropertyNameCaseInsensitive = true;
-        options.JsonSerializerOptions.PropertyNamingPolicy = null; 
+        options.JsonSerializerOptions.PropertyNamingPolicy = null;
     });
 
 builder.Services.AddEndpointsApiExplorer();
@@ -100,7 +95,7 @@ if (app.Environment.IsDevelopment() || app.Environment.IsProduction())
     app.UseSwaggerUI(options =>
     {
         options.SwaggerEndpoint("/swagger/v1/swagger.json", "v1");
-        options.RoutePrefix = "swagger"; 
+        options.RoutePrefix = "swagger";
     });
 }
 app.UseAuthorization();
