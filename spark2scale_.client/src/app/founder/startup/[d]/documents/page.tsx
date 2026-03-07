@@ -33,9 +33,9 @@ export default function DocumentsPage() {
     const [uploadingId, setUploadingId] = useState<string | null>(null);
     const [deletingId, setDeletingId] = useState<string | null>(null);
     const [isCompleting, setIsCompleting] = useState(false);
-    const [isWorkflowComplete, setIsWorkflowComplete] = useState(false); // Workflow integration state
+    const [isWorkflowComplete, setIsWorkflowComplete] = useState(false);
 
-    // PPT Generation/Enhancement State
+    // PPT State
     const [isPptGenerating, setIsPptGenerating] = useState(false);
     const [isPptEditing, setIsPptEditing] = useState(false);
     const [pptUrl, setPptUrl] = useState<string | null>(null);
@@ -59,9 +59,10 @@ export default function DocumentsPage() {
     const cleanId = getCleanId();
     const isFounder = userRole === "Founder";
 
-    // ---------------------------------------------------------
-    // 1. Fetch Data (Documents + Workflow Status)
-    // ---------------------------------------------------------
+    // Standard Styles
+    const primaryBtn = "bg-[#576238] hover:bg-[#464f2d] text-white shadow-sm";
+    const outlineBtn = "border-gray-200 hover:bg-[#576238]/5 hover:border-[#576238]/40 hover:text-[#576238]";
+
     const fetchData = async () => {
         if (!cleanId) return;
         setIsLoadingData(true);
@@ -71,7 +72,6 @@ export default function DocumentsPage() {
                 documentsService.getWorkflow(cleanId)
             ]);
 
-            // Check for existing PPT
             const pptDoc = dbDocs.find(d => d.type.toLowerCase() === "pitch deck (ppt)");
             if (pptDoc?.current_path) setPptUrl(pptDoc.current_path);
 
@@ -93,7 +93,6 @@ export default function DocumentsPage() {
             });
             setDocStates(mergedState);
 
-            // Set Workflow completeness
             if (workflowState) {
                 const isComplete = workflowState.documents === true || workflowState.Documents === true;
                 setIsWorkflowComplete(isComplete);
@@ -107,9 +106,6 @@ export default function DocumentsPage() {
 
     useEffect(() => { fetchData(); }, [cleanId]);
 
-    // ---------------------------------------------------------
-    // 2. PPT Actions (Generation & Enhancement)
-    // ---------------------------------------------------------
     const handleGeneratePPT = async () => {
         if (!cleanId) return;
         setIsPptGenerating(true);
@@ -168,9 +164,7 @@ export default function DocumentsPage() {
         }
     };
 
-    // ---------------------------------------------------------
-    // 3. Chat Logic
-    // ---------------------------------------------------------
+    // Chat Logic
     useEffect(() => {
         const initChat = async () => {
             if (!cleanId) return;
@@ -216,9 +210,6 @@ export default function DocumentsPage() {
         await documentsService.sendMessage(chatSessionId, contentToSend);
     };
 
-    // ---------------------------------------------------------
-    // 4. Document Operations
-    // ---------------------------------------------------------
     const handleGenerateAction = async (docId: string) => {
         if (!cleanId) return;
         const docConfig = REQUIRED_DOCS.find(d => d.id === docId);
@@ -305,7 +296,7 @@ export default function DocumentsPage() {
 
             <main className="container mx-auto px-6 py-8">
                 <div className="grid lg:grid-cols-12 gap-8">
-                    {/* Left: Documents List */}
+                    {/* Left Column: Documentation List */}
                     <div className="lg:col-span-7 space-y-6">
                         <Card className="p-6 bg-gradient-to-r from-[#F0EADC] to-white border border-[#576238]/20">
                             <div className="flex items-start gap-4">
@@ -319,7 +310,7 @@ export default function DocumentsPage() {
 
                         {/* PPT Row */}
                         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
-                            <Card className={`group border transition-all duration-200 ${pptUrl ? "bg-white border-green-100 shadow-sm" : "bg-white border-gray-200"}`}>
+                            <Card className={`group border transition-all duration-200 ${pptUrl ? "bg-white border-green-100 shadow-sm" : "bg-white border-gray-200 shadow-sm"}`}>
                                 <div className="p-5 flex flex-col sm:flex-row gap-5">
                                     <div className={`flex-shrink-0 w-12 h-12 rounded-xl flex items-center justify-center ${pptUrl ? "bg-green-50 text-green-700" : "bg-gray-100 text-gray-400"}`}>
                                         <Presentation className="h-6 w-6" />
@@ -331,7 +322,6 @@ export default function DocumentsPage() {
                                         </div>
                                         <p className="text-xs text-muted-foreground mb-4">AI-generated PPTX or upload your own to enhance with AI styles.</p>
 
-                                        {/* Hidden inputs for PPT */}
                                         <input type="file" accept=".pptx,.ppt,.pdf" className="hidden" ref={(el) => { fileInputRefs.current["ppt_generation"] = el; }}
                                             onChange={async (e) => {
                                                 if (!e.target.files?.[0] || !cleanId) return;
@@ -348,74 +338,27 @@ export default function DocumentsPage() {
                                         <div className="flex flex-wrap items-center gap-2">
                                             {pptUrl ? (
                                                 <>
-                                                    <Button variant="outline" size="sm" className="h-8 text-xs border-gray-200" onClick={() => window.open(pptUrl, "_blank")}><Eye className="h-3 w-3 mr-1.5" /> View</Button>
-                                                    <a href={pptUrl} download><Button variant="outline" size="sm" className="h-8 text-xs border-gray-200"><Download className="h-3 w-3 mr-1.5" /> Download</Button></a>
-
-                                                    {/* UPDATED: Icon changed to Sparkles to match Generate style */}
-                                                    <Button
-                                                        variant="outline"
-                                                        size="sm"
-                                                        className="h-8 text-xs border-gray-200 hover:bg-[#576238]/5 hover:border-[#576238]/40"
-                                                        onClick={() => editPptInputRef.current?.click()}
-                                                        disabled={isPptEditing}
-                                                        title="Upload a PPT file to enhance with AI"
-                                                    >
-                                                        {isPptEditing
-                                                            ? <><Loader2 className="h-3 w-3 mr-1.5 animate-spin" /> Enhancing…</>
-                                                            : <><Sparkles className="h-3 w-3 mr-1.5" /> Enhance</>
-                                                        }
+                                                    <Button variant="outline" size="sm" className={`h-8 text-xs ${outlineBtn}`} onClick={() => window.open(pptUrl, "_blank")}><Eye className="h-3 w-3 mr-1.5" /> View</Button>
+                                                    <a href={pptUrl} download><Button variant="outline" size="sm" className={`h-8 text-xs ${outlineBtn}`}><Download className="h-3 w-3 mr-1.5" /> Download</Button></a>
+                                                    <Button variant="outline" size="sm" className={`h-8 text-xs ${outlineBtn}`} onClick={() => editPptInputRef.current?.click()} disabled={isPptEditing}>
+                                                        {isPptEditing ? <><Loader2 className="h-3 w-3 mr-1.5 animate-spin" /> Enhancing…</> : <><Sparkles className="h-3 w-3 mr-1.5" /> Enhance</>}
                                                     </Button>
-
                                                     {isFounder && (
-                                                        <div className="flex gap-1 ml-auto">
-                                                            <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-400 hover:text-[#576238]" title="Re-upload" onClick={() => fileInputRefs.current["ppt_generation"]?.click()} disabled={uploadingId === "ppt_generation"}>
-                                                                {uploadingId === "ppt_generation" ? <Loader2 className="h-3 w-3 animate-spin" /> : <Upload className="h-3 w-3" />}
-                                                            </Button>
-                                                            <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-400 hover:text-[#576238]" title="Regenerate from scratch" onClick={handleGeneratePPT} disabled={isPptGenerating}>
-                                                                {isPptGenerating ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
-                                                            </Button>
-                                                        </div>
+                                                        <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-400 hover:text-[#576238] ml-auto" onClick={handleGeneratePPT} disabled={isPptGenerating}>
+                                                            {isPptGenerating ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+                                                        </Button>
                                                     )}
                                                 </>
                                             ) : (
                                                 <>
-                                                    <Button
-                                                        variant="outline"
-                                                        size="sm"
-                                                        className="h-8 text-xs border-gray-300 hover:bg-gray-50"
-                                                        onClick={() => fileInputRefs.current["ppt_generation"]?.click()}
-                                                        disabled={uploadingId === "ppt_generation"}
-                                                    >
-                                                        {uploadingId === "ppt_generation"
-                                                            ? <><Loader2 className="h-3 w-3 mr-1.5 animate-spin" /> Uploading…</>
-                                                            : <><Upload className="h-3 w-3 mr-1.5" /> Upload</>
-                                                        }
+                                                    <Button variant="outline" size="sm" className={`h-8 text-xs ${outlineBtn}`} onClick={() => fileInputRefs.current["ppt_generation"]?.click()} disabled={uploadingId === "ppt_generation"}>
+                                                        {uploadingId === "ppt_generation" ? <Loader2 className="h-3 w-3 animate-spin mr-1.5" /> : <Upload className="h-3 w-3 mr-1.5" />} Upload
                                                     </Button>
-                                                    <Button
-                                                        size="sm"
-                                                        className="h-8 text-xs bg-[#576238] hover:bg-[#464f2d] text-white shadow-sm"
-                                                        onClick={handleGeneratePPT}
-                                                        disabled={isPptGenerating}
-                                                    >
-                                                        {isPptGenerating
-                                                            ? <><Loader2 className="h-3 w-3 mr-1.5 animate-spin" /> Generating…</>
-                                                            : <><Sparkles className="h-3 w-3 mr-1.5" /> AI Generate</>
-                                                        }
+                                                    <Button size="sm" className={`h-8 text-xs ${primaryBtn}`} onClick={handleGeneratePPT} disabled={isPptGenerating}>
+                                                        {isPptGenerating ? <Loader2 className="h-3 w-3 animate-spin mr-1.5" /> : <><Sparkles className="h-3 w-3 mr-1.5" /> AI Generate</>}
                                                     </Button>
-
-                                                    {/* UPDATED: Icon changed to Sparkles here as well */}
-                                                    <Button
-                                                        variant="outline"
-                                                        size="sm"
-                                                        className="h-8 text-xs border-gray-300 hover:bg-gray-50"
-                                                        onClick={() => editPptInputRef.current?.click()}
-                                                        disabled={isPptEditing}
-                                                        title="Upload your existing PPT to enhance it with AI"
-                                                    >
-                                                        {isPptEditing
-                                                            ? <><Loader2 className="h-3 w-3 mr-1.5 animate-spin" /> Enhancing…</>
-                                                            : <><Sparkles className="h-3 w-3 mr-1.5" /> Enhance</>
-                                                        }
+                                                    <Button variant="outline" size="sm" className={`h-8 text-xs ${outlineBtn}`} onClick={() => editPptInputRef.current?.click()} disabled={isPptEditing}>
+                                                        {isPptEditing ? <Loader2 className="h-3 w-3 animate-spin mr-1.5" /> : <><Sparkles className="h-3 w-3 mr-1.5" /> Enhance</>}
                                                     </Button>
                                                 </>
                                             )}
@@ -425,32 +368,37 @@ export default function DocumentsPage() {
                             </Card>
                         </motion.div>
 
-                        {/* Required Docs */}
+                        {/* Required Documents List */}
                         <div className="space-y-4">
-                            {REQUIRED_DOCS.map((config, idx) => {
+                            {REQUIRED_DOCS.map((config) => {
                                 const state = docStates.find(d => d.configId === config.id);
                                 const isUploaded = state?.isUploaded || false;
                                 return (
-                                    <Card key={config.id} className={`p-5 border ${isUploaded ? "border-green-100" : "border-gray-200"}`}>
+                                    <Card key={config.id} className={`p-5 border transition-all duration-200 ${isUploaded ? "border-green-100 shadow-sm" : "border-gray-200 shadow-sm"}`}>
                                         <div className="flex gap-5">
-                                            <div className="w-12 h-12 rounded-xl bg-gray-100 flex items-center justify-center flex-shrink-0"><config.icon className="h-6 w-6" /></div>
+                                            <div className="w-12 h-12 rounded-xl bg-gray-100 flex items-center justify-center flex-shrink-0"><config.icon className="h-6 w-6 text-gray-500" /></div>
                                             <div className="flex-1">
-                                                <div className="flex justify-between">
+                                                <div className="flex justify-between items-start">
                                                     <h3 className="font-bold text-[#576238]">{config.name}</h3>
-                                                    {isUploaded && <span className="text-[10px] bg-green-50 text-green-700 px-2 py-0.5 rounded-full">V{state?.version}</span>}
+                                                    {isUploaded && <span className="text-[10px] bg-green-50 text-green-700 px-2 py-0.5 rounded-full font-medium">V{state?.version}</span>}
                                                 </div>
                                                 <p className="text-xs text-muted-foreground mb-4">{config.desc}</p>
                                                 <div className="flex gap-2">
                                                     <input type="file" ref={(el) => { fileInputRefs.current[config.id] = el; }} className="hidden" onChange={(e) => handleFileChange(e, config)} />
                                                     {isUploaded ? (
                                                         <>
-                                                            <Button variant="outline" size="sm" className="h-7 text-[10px]" onClick={() => window.open(state?.path, "_blank")}>View</Button>
-                                                            <Button variant="ghost" size="icon" className="h-7 w-7 text-red-500 ml-auto" onClick={() => handleDelete(state?.dbId)}>{deletingId === state?.dbId ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}</Button>
+                                                            <Button variant="outline" size="sm" className={`h-8 text-[11px] ${outlineBtn}`} onClick={() => window.open(state?.path, "_blank")}><Eye className="h-3 w-3 mr-1.5" /> View</Button>
+                                                            <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-400 hover:text-red-500 ml-auto" onClick={() => handleDelete(state?.dbId)}>{deletingId === state?.dbId ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}</Button>
+                                                            <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-400 hover:text-[#576238]" onClick={() => fileInputRefs.current[config.id]?.click()}><RefreshCw className="h-3 w-3" /></Button>
                                                         </>
                                                     ) : (
                                                         <>
-                                                            <Button variant="outline" size="sm" className="h-7 text-[10px]" onClick={() => fileInputRefs.current[config.id]?.click()} disabled={uploadingId === config.id}>Upload</Button>
-                                                            <Button size="sm" className="h-7 text-[10px] bg-[#576238] text-white" onClick={() => { setChatContext(config.id); handleSendMessage(config.aiPrompt); }}>AI Generate</Button>
+                                                            <Button variant="outline" size="sm" className={`h-8 text-[11px] ${outlineBtn}`} onClick={() => fileInputRefs.current[config.id]?.click()} disabled={uploadingId === config.id}>
+                                                                {uploadingId === config.id ? <Loader2 className="h-3 w-3 animate-spin mr-1.5" /> : <Upload className="h-3 w-3 mr-1.5" />} Upload
+                                                            </Button>
+                                                            <Button size="sm" className={`h-8 text-[11px] ${primaryBtn}`} onClick={() => { setChatContext(config.id); handleSendMessage(config.aiPrompt); }}>
+                                                                <Sparkles className="h-3 w-3 mr-1.5" /> AI Generate
+                                                            </Button>
                                                         </>
                                                     )}
                                                 </div>
@@ -461,48 +409,54 @@ export default function DocumentsPage() {
                             })}
                         </div>
 
-                        <div className="pt-4 text-center">
-                            <Button size="lg" className="w-full bg-[#FFD95D] text-black font-semibold" onClick={handleCompleteStage} disabled={isCompleting}>
+                        <div className="pt-4">
+                            <Button size="lg" className={`w-full font-bold h-12 ${primaryBtn}`} onClick={handleCompleteStage} disabled={isCompleting}>
                                 {isCompleting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : "Complete Documents Stage"}
                             </Button>
                         </div>
                     </div>
 
-                    {/* Right: AI Chat */}
+                    {/* Right Column: AI Assistant */}
                     <div className="lg:col-span-5 h-[calc(100vh-120px)] sticky top-24">
-                        <Card className="h-full flex flex-col overflow-hidden border-gray-300">
+                        <Card className="h-full flex flex-col overflow-hidden border-gray-300 shadow-xl">
                             <div className="p-4 bg-[#576238] text-white flex justify-between items-center">
                                 <div className="flex items-center gap-2"><Bot className="h-5 w-5" /><h2 className="font-bold text-sm">AI Assistant</h2></div>
-                                <Button variant="ghost" size="sm" onClick={() => setShowChatHistory(!showChatHistory)} className="text-xs">{showChatHistory ? "Close" : "History"}</Button>
+                                <Button variant="ghost" size="sm" onClick={() => setShowChatHistory(!showChatHistory)} className="text-xs hover:bg-white/10">{showChatHistory ? "Close" : "History"}</Button>
                             </div>
                             <div className="flex-1 relative bg-gray-50 overflow-hidden">
                                 <AnimatePresence>
                                     {showChatHistory && (
                                         <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="absolute inset-0 z-10 bg-white p-4 overflow-auto">
-                                            <Button className="w-full mb-4 bg-[#576238]" size="sm" onClick={startNewChatSession}>New Chat</Button>
-                                            {sessions.map(s => <button key={s.sessionId} onClick={() => loadChatMessages(s.sessionId)} className="w-full text-left p-3 text-xs border-b">{s.sessionName}</button>)}
+                                            <Button className={`w-full mb-4 ${primaryBtn}`} size="sm" onClick={startNewChatSession}><Plus className="h-4 w-4 mr-2" /> New Chat</Button>
+                                            <div className="space-y-1">
+                                                {sessions.map(s => (
+                                                    <button key={s.sessionId} onClick={() => loadChatMessages(s.sessionId)} className={`w-full text-left p-3 text-xs border rounded-lg mb-1 transition-all ${chatSessionId === s.sessionId ? "border-[#576238] bg-[#576238]/5 font-bold" : "border-transparent hover:bg-gray-100"}`}>{s.sessionName}</button>
+                                                ))}
+                                            </div>
                                         </motion.div>
                                     )}
                                 </AnimatePresence>
                                 <ScrollArea className="h-full p-4">
-                                    <div className="space-y-4">
-                                        {messages.map((m, i) => (
-                                            <div key={i} className={`flex flex-col ${m.role === "user" ? "items-end" : "items-start"}`}>
-                                                <div className={`px-4 py-2 text-sm rounded-xl max-w-[90%] ${m.role === "user" ? "bg-[#576238] text-white" : "bg-white border text-gray-800"}`}>{m.content}</div>
-                                                {m.role === "assistant" && i === messages.length - 1 && (
-                                                    <Button size="sm" variant="outline" className="mt-2 h-6 text-[10px]" onClick={() => handleGenerateAction(chatContext)}>
-                                                        {isGeneratingDoc ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Sparkles className="h-3 w-3 mr-1" />} Generate {getCurrentContextName()}
-                                                    </Button>
-                                                )}
-                                            </div>
-                                        ))}
-                                    </div>
+                                    {isChatLoading ? <div className="flex justify-center items-center h-full opacity-50"><Loader2 className="h-6 w-6 animate-spin" /></div> :
+                                        <div className="space-y-4">
+                                            {messages.map((m, i) => (
+                                                <div key={i} className={`flex flex-col ${m.role === "user" ? "items-end" : "items-start"}`}>
+                                                    <div className={`px-4 py-2.5 text-sm rounded-2xl max-w-[90%] shadow-sm ${m.role === "user" ? "bg-[#576238] text-white" : "bg-white border text-gray-800"}`}>{m.content}</div>
+                                                    {m.role === "assistant" && i === messages.length - 1 && (
+                                                        <Button size="sm" variant="outline" className={`mt-2 h-7 text-[10px] ${outlineBtn}`} onClick={() => handleGenerateAction(chatContext)}>
+                                                            {isGeneratingDoc ? <Loader2 className="h-3 w-3 animate-spin mr-1.5" /> : <Sparkles className="h-3 w-3 mr-1.5" />} Generate {getCurrentContextName()}
+                                                        </Button>
+                                                    )}
+                                                </div>
+                                            ))}
+                                        </div>
+                                    }
                                 </ScrollArea>
                             </div>
                             <div className="p-3 border-t bg-white">
                                 <form onSubmit={(e) => { e.preventDefault(); handleSendMessage(); }} className="flex gap-2">
-                                    <Input placeholder={`Ask about ${getCurrentContextName()}...`} value={newMessage} onChange={e => setNewMessage(e.target.value)} className="text-sm" disabled={isChatLoading} />
-                                    <Button type="submit" size="icon" className="bg-[#576238]" disabled={!newMessage.trim()}><Send className="h-4 w-4" /></Button>
+                                    <Input placeholder={`Ask about ${getCurrentContextName()}...`} value={newMessage} onChange={e => setNewMessage(e.target.value)} className="text-sm focus-visible:ring-[#576238]" disabled={isChatLoading} />
+                                    <Button type="submit" size="icon" className={primaryBtn} disabled={!newMessage.trim()}><Send className="h-4 w-4" /></Button>
                                 </form>
                             </div>
                         </Card>
