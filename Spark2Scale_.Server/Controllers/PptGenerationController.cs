@@ -292,5 +292,192 @@ namespace Spark2Scale_.Server.Controllers
                 return StatusCode(500, new { message = ex.Message });
             }
         }
+
+        [HttpPost("edit/{startupId}")]
+        public async Task<IActionResult> EditPpt(string startupId, IFormFile pptFile)
+        {
+            if (!Guid.TryParse(startupId, out Guid sId))
+                return BadRequest(new { message = "Invalid Startup ID." });
+
+            if (!await _access.IsFounderOrOwner(GetToken(), sId))
+                return Unauthorized(new { message = "Only the startup founder can edit presentations." });
+
+            if (pptFile == null || pptFile.Length == 0)
+                return BadRequest(new { message = "No PPT file provided." });
+
+            try
+            {
+                // ----------------------------------------------------------------
+                // 1. Read uploaded PPT bytes
+                // ----------------------------------------------------------------
+                byte[] pptBytes;
+                using (var ms = new MemoryStream())
+                {
+                    await pptFile.CopyToAsync(ms);
+                    pptBytes = ms.ToArray();
+                }
+
+                // ----------------------------------------------------------------
+                // 2. Fetch logo_path for branding
+                // ----------------------------------------------------------------
+                var supabaseUrl = Environment.GetEnvironmentVariable("SUPABASE_URL")
+                               ?? Environment.GetEnvironmentVariable("URL");
+                var supabaseKey = Environment.GetEnvironmentVariable("SUPABASE_KEY")
+                               ?? Environment.GetEnvironmentVariable("KEY");
+
+                if (string.IsNullOrEmpty(supabaseUrl) || string.IsNullOrEmpty(supabaseKey))
+                    return StatusCode(500, new { message = "Server configuration error." });
+
+                using var rawClient = new HttpClient();
+                rawClient.DefaultRequestHeaders.Add("apikey", supabaseKey);
+                rawClient.DefaultRequestHeaders.Add("Authorization", $"Bearer {supabaseKey}");
+
+                var startupRes = await rawClient.GetAsync(
+                    $"{supabaseUrl}/rest/v1/startups?select=logo_path&sid=eq.{sId}");
+
+                string? logoPath = null;
+                if (startupRes.IsSuccessStatusCode)
+                {
+                    var body = await startupRes.Content.ReadAsStringAsync();
+                    var arr = JsonNode.Parse(body)?.AsArray();
+                    logoPath = arr?[0]?["logo_path"]?.ToString();
+                }
+
+                // ----------------------------------------------------------------
+                // 3. Build multipart for AI edit endpoint
+                // ----------------------------------------------------------------
+                using var multipartContent = new MultipartFormDataContent();
+
+                multipartContent.Add(new StringContent(sId.ToString()), "startup_id");
+
+                var pptPart = new ByteArrayContent(pptBytes);
+                pptPart.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(
+                    "application/vnd.openxmlformats-officedocument.presentationml.presentation");
+                multipartContent.Add(pptPart, "ppt_file", pptFile.FileName);
+
+                bool hasLogo = !string.IsNullOrWhiteSpace(logoPath);
+                if (hasLogo)
+                {
+                    try
+                    {
+                        var logoBytes = await rawClient.GetByteArrayAsync(logoPath);
+                        var extension = Path.GetExtension(logoPath!).ToLowerInvariant();
+                        var mimeType = extension switch
+                        {
+                            ".jpg" or ".jpeg" => "image/jpeg",
+                            ".gif" => "image/gif",
+                            ".webp" => "image/webp",
+                            _ => "image/png"
+                        };
+                        var logoPart = new ByteArrayContent(logoBytes);
+                        logoPart.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(mimeType);
+                        multipartContent.Add(logoPart, "logo", $"logo{extension}");
+                        multipartContent.Add(new StringContent("false"), "use_default_colors");
+                    }
+                    catch
+                    {
+                        hasLogo = false;
+                    }
+                }
+
+                if (!hasLogo)
+                    multipartContent.Add(new StringContent("true"), "use_default_colors");
+
+                // ----------------------------------------------------------------
+                // 4. Call AI edit endpoint
+                // ----------------------------------------------------------------
+                var aiClient = _httpClientFactory.CreateClient("AiServer");
+                aiClient.Timeout = TimeSpan.FromMinutes(10);
+
+                Console.WriteLine("[PptEdit] Calling AI edit endpoint...");
+                var aiResponse = await aiClient.PostAsync(
+                    $"{AI_SERVER_BASE}/api/v1/ppt/edit",
+                    multipartContent);
+
+                var aiBody = await aiResponse.Content.ReadAsStringAsync();
+                Console.WriteLine($"[PptEdit] AI response ({(int)aiResponse.StatusCode}): {aiBody[..Math.Min(300, aiBody.Length)]}");
+
+                if (!aiResponse.IsSuccessStatusCode)
+                {
+                    if ((int)aiResponse.StatusCode == 429)
+                        return StatusCode(429, new { message = "AI quota exceeded. Please wait a minute and try again." });
+                    return StatusCode(500, new { message = $"AI server error: {aiBody}" });
+                }
+
+                var aiResult = JsonNode.Parse(aiBody)?.AsObject();
+                var aiStatus = aiResult?["status"]?.ToString();
+
+                if (aiStatus != "success")
+                    return StatusCode(500, new { message = "PPT edit did not complete successfully." });
+
+                var pptPath = aiResult?["ppt_path"]?.ToString();
+                var pptTitle = aiResult?["title"]?.ToString() ?? "AI Enhanced Pitch Deck";
+
+                if (string.IsNullOrEmpty(pptPath))
+                    return StatusCode(500, new { message = "AI server did not return a file path." });
+
+                // ----------------------------------------------------------------
+                // 5. Archive previous & upsert document record
+                // ----------------------------------------------------------------
+                var now = DateTime.UtcNow;
+
+                await _supabase.From<Document>()
+                    .Where(d => d.StartupId == sId && d.Type == "Pitch Deck (PPT)")
+                    .Set(d => d.IsCurrent, false)
+                    .Update();
+
+                var insertOptions = new Supabase.Postgrest.QueryOptions
+                {
+                    Returning = Supabase.Postgrest.QueryOptions.ReturnType.Representation
+                };
+
+                var newDoc = new Document
+                {
+                    StartupId = sId,
+                    DocumentName = $"{pptTitle}.pptx",
+                    Type = "Pitch Deck (PPT)",
+                    CurrentPath = pptPath,
+                    CurrentVersion = 1,
+                    CanAccess = 1,
+                    UpdatedAt = now,
+                    CreatedAt = now,
+                    IsCurrent = true
+                };
+
+                var inserted = await _supabase.From<Document>().Insert(newDoc, insertOptions);
+                var createdDoc = inserted.Models.FirstOrDefault();
+
+                if (createdDoc != null)
+                {
+                    await _supabase.From<DocumentVersion>().Insert(new DocumentVersion
+                    {
+                        DocumentId = createdDoc.Did,
+                        StartupId = sId,
+                        VersionNumber = 1,
+                        Path = pptPath,
+                        CreatedAt = now,
+                        GeneratedBy = "AI-PPT-Edit"
+                    });
+                }
+
+                Console.WriteLine($"[PptEdit] Done. Stored at: {pptPath}");
+                return Ok(new
+                {
+                    message = "Pitch deck enhanced successfully.",
+                    ppt_url = pptPath,
+                    title = pptTitle,
+                    document_id = createdDoc?.Did.ToString()
+                });
+            }
+            catch (TaskCanceledException)
+            {
+                return StatusCode(504, new { message = "PPT edit timed out. Please try again." });
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[PptEdit] ERROR: {ex.Message}");
+                return StatusCode(500, new { message = $"Unexpected error: {ex.Message}" });
+            }
+        }
     }
 }

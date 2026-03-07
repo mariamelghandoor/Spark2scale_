@@ -33,10 +33,13 @@ export default function DocumentsPage() {
     const [uploadingId, setUploadingId] = useState<string | null>(null);
     const [deletingId, setDeletingId] = useState<string | null>(null);
     const [isCompleting, setIsCompleting] = useState(false);
+    const [isWorkflowComplete, setIsWorkflowComplete] = useState(false);
 
     // PPT State
     const [isPptGenerating, setIsPptGenerating] = useState(false);
+    const [isPptEditing, setIsPptEditing] = useState(false);
     const [pptUrl, setPptUrl] = useState<string | null>(null);
+    const editPptInputRef = useRef<HTMLInputElement | null>(null);
 
     // Chat & History State
     const [sessions, setSessions] = useState<SessionSummary[]>([]);
@@ -64,7 +67,10 @@ export default function DocumentsPage() {
         if (!cleanId) return;
         setIsLoadingData(true);
         try {
-            const dbDocs = await documentsService.getDocuments(cleanId);
+            const [dbDocs, workflowState] = await Promise.all([
+                documentsService.getDocuments(cleanId),
+                documentsService.getWorkflow(cleanId)
+            ]);
 
             // Check for existing PPT
             const pptDoc = dbDocs.find(d => d.type.toLowerCase() === "pitch deck (ppt)");
@@ -87,6 +93,11 @@ export default function DocumentsPage() {
                 }
             });
             setDocStates(mergedState);
+
+            if (workflowState) {
+                const isComplete = workflowState.documents === true || workflowState.Documents === true;
+                setIsWorkflowComplete(isComplete);
+            }
         } finally {
             setIsLoadingData(false);
         }
@@ -94,7 +105,7 @@ export default function DocumentsPage() {
     useEffect(() => { fetchData(); }, [cleanId]);
 
     // ---------------------------------------------------------
-    // 2. PPT Generation — calls deployed endpoint
+    // 2. PPT Generation
     // ---------------------------------------------------------
     const handleGeneratePPT = async () => {
         if (!cleanId) return;
@@ -118,7 +129,7 @@ export default function DocumentsPage() {
                 const errText = await response.text();
                 alert(`Generation failed: ${errText}`);
             }
-        } catch (err) {
+        } catch {
             alert("Connection error. Please try again.");
         } finally {
             setIsPptGenerating(false);
@@ -126,7 +137,39 @@ export default function DocumentsPage() {
     };
 
     // ---------------------------------------------------------
-    // 3. Chat Logic
+    // 3. PPT Enhancement (Edit existing PPT via AI)
+    // ---------------------------------------------------------
+    const handleEditPPT = async (file: File) => {
+        if (!cleanId) return;
+        setIsPptEditing(true);
+        try {
+            const formData = new FormData();
+            formData.append("startup_id", cleanId);
+            formData.append("ppt_file", file);
+            formData.append("use_default_colors", "true");
+
+            const response = await fetch("https://spark2scale-ai-server.azurewebsites.net/api/v1/ppt/edit", {
+                method: "POST",
+                body: formData,
+            });
+
+            if (response.ok) {
+                const data = await response.json();
+                setPptUrl(data.ppt_path ?? data.ppt_url ?? null);
+                await fetchData();
+            } else {
+                const errText = await response.text();
+                alert(`Enhancement failed: ${errText}`);
+            }
+        } catch {
+            alert("Connection error. Please try again.");
+        } finally {
+            setIsPptEditing(false);
+        }
+    };
+
+    // ---------------------------------------------------------
+    // 4. Chat Logic
     // ---------------------------------------------------------
     useEffect(() => {
         const initChat = async () => {
@@ -174,7 +217,7 @@ export default function DocumentsPage() {
     };
 
     // ---------------------------------------------------------
-    // 4. Other Doc Generation
+    // 5. Other Doc Generation
     // ---------------------------------------------------------
     const handleGenerateAction = async (docId: string) => {
         if (!cleanId) return;
@@ -257,7 +300,7 @@ export default function DocumentsPage() {
                 <div className="container mx-auto px-6 py-4 flex justify-between items-center">
                     <div className="flex items-center gap-4">
                         <Link href={`/founder/startup/${cleanId}`}>
-                            <Button variant="ghost" size="icon" className="hover:bg-gray-100">
+                            <Button variant="ghost" size="icon" className="hover:bg-[#576238]/10 hover:text-[#576238]">
                                 <ArrowLeft className="h-5 w-5" />
                             </Button>
                         </Link>
@@ -283,7 +326,7 @@ export default function DocumentsPage() {
                             </div>
                         </Card>
 
-                        {/* ── PPT Generation Row — same style as other doc cards ── */}
+                        {/* ── PPT Generation Row ── */}
                         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
                             <Card className={`group overflow-hidden border transition-all duration-200 ${pptUrl ? "bg-white border-green-100 shadow-sm" : "bg-white border-gray-200 hover:border-[#576238]/50 hover:shadow-md"}`}>
                                 <div className="p-5 flex flex-col sm:flex-row gap-5">
@@ -300,8 +343,10 @@ export default function DocumentsPage() {
                                             )}
                                         </div>
                                         <p className="text-xs text-muted-foreground mb-4 line-clamp-2">
-                                            AI-generated PPTX from your evaluation & market research. Requires Idea Check and Market Research docs.
+                                            AI-generated PPTX from your evaluation & market research. Or upload and enhance your existing deck.
                                         </p>
+
+                                        {/* Hidden inputs */}
                                         <input
                                             type="file"
                                             accept=".pptx,.ppt,.pdf"
@@ -320,10 +365,24 @@ export default function DocumentsPage() {
                                                 }
                                             }}
                                         />
+                                        {/* Hidden input for AI enhance */}
+                                        <input
+                                            type="file"
+                                            accept=".pptx,.ppt"
+                                            className="hidden"
+                                            ref={editPptInputRef}
+                                            onChange={async (e) => {
+                                                const file = e.target.files?.[0];
+                                                if (!file) return;
+                                                await handleEditPPT(file);
+                                                e.target.value = "";
+                                            }}
+                                        />
+
                                         <div className="flex flex-wrap items-center gap-2">
                                             {pptUrl ? (
                                                 <>
-                                                    <Button variant="outline" size="sm" className="h-8 text-xs border-gray-200" onClick={() => window.open(pptUrl, "_blank")}>
+                                                    <Button variant="outline" size="sm" className="h-8 text-xs border-gray-200" onClick={() => window.open(`https://view.officeapps.live.com/op/view.aspx?src=${encodeURIComponent(pptUrl)}`, "_blank")}>
                                                         <Eye className="h-3 w-3 mr-1.5" /> View
                                                     </Button>
                                                     <a href={pptUrl} download>
@@ -331,12 +390,26 @@ export default function DocumentsPage() {
                                                             <Download className="h-3 w-3 mr-1.5" /> Download
                                                         </Button>
                                                     </a>
+                                                    {/* Upload & Enhance button */}
+                                                    <Button
+                                                        variant="outline"
+                                                        size="sm"
+                                                        className="h-8 text-xs border-gray-200 hover:bg-[#576238]/5 hover:border-[#576238]/40"
+                                                        onClick={() => editPptInputRef.current?.click()}
+                                                        disabled={isPptEditing}
+                                                        title="Upload a PPT file to enhance with AI"
+                                                    >
+                                                        {isPptEditing
+                                                            ? <><Loader2 className="h-3 w-3 mr-1.5 animate-spin" /> Enhancing…</>
+                                                            : <><Upload className="h-3 w-3 mr-1.5" /> Upload & Enhance</>
+                                                        }
+                                                    </Button>
                                                     {isFounder && (
                                                         <>
                                                             <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-400 hover:text-[#576238] ml-auto" title="Re-upload" onClick={() => fileInputRefs.current["ppt_generation"]?.click()} disabled={uploadingId === "ppt_generation"}>
                                                                 {uploadingId === "ppt_generation" ? <Loader2 className="h-3 w-3 animate-spin" /> : <Upload className="h-3 w-3" />}
                                                             </Button>
-                                                            <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-400 hover:text-[#576238]" title="Regenerate" onClick={handleGeneratePPT} disabled={isPptGenerating}>
+                                                            <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-400 hover:text-[#576238]" title="Regenerate from scratch" onClick={handleGeneratePPT} disabled={isPptGenerating}>
                                                                 {isPptGenerating ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
                                                             </Button>
                                                         </>
@@ -365,6 +438,20 @@ export default function DocumentsPage() {
                                                         {isPptGenerating
                                                             ? <><Loader2 className="h-3 w-3 mr-1.5 animate-spin" /> Generating…</>
                                                             : <><Sparkles className="h-3 w-3 mr-1.5" /> AI Generate</>
+                                                        }
+                                                    </Button>
+                                                    {/* Upload & Enhance button — available even before a PPT exists */}
+                                                    <Button
+                                                        variant="outline"
+                                                        size="sm"
+                                                        className="h-8 text-xs border-gray-300 hover:bg-gray-50"
+                                                        onClick={() => editPptInputRef.current?.click()}
+                                                        disabled={isPptEditing}
+                                                        title="Upload your existing PPT to enhance it with AI"
+                                                    >
+                                                        {isPptEditing
+                                                            ? <><Loader2 className="h-3 w-3 mr-1.5 animate-spin" /> Enhancing…</>
+                                                            : <><Upload className="h-3 w-3 mr-1.5" /> Upload & Enhance</>
                                                         }
                                                     </Button>
                                                 </>
