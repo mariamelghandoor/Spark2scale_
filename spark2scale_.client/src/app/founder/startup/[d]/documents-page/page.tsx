@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { ArrowLeft, Eye, Users, Loader2, Globe, Lock } from "lucide-react";
+import { ArrowLeft, Eye, Users, Loader2, Globe, Lock, Download } from "lucide-react";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { useParams } from "next/navigation";
@@ -12,14 +12,16 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-
-// --- Import Merged Service ---
-import { documentsService, DocumentData } from "@/services/documentsService";
+import JSZip from "jszip";
+import { documentService } from "@/services/documentService";
 
 export default function DocumentsHistoryPage() {
     const params = useParams();
-    const [documents, setDocuments] = useState<any[]>([]); // Relaxed type slightly to allow dynamic fallback
+    const [documents, setDocuments] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
+
+    // Track which document is currently being generated dynamically
+    const [generatingDocId, setGeneratingDocId] = useState<string | null>(null);
 
     const getCleanId = () => {
         const raw = params?.id || params?.d;
@@ -36,7 +38,6 @@ export default function DocumentsHistoryPage() {
 
     const [selectedVersions, setSelectedVersions] = useState<{ [type: string]: string }>({});
 
-    // 1. Fetch Data
     const loadDocuments = async () => {
         if (!startupId) {
             setLoading(false);
@@ -44,7 +45,7 @@ export default function DocumentsHistoryPage() {
         }
         setLoading(true);
         try {
-            const data = await documentsService.getGroupedDocuments(startupId);
+            const data = await documentService.getGroupedDocuments(startupId);
             setDocuments(data || []);
         } catch (error) {
             console.error("Failed to load documents", error);
@@ -57,11 +58,9 @@ export default function DocumentsHistoryPage() {
         loadDocuments();
     }, [startupId]);
 
-    // 2. Handlers
     const handleToggleVisibility = async (docType: string, versionId: string, currentStatus: boolean) => {
         const newStatus = !currentStatus;
 
-        // Safely map versions (prevents crash if doc.versions is undefined)
         const updatedDocs = documents.map(doc => {
             if (doc.type === docType) {
                 return {
@@ -75,7 +74,7 @@ export default function DocumentsHistoryPage() {
         });
         setDocuments(updatedDocs);
 
-        const success = await documentsService.toggleVersionVisibility(versionId, newStatus);
+        const success = await documentService.toggleVersionVisibility(versionId, newStatus);
         if (!success) {
             alert("Failed to change visibility settings.");
             loadDocuments();
@@ -87,38 +86,139 @@ export default function DocumentsHistoryPage() {
 
         setIsUploading(true);
         try {
-            const success = await documentsService.uploadDocument(startupId, uploadType, uploadFile);
-            if (success) {
+            const formData = new FormData();
+            formData.append("StartupId", startupId);
+            formData.append("DocName", uploadName);
+            formData.append("Type", uploadType);
+            formData.append("File", uploadFile);
+
+            const result = await documentService.uploadDocument(formData);
+
+            if (result) {
                 setIsUploadOpen(false);
                 setUploadFile(null);
                 setUploadName("");
                 setUploadType("");
                 loadDocuments();
-            } else {
-                alert("Upload failed. Please try again.");
             }
+        } catch (error) {
+            console.error("Upload failed:", error);
+            alert("Upload failed. Please try again.");
         } finally {
             setIsUploading(false);
         }
     };
 
-    // 👇 FIX: Bulletproof function to prevent React crashes if AI docs lack a versions array
     const getCurrentVersionObj = (doc: any) => {
         if (!doc.versions || doc.versions.length === 0) return null;
-
         const selectedVid = selectedVersions[doc.type];
         if (!selectedVid) return doc.versions[0];
-
         return doc.versions.find((v: any) => v.vid === selectedVid) || doc.versions[0];
     };
 
-    // 👇 FIX: Safely fallback to the main document path if the version path is missing
-    const handleView = (doc: any) => {
+    // ============================================================================
+    // 🧠 DYNAMIC AI GENERATION LOGIC
+    // ============================================================================
+    const handleDynamicRender = async (doc: any, action: 'view' | 'download') => {
+        try {
+            setGeneratingDocId(doc.did);
+
+            // 1. Parse the stored JSON
+            const parsedJson = typeof doc.json_response === 'string'
+                ? JSON.parse(doc.json_response)
+                : doc.json_response;
+
+            // 2. Call the Python endpoint to generate the ZIP
+            const pdfRes = await fetch('https://spark2scale-ai-server.azurewebsites.net/api/v1/evaluation/generate-report', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(parsedJson)
+            });
+
+            if (!pdfRes.ok) throw new Error("Failed to generate PDF from AI Server");
+
+            // 3. Unzip the file
+            const zipBlob = await pdfRes.blob();
+            const zip = new JSZip();
+            const unzipped = await zip.loadAsync(zipBlob);
+
+            // 4. Find the correct PDF based on the document type
+            let fileKey;
+            if (doc.type.toLowerCase().includes("founder")) {
+                fileKey = Object.keys(unzipped.files).find(name => name.includes("Founder_Report"));
+            } else if (doc.type.toLowerCase().includes("investor")) {
+                fileKey = Object.keys(unzipped.files).find(name => name.includes("Investor_Memo"));
+            }
+
+            if (!fileKey) throw new Error("Target PDF not found in the generated ZIP");
+
+            // 5. Extract it and create a temporary URL
+            // 5. Extract it as an ArrayBuffer and force the PDF MIME type
+            const pdfBuffer = await unzipped.files[fileKey].async("arraybuffer");
+            const properPdfBlob = new Blob([pdfBuffer], { type: 'application/pdf' });
+            const blobUrl = URL.createObjectURL(properPdfBlob);
+
+            // 6. Execute action
+            if (action === 'view') {
+                window.open(blobUrl, "_blank");
+            } else {
+                const a = document.createElement('a');
+                a.href = blobUrl;
+                a.download = doc.document_name || `${doc.type}.pdf`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+            }
+
+            // Clean up the URL after a short delay
+            setTimeout(() => URL.revokeObjectURL(blobUrl), 10000);
+
+        } catch (error) {
+            console.error("Dynamic generation failed:", error);
+            alert("Failed to generate document dynamically. Ensure AI server is running.");
+        } finally {
+            setGeneratingDocId(null);
+        }
+    };
+
+    // ============================================================================
+    // 🚦 ROUTING LOGIC FOR VIEW & DOWNLOAD
+    // ============================================================================
+    const handleAction = (doc: any, action: 'view' | 'download') => {
+        // Condition A: It is an AI Evaluation Document with JSON attached
+        const isAIEvaluation = (doc.type.toLowerCase().includes('evaluation') || doc.type.toLowerCase() === 'recommendation') && doc.json_response;
+
+        if (isAIEvaluation) {
+            handleDynamicRender(doc, action);
+            return;
+        }
+
+        // Condition B: Standard File (Uploaded PPT, Business Plan, etc.)
         const version = getCurrentVersionObj(doc);
         const pathToOpen = version?.path || doc.current_path;
 
         if (pathToOpen) {
-            window.open(pathToOpen, "_blank");
+            const isPPT = pathToOpen.toLowerCase().includes('.ppt') ||
+                doc.type?.toLowerCase().includes('ppt') ||
+                doc.type?.toLowerCase().includes('pitch deck');
+
+            if (action === 'view' && isPPT) {
+                // Open PPT in Microsoft Viewer
+                const viewerUrl = `https://view.officeapps.live.com/op/view.aspx?src=${encodeURIComponent(pathToOpen)}`;
+                window.open(viewerUrl, "_blank");
+            } else if (action === 'view') {
+                // Open normal file in browser
+                window.open(pathToOpen, "_blank");
+            } else if (action === 'download') {
+                // Force download
+                const a = document.createElement('a');
+                a.href = pathToOpen;
+                a.download = doc.document_name || "document";
+                a.target = "_blank";
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+            }
         } else {
             alert("This document is still processing or has no file attached.");
         }
@@ -132,12 +232,9 @@ export default function DocumentsHistoryPage() {
         return "📁";
     };
 
-    // 3. Render
     return (
         <div className="min-h-screen bg-gradient-to-br from-[#F0EADC] via-[#fff] to-[#FFD95D]/20">
-            {/* Top Navigation Bar */}
             <div className="border-b bg-white/80 backdrop-blur-lg sticky top-0 z-50 shadow-sm">
-                {/* 👇 Edge-to-edge width (w-full) with thicker padding (py-4) */}
                 <div className="flex w-full items-center px-6 md:px-12 py-4">
                     <div className="flex items-center gap-4">
                         <Link href={`/founder/startup/${startupId}`}>
@@ -156,6 +253,7 @@ export default function DocumentsHistoryPage() {
                     </div>
                 </div>
             </div>
+
             <main className="container mx-auto px-4 py-8">
                 <div className="max-w-5xl mx-auto space-y-8">
                     <div className="grid md:grid-cols-1 gap-6">
@@ -169,6 +267,7 @@ export default function DocumentsHistoryPage() {
                             </div>
                         ) : documents.map((doc, index) => {
                             const activeVersion = getCurrentVersionObj(doc);
+                            const isGenerating = generatingDocId === doc.did;
 
                             return (
                                 <motion.div
@@ -193,7 +292,6 @@ export default function DocumentsHistoryPage() {
                                                                 v{activeVersion ? activeVersion.version_number : doc.current_version}
                                                             </span>
                                                         </div>
-                                                        {/* 👇 FIX: Safe date parsing fallback */}
                                                         <span>Created: {new Date(activeVersion?.created_at || doc.updated_at || Date.now()).toLocaleDateString()}</span>
                                                     </div>
                                                 </div>
@@ -204,8 +302,6 @@ export default function DocumentsHistoryPage() {
                                                 <div className="flex items-center gap-3">
                                                     <div className="flex-grow">
                                                         <Label className="text-xs text-muted-foreground mb-1 block">Select Version</Label>
-
-                                                        {/* 👇 FIX: Conditionally render Select ONLY if versions exist */}
                                                         {doc.versions && doc.versions.length > 0 ? (
                                                             <Select
                                                                 value={selectedVersions[doc.type] || (doc.versions[0]?.vid)}
@@ -251,12 +347,28 @@ export default function DocumentsHistoryPage() {
                                                     )}
                                                 </div>
 
-                                                <div className="grid grid-cols-2 gap-2">
-                                                    <Button variant="outline" size="sm" onClick={() => handleView(doc)}>
-                                                        <Eye className="h-4 w-4 mr-2" />
-                                                        View File
+                                                <div className="flex flex-wrap gap-2 mt-2">
+                                                    <Button
+                                                        variant="outline"
+                                                        size="sm"
+                                                        onClick={() => handleAction(doc, 'view')}
+                                                        disabled={isGenerating}
+                                                        className="flex-1 md:flex-none"
+                                                    >
+                                                        {isGenerating ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Eye className="h-4 w-4 mr-2" />}
+                                                        {isGenerating ? "Generating..." : "View File"}
                                                     </Button>
-                                                    <Button variant="outline" size="sm" disabled={!activeVersion}>
+                                                    <Button
+                                                        variant="outline"
+                                                        size="sm"
+                                                        onClick={() => handleAction(doc, 'download')}
+                                                        disabled={isGenerating}
+                                                        className="flex-1 md:flex-none"
+                                                    >
+                                                        {isGenerating ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Download className="h-4 w-4 mr-2" />}
+                                                        Download
+                                                    </Button>
+                                                    <Button variant="outline" size="sm" disabled={!activeVersion} className="flex-1 md:flex-none">
                                                         <Users className="h-4 w-4 mr-2" />
                                                         Permissions
                                                     </Button>

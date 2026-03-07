@@ -22,6 +22,13 @@ export interface DocumentVersionDto {
     path: string;
     created_at: string;
     generated_by: string;
+    is_public?: boolean;
+}
+
+export interface DocumentData extends DocumentDto {
+    versions: DocumentVersionDto[];
+    access_status?: string;
+    json_response?: string;
 }
 
 export const documentService = {
@@ -47,22 +54,33 @@ export const documentService = {
     },
 
     /**
+     * Get grouped documents (Document + its Versions) - REQUIRED FOR UI
+     */
+    getGroupedDocuments: async (startupId: string): Promise<DocumentData[]> => {
+        if (!startupId || startupId === "undefined") return [];
+
+        const cleanUrl = API_BASE_URL.replace(/\/$/, "").replace(/\/api$/, "");
+        const response = await fetch(`${cleanUrl}/api/Documents/grouped?startupId=${startupId}`, {
+            method: "GET",
+        });
+
+        if (!response.ok) throw new Error("Failed to fetch grouped documents");
+
+        return await response.json();
+    },
+
+    /**
      * Get all documents including archived ones
      */
     getAllDocuments: async (startupId: string): Promise<DocumentDto[]> => {
-        if (!startupId || startupId === "undefined") {
-            console.warn("Skipping fetch: Invalid Startup ID");
-            return [];
-        }
+        if (!startupId || startupId === "undefined") return [];
 
         const cleanUrl = API_BASE_URL.replace(/\/$/, "").replace(/\/api$/, "");
         const response = await fetch(`${cleanUrl}/api/Documents/all?startupId=${startupId}`, {
             method: "GET",
         });
 
-        if (!response.ok) {
-            throw new Error("Failed to fetch all documents");
-        }
+        if (!response.ok) throw new Error("Failed to fetch all documents");
 
         return await response.json();
     },
@@ -76,9 +94,7 @@ export const documentService = {
             method: "GET",
         });
 
-        if (!response.ok) {
-            throw new Error("Failed to fetch document history");
-        }
+        if (!response.ok) throw new Error("Failed to fetch document history");
 
         return await response.json();
     },
@@ -92,9 +108,7 @@ export const documentService = {
             method: "GET",
         });
 
-        if (!response.ok) {
-            throw new Error("Failed to check document completion");
-        }
+        if (!response.ok) throw new Error("Failed to check document completion");
 
         return await response.json();
     },
@@ -118,6 +132,23 @@ export const documentService = {
     },
 
     /**
+     * Toggle Visibility - REQUIRED FOR UI
+     */
+    toggleVersionVisibility: async (vid: string, isPublic: boolean): Promise<boolean> => {
+        const cleanUrl = API_BASE_URL.replace(/\/$/, "").replace(/\/api$/, "");
+        try {
+            const response = await fetch(`${cleanUrl}/api/DocumentVersions/visibility/${vid}`, {
+                method: "PATCH",
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(isPublic)
+            });
+            return response.ok;
+        } catch {
+            return false;
+        }
+    },
+
+    /**
      * Delete a document
      */
     deleteDocument: async (documentId: string): Promise<void> => {
@@ -126,8 +157,6 @@ export const documentService = {
             method: "DELETE",
         });
 
-        if (!response.ok) {
-            throw new Error("Failed to delete document");
-        }
+        if (!response.ok) throw new Error("Failed to delete document");
     }
 };

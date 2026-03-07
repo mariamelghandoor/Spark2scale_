@@ -9,6 +9,7 @@ import { recommendationService, DBRecommendation } from "@/services/recommendati
 import { RecommendationCard } from "@/components/recommendations/RecommendationCard";
 
 // Import the Lego Loader
+// Import the Lego Loader
 import LegoResearchLoader from "@/components/lego/LegoResearchLoader";
 
 interface NamedRecommendation {

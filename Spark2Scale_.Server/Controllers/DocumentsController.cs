@@ -253,7 +253,7 @@ namespace Spark2Scale_.Server.Controllers
                 return Ok(new { message = "AI Response Saved" });
             }
             catch (Exception ex) { return StatusCode(500, $"Save failed: {ex.Message}"); }
-        }   
+        }
 
         [HttpPost("save-ai-evaluations")]
         public async Task<IActionResult> SaveAiEvaluations([FromForm] SaveAiEvaluationsFormDto input)
@@ -361,9 +361,83 @@ namespace Spark2Scale_.Server.Controllers
             };
             await _supabase.From<DocumentVersion>().Insert(versionDoc);
         }
+
+        [HttpGet("grouped")]
+        public async Task<IActionResult> GetGroupedDocuments([FromQuery] string startupId)
+        {
+            if (!Guid.TryParse(startupId, out Guid sId)) return BadRequest("Invalid ID");
+
+            try
+            {
+                // 1. Fetch all current documents for this startup
+                var docsResult = await _supabase.From<Document>()
+                    .Where(x => x.StartupId == sId)
+                    .Where(x => x.IsCurrent == true)
+                    .Order("updated_at", Supabase.Postgrest.Constants.Ordering.Descending)
+                    .Get();
+
+                var currentDocs = docsResult.Models;
+
+                // 2. Fetch all versions history
+                var versionsResult = await _supabase.From<DocumentVersion>()
+                    .Where(x => x.StartupId == sId)
+                    .Order("version_number", Supabase.Postgrest.Constants.Ordering.Descending)
+                    .Get();
+
+                var allVersions = versionsResult.Models;
+
+                // 3. Map them together exactly how React wants them
+                var dtos = currentDocs.Select(d =>
+                {
+                    // Safely convert whatever JSON format Supabase returned into a string
+                    string? jsonString = null;
+                    if (d.JsonResponse != null)
+                    {
+                        if (d.JsonResponse is Newtonsoft.Json.Linq.JToken jToken)
+                            jsonString = jToken.ToString(Newtonsoft.Json.Formatting.None);
+                        else if (d.JsonResponse is System.Text.Json.JsonElement je)
+                            jsonString = je.GetRawText();
+                        else if (d.JsonResponse is string str)
+                            jsonString = str;
+                        else
+                            jsonString = JsonConvert.SerializeObject(d.JsonResponse);
+                    }
+
+                    return new
+                    {
+                        did = d.Did,
+                        startup_id = d.StartupId,
+                        document_name = d.DocumentName,
+                        type = d.Type,
+                        current_path = d.CurrentPath,
+                        current_version = d.CurrentVersion,
+                        updated_at = d.UpdatedAt,
+                        json_response = jsonString, // <--- This allows React to see it's an AI document!
+
+                        // Attach the nested versions array
+                        versions = allVersions
+                            .Where(v => v.DocumentId == d.Did)
+                            .Select(v => new
+                            {
+                                vid = v.Vid,
+                                version_number = v.VersionNumber,
+                                path = v.Path,
+                                created_at = v.CreatedAt,
+                                is_public = v.IsPublic
+                            }).ToList()
+                    };
+                });
+
+                return Ok(dtos);
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, $"Error grouping docs: {ex.Message}");
+            }
+        }
     }
 
-    public class SaveAIResponseDto
+        public class SaveAIResponseDto
     {
         public Guid StartupId { get; set; }
         public string? Type { get; set; }

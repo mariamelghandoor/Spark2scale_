@@ -148,9 +148,9 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content }) =
 export function buildReportMarkdown(data: any): string {
     const report =
         data?.recommendation_report ||
-        data?.recommendationReport  ||
-        data?.final_report          ||
-        data?.finalReport           ||
+        data?.recommendationReport ||
+        data?.final_report ||
+        data?.finalReport ||
         "";
 
     let md = report.replace(/^### /gm, "\n### ");
@@ -187,26 +187,26 @@ export function buildReportMarkdown(data: any): string {
 interface InvestmentMemoViewProps { data: RecommendationContent | any; }
 
 const REFINED_LABELS: Record<string, string> = {
-    problem_statement:  "Problem Statement",
+    problem_statement: "Problem Statement",
     founder_market_fit: "Founder-Market Fit",
-    differentiation:    "Differentiation",
-    core_stickiness:    "Core Stickiness",
-    five_year_vision:   "Five-Year Vision",
-    beachhead_market:   "Beachhead Market",
-    gap_analysis:       "Gap Analysis",
+    differentiation: "Differentiation",
+    core_stickiness: "Core Stickiness",
+    five_year_vision: "Five-Year Vision",
+    beachhead_market: "Beachhead Market",
+    gap_analysis: "Gap Analysis",
 };
 
 export const InvestmentMemoView: React.FC<InvestmentMemoViewProps> = ({ data }) => {
-    const ins     = data?.insights ?? {};
+    const ins = data?.insights ?? {};
     const refined: Record<string, { original: string; recommended: string; why_better: string }> =
         data?.refined_statements ?? data?.refinedStatements ?? {};
     const finalContent = buildReportMarkdown(data);
 
     const overviewRows: [string, string][] = [
-        ins.company_name     && ["Company Name",  ins.company_name],
-        ins.stage            && ["Stage",         ins.stage],
-        ins.target_raise     && ["Target Raise",  ins.target_raise],
-        ins.problem_statement && ["Problem",       ins.problem_statement],
+        ins.company_name && ["Company Name", ins.company_name],
+        ins.stage && ["Stage", ins.stage],
+        ins.target_raise && ["Target Raise", ins.target_raise],
+        ins.problem_statement && ["Problem", ins.problem_statement],
     ].filter(Boolean) as [string, string][];
 
     return (
