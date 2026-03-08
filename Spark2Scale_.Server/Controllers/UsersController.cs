@@ -1,4 +1,5 @@
-﻿using Microsoft.AspNetCore.Mvc;
+﻿// Spark2Scale_.Server/Controllers/UsersController.cs
+using Microsoft.AspNetCore.Mvc;
 using Spark2Scale_.Server.Models;
 using Supabase;
 using System;
@@ -22,13 +23,10 @@ namespace Spark2Scale_.Server.Controllers
     public class UsersController : ControllerBase
     {
         private readonly Client _supabase;
-        private readonly IWebHostEnvironment _environment; // 1. Added Environment for path access
 
-        // Inject IWebHostEnvironment here
-        public UsersController(Client supabase, IWebHostEnvironment environment)
+        public UsersController(Client supabase)
         {
             _supabase = supabase;
-            _environment = environment;
         }
 
         // GET: api/users/get-profile/{userId}
@@ -54,6 +52,7 @@ namespace Spark2Scale_.Server.Controllers
                         user.phone_number,
                         user.address_region
                     },
+                    // Return the clean URL stored in DB (no stale timestamp)
                     avatarUrl = user.avatar_url
                 });
             }
@@ -78,45 +77,33 @@ namespace Spark2Scale_.Server.Controllers
 
                 string currentAvatarUrl = currentUser.avatar_url;
 
-                // 2. Handle Photo Upload (LOCALLY)
+                // 2. Handle Photo Upload to Supabase Storage
                 if (request.Photo != null && request.Photo.Length > 0)
                 {
                     try
                     {
-                        // Validate Extension
                         var allowedExtensions = new[] { ".jpg", ".jpeg", ".png", ".gif" };
                         var extension = Path.GetExtension(request.Photo.FileName).ToLowerInvariant();
                         if (!allowedExtensions.Contains(extension))
-                        {
                             return BadRequest("Invalid file type. Only JPG, PNG, and GIF allowed.");
-                        }
 
-                        // Prepare Folder: wwwroot/uploads
-                        string uploadsFolder = Path.Combine(_environment.WebRootPath, "uploads");
-                        if (!Directory.Exists(uploadsFolder))
-                        {
-                            Directory.CreateDirectory(uploadsFolder);
-                        }
+                        using var memoryStream = new MemoryStream();
+                        await request.Photo.CopyToAsync(memoryStream);
+                        var fileBytes = memoryStream.ToArray();
 
-                        // Create Unique Filename
-                        string fileName = $"{uid}_{DateTime.Now.Ticks}{extension}";
-                        string filePath = Path.Combine(uploadsFolder, fileName);
+                        // Using userId as filename so upsert always overwrites the same file
+                        string fileName = $"{uid}{extension}";
 
-                        // Save File to Disk (Safe & Crash-Free)
-                        using (var stream = new FileStream(filePath, FileMode.Create))
-                        {
-                            await request.Photo.CopyToAsync(stream);
-                        }
+                        var storage = _supabase.Storage.From("avatars");
+                        await storage.Upload(fileBytes, fileName, new Supabase.Storage.FileOptions { Upsert = true });
 
-                        // Generate Local URL
-                        // NOTE: Ensure your Program.cs has app.UseStaticFiles()
-                        var baseUrl = $"{Request.Scheme}://{Request.Host}";
-                        currentAvatarUrl = $"{baseUrl}/uploads/{fileName}";
+                        // FIX: Store CLEAN URL in DB — no timestamp pollution
+                        currentAvatarUrl = storage.GetPublicUrl(fileName);
                     }
                     catch (Exception uploadEx)
                     {
                         Console.WriteLine($"[Upload Failed] {uploadEx.Message}");
-                        return StatusCode(500, "Failed to save image locally.");
+                        return StatusCode(500, $"Failed to upload image to Supabase: {uploadEx.Message}");
                     }
                 }
 
@@ -129,16 +116,23 @@ namespace Spark2Scale_.Server.Controllers
 
                 currentUser.address_region = !string.IsNullOrEmpty(request.AddressRegion) ? request.AddressRegion : currentUser.address_region;
 
-                // Update the URL in the database
+                // Save the clean URL to the database
                 currentUser.avatar_url = currentAvatarUrl;
 
                 await _supabase.From<User>().Update(currentUser);
 
-                return Ok(new { message = "Updated successfully", avatarUrl = currentAvatarUrl });
+                // FIX: Append cache-buster ONLY in the response, not in the DB
+                // This forces the browser to reload the image immediately after update
+                long timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+                string responseAvatarUrl = string.IsNullOrEmpty(currentAvatarUrl)
+                    ? currentAvatarUrl
+                    : $"{currentAvatarUrl}?t={timestamp}";
+
+                return Ok(new { message = "Updated successfully", avatarUrl = responseAvatarUrl });
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"CRITICAL ERROR: {ex}"); // Log to console
+                Console.WriteLine($"CRITICAL ERROR: {ex}");
                 return StatusCode(500, $"Server Error: {ex.Message}");
             }
         }
@@ -176,13 +170,12 @@ namespace Spark2Scale_.Server.Controllers
             });
         }
 
-        // NEW: Get only the user's role
+        // Get only the user's role
         [HttpGet("role/{id}")]
         public async Task<IActionResult> GetUserRole(Guid id)
         {
-            string detectedRole = "guest"; // Default
+            string detectedRole = "guest";
 
-            // 1. Check Founder Table
             var founderCheck = await _supabase.From<Founder>()
                 .Where(f => f.user_id == id)
                 .Get();
@@ -193,15 +186,12 @@ namespace Spark2Scale_.Server.Controllers
             }
             else
             {
-                // 2. Check Investor Table
                 var investorCheck = await _supabase.From<Investor>()
                     .Where(i => i.user_id == id)
                     .Get();
 
                 if (investorCheck.Models.Any())
-                {
                     detectedRole = "investor";
-                }
             }
 
             return Ok(new { role = detectedRole });
