@@ -157,26 +157,45 @@ export default function DocumentsPage() {
     // 3. GENERATE MOCK
     // ---------------------------------------------------------
     const handleSimulateGeneration = async (docId: string) => {
+        console.log(`[handleSimulateGeneration] Started. docId=${docId}, cleanId=${cleanId}`);
         if (!cleanId) return;
         const docConfig = REQUIRED_DOCS.find(d => d.id === docId);
-        if (!docConfig) return;
+        if (!docConfig) {
+            console.log(`[handleSimulateGeneration] docConfig not found for docId=${docId}. Aborting.`);
+            return;
+        }
 
+        console.log(`[handleSimulateGeneration] docConfig found:`, docConfig.name);
         setIsGeneratingDoc(true);
         setMessages(prev => [...prev, { role: "user", content: `Generate the ${docConfig.name} for me.` }]);
 
         try {
-            const success = await documentsService.generateMockDocument(cleanId, docConfig.name);
+            let success = false;
+
+            console.log(`[handleSimulateGeneration] Checking docId: ${docId}`);
+            if (docId === "swot") {
+                console.log(`[handleSimulateGeneration] Invoking generateSwot()`);
+                success = await documentsService.generateSwot(cleanId);
+                console.log(`[handleSimulateGeneration] generateSwot() completed with success=${success}`);
+            } else {
+                console.log(`[handleSimulateGeneration] Invoking generateMockDocument()`);
+                success = await documentsService.generateMockDocument(cleanId, docConfig.name);
+                console.log(`[handleSimulateGeneration] generateMockDocument() completed with success=${success}`);
+            }
 
             if (success) {
+                console.log(`[handleSimulateGeneration] Success! Reloading documents...`);
                 await fetchData();
                 setMessages(prev => [...prev, { role: "assistant", content: `✅ I have successfully generated the ${docConfig.name}. It is now available in your documents list.` }]);
             } else {
+                console.log(`[handleSimulateGeneration] Failed! Displaying error message.`);
                 setMessages(prev => [...prev, { role: "assistant", content: "❌ Error: Could not generate document." }]);
             }
         } catch (error) {
-            console.error("Generation error:", error); // <--- FIX: Use the variable here
+            console.error("[handleSimulateGeneration] Generation error caught:", error);
             setMessages(prev => [...prev, { role: "assistant", content: "❌ Connection error." }]);
         } finally {
+            console.log(`[handleSimulateGeneration] Finished. Restoring generation state.`);
             setIsGeneratingDoc(false);
         }
     };
@@ -337,7 +356,7 @@ export default function DocumentsPage() {
                                                             ) : (
                                                                 <>
                                                                     <Button variant="outline" size="sm" className="h-8 text-xs border-gray-300 hover:bg-gray-50" onClick={() => triggerUpload(config.id)} disabled={uploadingId === config.id}>{uploadingId === config.id ? <Loader2 className="h-3 w-3 mr-1.5 animate-spin" /> : <Upload className="h-3 w-3 mr-1.5" />} Upload</Button>
-                                                                    <Button size="sm" className="h-8 text-xs bg-[#576238] hover:bg-[#464f2d] text-white shadow-sm" onClick={() => handleGenerateClick(config.id, config.aiPrompt)}><Sparkles className="h-3 w-3 mr-1.5" /> Generate</Button>
+                                                                    <Button size="sm" className="h-8 text-xs bg-[#576238] hover:bg-[#464f2d] text-white shadow-sm" onClick={() => handleSimulateGeneration(config.id)} disabled={isGeneratingDoc}><Sparkles className="h-3 w-3 mr-1.5" /> Generate</Button>
                                                                 </>
                                                             )}
                                                         </div>

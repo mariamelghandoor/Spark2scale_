@@ -1,4 +1,4 @@
-﻿using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Spark2Scale_.Server.Models;
 using Supabase;
@@ -9,6 +9,9 @@ using System.Linq;
 using System.Net.Http;
 using System.Threading.Tasks;
 using Newtonsoft.Json;
+using Microsoft.Extensions.Logging;
+using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace Spark2Scale_.Server.Controllers
 {
@@ -19,17 +22,20 @@ namespace Spark2Scale_.Server.Controllers
         private readonly Client _supabase;
         private readonly Spark2Scale_.Server.Services.AccessControlService _access;
         private readonly IHttpClientFactory _httpClientFactory;
+        private readonly ILogger<DocumentsController> _logger;
 
         private const string SAFE_COLS = "did,startup_id,document_name,type,current_path,current_version,canaccess,updated_at,created_at,is_current";
 
         public DocumentsController(
             Client supabase,
             Spark2Scale_.Server.Services.AccessControlService access,
-            IHttpClientFactory httpClientFactory)
+            IHttpClientFactory httpClientFactory,
+            ILogger<DocumentsController> logger)
         {
             _supabase = supabase;
             _access = access;
             _httpClientFactory = httpClientFactory;
+            _logger = logger;
         }
 
         private string GetToken()
@@ -279,6 +285,208 @@ namespace Spark2Scale_.Server.Controllers
                 return Ok(new { success = true });
             }
             catch (Exception ex) { return StatusCode(500, $"Error saving evaluations: {ex.Message}"); }
+        }
+
+        [HttpPost("{id}/generate-swot")]
+        public async Task<IActionResult> GenerateSwot(string id)
+        {
+            Console.WriteLine($"\n========== START GENERATE SWOT ==========");
+            Console.WriteLine($"[GenerateSwot] Invoked with ID: {id}");
+            
+            if (!Guid.TryParse(id, out Guid sId)) {
+                Console.WriteLine($"[GenerateSwot] Invalid ID format.");
+                return BadRequest("Invalid ID format");
+            }
+
+            try
+            {
+                Console.WriteLine($"[GenerateSwot] STEP 1: Fetching Startup...");
+                var startup = (await _supabase.From<Startup>().Where(s => s.Sid == sId).Get()).Models.FirstOrDefault();
+                if (startup == null) {
+                    Console.WriteLine($"[GenerateSwot] Startup not found for ID: {sId}");
+                    return NotFound("Startup not found");
+                }
+
+                Console.WriteLine($"[GenerateSwot] STEP 2: Fetching Market Research Document...");
+                var existingDocs = await _supabase.From<Document>()
+                    .Filter("startup_id", Supabase.Postgrest.Constants.Operator.Equals, sId.ToString())
+                    .Filter("type", Supabase.Postgrest.Constants.Operator.Equals, "Market Research")
+                    .Filter("is_current", Supabase.Postgrest.Constants.Operator.Equals, "true")
+                    .Get();
+
+                var marketResearchDoc = existingDocs.Models.FirstOrDefault();
+                if (marketResearchDoc == null || marketResearchDoc.JsonResponse == null) {
+                    Console.WriteLine($"[GenerateSwot] Market Research doc missing or empty.");
+                    return BadRequest("Market Research document is required to generate SWOT analysis.");
+                }
+
+                Console.WriteLine($"[GenerateSwot] STEP 3: Calling External AI Service...");
+                string jsonContent = "";
+                using (var client = new HttpClient())
+                {
+                    client.Timeout = TimeSpan.FromMinutes(3);
+
+                    // Market_research might be a stringified JSON string, or a structured JObject.
+                    // Let's ensure it goes out as a proper JSON structure, not an escaped string.
+                    object marketResearchPayload = marketResearchDoc.JsonResponse;
+                    if (marketResearchDoc.JsonResponse is string mrString)
+                    {
+                        try { marketResearchPayload = JsonConvert.DeserializeObject(mrString); }
+                        catch { /* keep as string if it fails to parse */ }
+                    }
+
+                    // To prevent Python "'list' object has no attribute 'get'" or string errors
+                    if (marketResearchPayload is Newtonsoft.Json.Linq.JArray || 
+                        (marketResearchPayload is JsonElement je && je.ValueKind == JsonValueKind.Array))
+                    {
+                        marketResearchPayload = new { items = marketResearchPayload };
+                    }
+                    else if (marketResearchPayload is string str)
+                    {
+                        marketResearchPayload = new { content = str };
+                    }
+
+                    var externalPayload = new
+                    {
+                        idea_name = startup.StartupName ?? "No name",
+                        idea_description = startup.IdeaDescription ?? "No description",
+                        region = startup.Region ?? "Global",
+                        market_research = marketResearchPayload
+                    };
+
+                    Console.WriteLine($"[GenerateSwot] External Payload: idea_name='{externalPayload.idea_name}' region='{externalPayload.region}'");
+                    
+                    // Log the entire payload so we can see exactly what Market Research contains
+                    string payloadStr = JsonConvert.SerializeObject(externalPayload, Formatting.Indented);
+                    Console.WriteLine($"[GenerateSwot] --- FULL PAYLOAD SENT TO AI ---");
+                    Console.WriteLine(payloadStr);
+                    Console.WriteLine($"------------------------------------------");
+
+                    var response = await client.PostAsJsonAsync("https://spark2scale-ai-server.azurewebsites.net/api/v1/swot/generate", externalPayload);
+                    Console.WriteLine($"[GenerateSwot] External Response Status: {response.StatusCode}");
+                    
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        var error = await response.Content.ReadAsStringAsync();
+                        Console.WriteLine($"[GenerateSwot] AI Service Failed. Error: {error}");
+                        return StatusCode((int)response.StatusCode, $"AI Service Failed: {error}");
+                    }
+                    
+                    jsonContent = await response.Content.ReadAsStringAsync();
+                    Console.WriteLine($"[GenerateSwot] AI Output received (length: {jsonContent?.Length}).");
+                }
+
+                Console.WriteLine($"[GenerateSwot] STEP 4: Parsing JSON...");
+                // 1. Safely Parse JSON
+                object jsonObjectToSave;
+                try { jsonObjectToSave = System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(jsonContent ?? "{}"); }
+                catch { jsonObjectToSave = new { raw_output = jsonContent }; }
+
+                Console.WriteLine($"[GenerateSwot] STEP 5: Updating Database...");
+                try
+                {
+                    var supabaseUrl = Environment.GetEnvironmentVariable("SUPABASE_URL") ?? Environment.GetEnvironmentVariable("URL");
+                    var supabaseKey = Environment.GetEnvironmentVariable("SUPABASE_KEY") ?? Environment.GetEnvironmentVariable("KEY");
+                    
+                    using var http = _httpClientFactory.CreateClient();
+                    http.DefaultRequestHeaders.Add("apikey", supabaseKey);
+                    http.DefaultRequestHeaders.Add("Authorization", $"Bearer {supabaseKey}");
+                    http.DefaultRequestHeaders.Add("Prefer", "return=representation");
+
+                    // Find old active documents
+                    var swotDocs = await _supabase.From<Document>()
+                        .Filter("startup_id", Supabase.Postgrest.Constants.Operator.Equals, sId.ToString())
+                        .Filter("type", Supabase.Postgrest.Constants.Operator.Equals, "SWOT Analysis")
+                        .Filter("is_current", Supabase.Postgrest.Constants.Operator.Equals, "true")
+                        .Get();
+
+                    var currentDoc = swotDocs.Models.FirstOrDefault();
+                    int nextVersion = 1;
+
+                    // Archive old document if it exists
+                    if (currentDoc != null)
+                    {
+                        Console.WriteLine($"[GenerateSwot] Archiving older version: v{currentDoc.CurrentVersion}");
+                        var patchUrl = $"{supabaseUrl}/rest/v1/documents?did=eq.{currentDoc.Did}";
+                        var patchRequest = new HttpRequestMessage(new HttpMethod("PATCH"), patchUrl) { Content = new StringContent("{\"is_current\": false}", System.Text.Encoding.UTF8, "application/json") };
+                        await http.SendAsync(patchRequest);
+                        nextVersion = currentDoc.CurrentVersion + 1;
+                    }
+
+                    // Setup the New Document
+                    var newDocId = Guid.NewGuid();
+                    Console.WriteLine($"[GenerateSwot] Creating new SWOT document v{nextVersion} with ID {newDocId}");
+                    
+                    var insertPayload = new
+                    {
+                        did = newDocId,
+                        startup_id = sId,
+                        document_name = $"SWOT Analysis v{nextVersion}",
+                        type = "SWOT Analysis",
+                        current_path = "", // IMPORTANT: Empty/Null Path per user instructions
+                        current_version = nextVersion,
+                        canaccess = 1,
+                        updated_at = DateTime.UtcNow,
+                        created_at = DateTime.UtcNow,
+                        is_current = true,
+                        json_response = jsonObjectToSave
+                    };
+
+                    try
+                    {
+                        var insertRequest = new HttpRequestMessage(HttpMethod.Post, $"{supabaseUrl}/rest/v1/documents") { Content = new StringContent(System.Text.Json.JsonSerializer.Serialize(insertPayload), System.Text.Encoding.UTF8, "application/json") };
+                        var docRes = await http.SendAsync(insertRequest);
+                        if (!docRes.IsSuccessStatusCode)
+                        {
+                            var err = await docRes.Content.ReadAsStringAsync();
+                            Console.WriteLine($"[GenerateSwot] Document inserted failed: {err}");
+                        }
+                        else
+                        {
+                            Console.WriteLine($"[GenerateSwot] Document inserted successfully.");
+                        }
+                    }
+                    catch (Exception docEx)
+                    {
+                        Console.WriteLine($"[Ignored] Document response parsing error: {docEx.Message}");
+                    }
+
+                    try
+                    {
+                        var versionDoc = new DocumentVersion
+                        {
+                            DocumentId = newDocId,
+                            StartupId = sId,
+                            VersionNumber = nextVersion,
+                            Path = "",
+                            CreatedAt = DateTime.UtcNow,
+                            GeneratedBy = "AI"
+                        };
+                        await _supabase.From<DocumentVersion>().Insert(versionDoc);
+                        Console.WriteLine($"[GenerateSwot] DocumentVersion inserted successfully.");
+                    }
+                    catch (Exception verEx)
+                    {
+                        Console.WriteLine($"[Ignored] DocumentVersion save failed: {verEx.Message}");
+                    }
+                }
+                catch (Exception dbEx)
+                {
+                    Console.WriteLine($"[GenerateSwot] Database setup error: {dbEx.Message}");
+                }
+
+                Console.WriteLine($"[GenerateSwot] STEP 6: Returning Success...");
+                // Return success to the React frontend immediately!
+                Console.WriteLine($"[GenerateSwot] Returning content length: {jsonContent?.Length}");
+                Console.WriteLine($"========== END GENERATE SWOT ==========\n");
+                return Content(jsonContent ?? "{}", "application/json", System.Text.Encoding.UTF8);
+            }
+            catch (Exception ex) { 
+                Console.WriteLine($"[GenerateSwot] CRITICAL EXCEPTION CAUGHT: {ex.Message}");
+                Console.WriteLine($"[GenerateSwot] StackTrace: {ex.StackTrace}");
+                Console.WriteLine($"========== END GENERATE SWOT (ERROR) ==========\n");
+                return StatusCode(500, new { error = "Internal Server Error", message = ex.Message }); 
+            }
         }
 
         private async Task<string> UploadHelper(IFormFile file, string prefix, Guid sId)

@@ -1,6 +1,6 @@
 // services/documentsService.ts
 
-import { Presentation, Table, Users, Scale, FileText } from "lucide-react";
+import { Presentation, FileText } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 
 // --- Configuration: Required Documents ---
@@ -14,36 +14,12 @@ export const REQUIRED_DOCS = [
         aiPrompt: "Help me generate a structure for my Pitch Deck based on my other documents."
     },
     {
-        id: "financials",
-        name: "Financials",
-        icon: Table,
-        desc: "Excel (.xlsx) or CSV. Investors need to audit formulas.",
-        accept: ".xlsx,.xls,.csv",
-        aiPrompt: "Help me create 3-year Financial Projections."
-    },
-    {
-        id: "cap_table",
-        name: "Cap Table",
-        icon: Users,
-        desc: "Excel or PDF. Ownership structure.",
-        accept: ".xlsx,.xls,.pdf",
-        aiPrompt: "Explain how to structure my Cap Table."
-    },
-    {
-        id: "legal_docs",
-        name: "Legal Docs",
-        icon: Scale,
-        desc: "PDF. Standard for signed legal docs.",
-        accept: ".pdf",
-        aiPrompt: "What legal documents do I need for incorporation?"
-    },
-    {
-        id: "business_plan",
-        name: "Business Plan",
+        id: "swot",
+        name: "SWOT Analysis",
         icon: FileText,
-        desc: "PDF. Detailed execution strategy.",
+        desc: "PDF or Word. Strengths, Weaknesses, Opportunities, and Threats.",
         accept: ".pdf,.doc,.docx",
-        aiPrompt: "Draft an Executive Summary for my Business Plan."
+        aiPrompt: "Help me generate a SWOT analysis based on my startup idea."
     }
 ];
 
@@ -179,6 +155,19 @@ export const documentsService = {
             return true;
         } catch (error) {
             console.error("Error generating mock:", error);
+            return false;
+        }
+    },
+
+    async generateSwot(startupId: string): Promise<boolean> {
+        console.log(`[documentsService.generateSwot] Called for startupId=${startupId}`);
+        try {
+            console.log(`[documentsService.generateSwot] POST to /api/documents/${startupId}/generate-swot`);
+            const res = await apiClient.post(`/api/documents/${startupId}/generate-swot`);
+            console.log(`[documentsService.generateSwot] Response received!`, res.data);
+            return true;
+        } catch (error) {
+            console.error("[documentsService.generateSwot] Error generating SWOT Analysis:", error);
             return false;
         }
     },

@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { ArrowLeft, Eye, Users, Loader2, Globe, Lock } from "lucide-react";
+import { ArrowLeft, Eye, Users, Loader2, Globe, Lock, Download } from "lucide-react";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { useParams } from "next/navigation";
@@ -121,6 +121,30 @@ export default function DocumentsHistoryPage() {
             window.open(pathToOpen, "_blank");
         } else {
             alert("This document is still processing or has no file attached.");
+        }
+    };
+
+    const handleDownload = (doc: any) => {
+        const version = getCurrentVersionObj(doc);
+        const pathToOpen = version?.path || doc.current_path;
+
+        if (pathToOpen) {
+            window.open(pathToOpen, "_blank");
+        } else if (doc.json_response) {
+            const jsonStr = typeof doc.json_response === 'string'
+                ? doc.json_response
+                : JSON.stringify(doc.json_response, null, 2);
+            const blob = new Blob([jsonStr], { type: "application/json" });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement("a");
+            link.href = url;
+            link.download = `${doc.document_name || doc.type || "document"}.json`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+        } else {
+            alert("No file or content available to download.");
         }
     };
 
@@ -251,10 +275,14 @@ export default function DocumentsHistoryPage() {
                                                     )}
                                                 </div>
 
-                                                <div className="grid grid-cols-2 gap-2">
+                                                <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
                                                     <Button variant="outline" size="sm" onClick={() => handleView(doc)}>
                                                         <Eye className="h-4 w-4 mr-2" />
                                                         View File
+                                                    </Button>
+                                                    <Button variant="outline" size="sm" onClick={() => handleDownload(doc)}>
+                                                        <Download className="h-4 w-4 mr-2" />
+                                                        Download
                                                     </Button>
                                                     <Button variant="outline" size="sm" disabled={!activeVersion}>
                                                         <Users className="h-4 w-4 mr-2" />
