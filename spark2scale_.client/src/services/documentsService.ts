@@ -3,7 +3,6 @@
 import { Presentation, FileText } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 
-// --- Configuration: Required Documents ---
 export const REQUIRED_DOCS = [
     {
         id: "pitch_deck",
@@ -23,9 +22,6 @@ export const REQUIRED_DOCS = [
     }
 ];
 
-// --- Types ---
-
-// 1. Basic DB Document (Flat)
 export interface DBDocument {
     did: string;
     master_id: string;
@@ -34,9 +30,9 @@ export interface DBDocument {
     current_path: string;
     current_version: number;
     created_at: string;
+    json_response?: any;
 }
 
-// 2. Document Version (History)
 export interface DocumentVersion {
     vid: string;
     version_number: number;
@@ -46,7 +42,6 @@ export interface DocumentVersion {
     is_public: boolean;
 }
 
-// 3. Grouped Document Data (For Documents Page List)
 export interface DocumentData {
     did: string;
     document_name: string;
@@ -55,9 +50,9 @@ export interface DocumentData {
     updated_at: string;
     is_current: boolean;
     versions: DocumentVersion[];
+    json_response?: any;
 }
 
-// 4. UI State (For Upload/Status Cards)
 export interface DocState {
     configId: string;
     dbId?: string;
@@ -66,9 +61,9 @@ export interface DocState {
     path?: string;
     version?: number;
     date?: string;
+    jsonResponse?: any;
 }
 
-// 5. Chat Types
 export interface SessionSummary {
     sessionId: string;
     sessionName: string;
@@ -80,7 +75,6 @@ export interface ChatMessage {
     content: string;
 }
 
-// 6. Interfaces for API Responses
 interface WorkflowData {
     [key: string]: unknown;
 }
@@ -101,12 +95,7 @@ interface ChatMessageResponse {
     Content?: string;
 }
 
-// --- Service Methods ---
 export const documentsService = {
-
-    // ------------------------------------------------------------------
-    // 1. Basic Document Operations (Upload, Delete, Generate)
-    // ------------------------------------------------------------------
 
     async getDocuments(startupId: string): Promise<DBDocument[]> {
         try {
@@ -120,17 +109,14 @@ export const documentsService = {
 
     async uploadDocument(startupId: string, docType: string, file: File, dbId?: string): Promise<boolean> {
         const formData = new FormData();
-        formData.append("File", file); // Note: C# usually expects "File" capitalized or lowercase depending on config
+        formData.append("File", file);
         formData.append("StartupId", startupId);
         formData.append("Type", docType);
         formData.append("DocName", file.name);
         if (dbId) formData.append("documentId", dbId);
-
         try {
             await apiClient.post(`/api/documents/upload`, formData, {
-                headers: {
-                    'Content-Type': 'multipart/form-data',
-                },
+                headers: { "Content-Type": "multipart/form-data" },
             });
             return true;
         } catch (error) {
@@ -160,43 +146,32 @@ export const documentsService = {
     },
 
     async generateSwot(startupId: string): Promise<boolean> {
-        console.log(`[documentsService.generateSwot] Called for startupId=${startupId}`);
         try {
-            console.log(`[documentsService.generateSwot] POST to /api/documents/${startupId}/generate-swot`);
             const res = await apiClient.post(`/api/documents/${startupId}/generate-swot`);
-            console.log(`[documentsService.generateSwot] Response received!`, res.data);
+            console.log("[generateSwot] Response:", res.data);
             return true;
         } catch (error) {
-            console.error("[documentsService.generateSwot] Error generating SWOT Analysis:", error);
+            console.error("[generateSwot] Error:", error);
             return false;
         }
     },
 
-    // ------------------------------------------------------------------
-    // 2. Advanced Fetching & Grouping (For Documents List Page)
-    // ------------------------------------------------------------------
-
     async getGroupedDocuments(startupId: string): Promise<DocumentData[]> {
         try {
-            // A. Fetch All Docs
             const res = await apiClient.get<DocumentData[]>(`/api/documents/all?startupId=${startupId}`);
             const docs = res.data;
 
-            // B. Fetch History for each (Parallel)
             const docsWithHistory = await Promise.all(
                 docs.map(async (doc) => {
                     try {
                         const hRes = await apiClient.get<DocumentVersion[]>(`/api/documentversions/${doc.did}`);
-                        const history = hRes.data || [];
-                        return { ...doc, versions: history };
-                    } catch (err) {
-                        console.warn(`Could not load history for ${doc.did}`, err);
+                        return { ...doc, versions: hRes.data || [] };
+                    } catch {
                         return { ...doc, versions: [] };
                     }
                 })
             );
 
-            // C. Process & Group
             return this._processAndGroupDocuments(docsWithHistory);
         } catch (error) {
             console.error("Error in getGroupedDocuments:", error);
@@ -204,7 +179,6 @@ export const documentsService = {
         }
     },
 
-    // Internal Helper: Group logic
     _processAndGroupDocuments(rawDocs: DocumentData[]): DocumentData[] {
         const groups: Record<string, DocumentData> = {};
 
@@ -214,25 +188,26 @@ export const documentsService = {
                 groups[type] = { ...doc, versions: [...doc.versions] };
             } else {
                 groups[type].versions = [...groups[type].versions, ...doc.versions];
-                // Update parent info if this doc is newer
+
                 if (new Date(doc.updated_at) > new Date(groups[type].updated_at)) {
                     groups[type].did = doc.did;
                     groups[type].document_name = doc.document_name;
                     groups[type].current_path = doc.current_path;
                     groups[type].updated_at = doc.updated_at;
                     groups[type].is_current = doc.is_current;
+                    groups[type].json_response = doc.json_response;
+                }
+
+                if (!groups[type].json_response && doc.json_response) {
+                    groups[type].json_response = doc.json_response;
                 }
             }
         });
 
         return Object.values(groups).map(group => {
-            // Sort versions descending by date
             group.versions.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-
-            // Deduplicate versions by VID
             const uniqueVersions = Array.from(new Map(group.versions.map(v => [v.vid, v])).values());
             group.versions = uniqueVersions;
-
             return group;
         });
     },
@@ -249,10 +224,6 @@ export const documentsService = {
         }
     },
 
-    // ------------------------------------------------------------------
-    // 3. Workflow & Completion Checks
-    // ------------------------------------------------------------------
-
     async checkCompletion(startupId: string): Promise<{ isComplete: boolean; missingDocs?: string[] } | null> {
         try {
             const res = await apiClient.get<{ isComplete: boolean; missingDocs?: string[] }>(`/api/documents/check-completion/${startupId}`);
@@ -267,17 +238,11 @@ export const documentsService = {
         try {
             const res = await apiClient.get<WorkflowData>(`/api/StartupWorkflow/${startupId}`);
             const data = res.data;
-
-            // Check both camelCase (JSON) and PascalCase (C# DTO)
             const keyCamel = stepName.charAt(0).toLowerCase() + stepName.slice(1);
             const keyPascal = stepName.charAt(0).toUpperCase() + stepName.slice(1);
-
-            if (data[keyCamel] === true || data[keyPascal] === true) {
-                return true;
-            }
-            return false;
+            return data[keyCamel] === true || data[keyPascal] === true;
         } catch (error) {
-            console.error("Error checking completion:", error);
+            console.error("Error checking step completion:", error);
             return null;
         }
     },
@@ -302,10 +267,6 @@ export const documentsService = {
         }
     },
 
-    // ------------------------------------------------------------------
-    // 4. Chat System (AI Assistant)
-    // ------------------------------------------------------------------
-
     async getChatSessions(startupId: string): Promise<SessionSummary[]> {
         try {
             const res = await apiClient.get<ChatSessionResponse[]>(`/api/Chat/sessions/${startupId}/document_gen`);
@@ -322,8 +283,10 @@ export const documentsService = {
 
     async startNewSession(startupId: string): Promise<SessionSummary | null> {
         try {
-            const res = await apiClient.post<ChatSessionResponse>(`/api/Chat/start-new`, { StartupId: startupId, FeatureType: 'document_gen' });
-
+            const res = await apiClient.post<ChatSessionResponse>(`/api/Chat/start-new`, {
+                StartupId: startupId,
+                FeatureType: "document_gen"
+            });
             const data = res.data;
             return {
                 sessionId: data.sessionId || data.SessionId || "",

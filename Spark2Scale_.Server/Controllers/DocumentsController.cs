@@ -89,16 +89,18 @@ namespace Spark2Scale_.Server.Controllers
                     object? parsedJson = null;
                     if (d.JsonResponse != null)
                     {
-                        // If it somehow got saved as a string, parse it back to a JSON object
-                        if (d.JsonResponse is string str)
+                        // Always go through Newtonsoft first to handle JObject/JToken correctly
+                        string rawJson = d.JsonResponse is string s
+                            ? s
+                            : Newtonsoft.Json.JsonConvert.SerializeObject(d.JsonResponse);
+
+                        try
                         {
-                            try { parsedJson = System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(str); }
-                            catch { parsedJson = str; }
+                            parsedJson = System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(rawJson);
                         }
-                        else
+                        catch
                         {
-                            // It's already a valid object (JToken, JsonElement, etc.), leave it alone!
-                            parsedJson = d.JsonResponse;
+                            parsedJson = new { raw_output = rawJson };
                         }
                     }
 

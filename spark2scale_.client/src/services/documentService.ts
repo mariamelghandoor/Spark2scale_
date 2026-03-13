@@ -13,6 +13,7 @@ export interface DocumentDto {
     updated_at: string;
     created_at: string;
     is_current?: boolean;
+    jsonResponse?: any;
 }
 
 export interface DocumentVersionDto {
@@ -22,7 +23,9 @@ export interface DocumentVersionDto {
     path: string;
     created_at: string;
     generated_by: string;
+    jsonResponse?: any;
 }
+
 
 export const documentService = {
     /**

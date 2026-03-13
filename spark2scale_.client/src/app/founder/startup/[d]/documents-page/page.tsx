@@ -3,7 +3,10 @@
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { ArrowLeft, Eye, Users, Loader2, Globe, Lock, Download } from "lucide-react";
+import {
+    ArrowLeft, Eye, Users, Loader2, Globe, Lock, Download, X,
+    TrendingUp, TrendingDown, Lightbulb, AlertTriangle
+} from "lucide-react";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { useParams } from "next/navigation";
@@ -12,14 +15,143 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
-// --- Import Merged Service ---
-import { documentsService, DocumentData } from "@/services/documentsService";
+import { documentsService } from "@/services/documentsService";
+
+// ---------------------------------------------------------------------------
+// Viewer
+// ---------------------------------------------------------------------------
+
+interface SwotData {
+    strengths?: string[];
+    weaknesses?: string[];
+    opportunities?: string[];
+    threats?: string[];
+    [key: string]: unknown;
+}
+
+function parseSwot(raw: unknown): SwotData | null {
+    if (!raw) return null;
+    try {
+        const obj: Record<string, unknown> =
+            typeof raw === "string" ? JSON.parse(raw) : (raw as Record<string, unknown>);
+
+        const unwrapped =
+            (obj.swot_document as Record<string, unknown>) ||
+            (obj.swot_analysis as Record<string, unknown>) ||
+            (obj.swot as Record<string, unknown>) ||
+            obj;
+
+        const cleanItem = (s: string): string =>
+            s.replace(/\*\*[^*]+\*\*:?\s*/g, "").replace(/\*\*/g, "").trim();
+
+        const toArray = (v: unknown): string[] => {
+            if (Array.isArray(v)) return v.map(i => cleanItem(String(i))).filter(Boolean);
+            if (typeof v === "string") return v.split("\n").map(cleanItem).filter(Boolean);
+            return [];
+        };
+
+        return {
+            strengths: toArray(unwrapped.strengths ?? unwrapped.Strengths),
+            weaknesses: toArray(unwrapped.weaknesses ?? unwrapped.Weaknesses),
+            opportunities: toArray(unwrapped.opportunities ?? unwrapped.Opportunities),
+            threats: toArray(unwrapped.threats ?? unwrapped.Threats),
+        };
+    } catch {
+        return null;
+    }
+}
+
+const SWOT_QUADRANTS = [
+    { key: "strengths" as const, label: "Strengths", icon: TrendingUp, border: "border-emerald-200", bg: "bg-emerald-50/60", headerBg: "bg-emerald-100", iconColor: "text-emerald-600", countClass: "bg-emerald-200 text-emerald-800", bullet: "bg-emerald-500" },
+    { key: "weaknesses" as const, label: "Weaknesses", icon: TrendingDown, border: "border-red-200", bg: "bg-red-50/60", headerBg: "bg-red-100", iconColor: "text-red-500", countClass: "bg-red-200 text-red-800", bullet: "bg-red-400" },
+    { key: "opportunities" as const, label: "Opportunities", icon: Lightbulb, border: "border-blue-200", bg: "bg-blue-50/60", headerBg: "bg-blue-100", iconColor: "text-blue-500", countClass: "bg-blue-200 text-blue-800", bullet: "bg-blue-400" },
+    { key: "threats" as const, label: "Threats", icon: AlertTriangle, border: "border-orange-200", bg: "bg-orange-50/60", headerBg: "bg-orange-100", iconColor: "text-orange-500", countClass: "bg-orange-200 text-orange-800", bullet: "bg-orange-400" },
+];
+
+interface ViewerPayload {
+    type: "swot" | "pdf";
+    data?: unknown;
+    url?: string;
+    name: string;
+}
+
+function DocumentViewerModal({ payload, onClose }: { payload: ViewerPayload; onClose: () => void }) {
+    const swot = payload.type === "swot" ? parseSwot(payload.data) : null;
+
+    return (
+        <Dialog open onOpenChange={onClose}>
+            <DialogContent
+                aria-describedby={undefined}
+                className="max-w-[90vw] w-[90vw] h-[90vh] p-0 overflow-hidden flex flex-col"
+            >
+                <DialogHeader className="flex-shrink-0 px-6 py-4 bg-[#576238] text-white flex flex-row items-center justify-between">
+                    <div>
+                        <DialogTitle className="text-base font-bold text-white leading-tight">
+                            {payload.type === "swot" ? "SWOT Analysis" : "Document Viewer"} -- {payload.name}
+                        </DialogTitle>
+                        <p className="text-xs text-white/60 mt-0.5">
+                            {payload.type === "swot" ? "AI-Generated" : "PDF Preview"}
+                        </p>
+                    </div>
+                    <Button variant="ghost" size="icon" onClick={onClose} className="text-white hover:bg-white/20 h-8 w-8 flex-shrink-0">
+                        <X className="h-4 w-4" />
+                    </Button>
+                </DialogHeader>
+
+                <div className="flex-1 overflow-hidden">
+                    {payload.type === "pdf" && payload.url ? (
+                        <iframe src={payload.url} className="w-full h-full border-0" title={payload.name} />
+                    ) : swot ? (
+                        <ScrollArea className="h-full">
+                            <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-4">
+                                {SWOT_QUADRANTS.map(({ key, label, icon: Icon, border, bg, headerBg, iconColor, countClass, bullet }) => {
+                                    const items = swot[key] ?? [];
+                                    return (
+                                        <div key={key} className={`rounded-xl border-2 ${border} ${bg} overflow-hidden`}>
+                                            <div className={`${headerBg} px-4 py-3 flex items-center gap-2`}>
+                                                <Icon className={`h-4 w-4 ${iconColor}`} />
+                                                <span className="font-semibold text-sm text-gray-800">{label}</span>
+                                                <span className={`ml-auto text-[11px] font-semibold px-2 py-0.5 rounded-full ${countClass}`}>{items.length}</span>
+                                            </div>
+                                            <ul className="p-4 space-y-3">
+                                                {items.length === 0 ? (
+                                                    <li className="text-xs text-muted-foreground italic">No items found.</li>
+                                                ) : items.map((item, i) => (
+                                                    <li key={i} className="flex items-start gap-2.5 text-sm text-gray-700 leading-relaxed">
+                                                        <span className={`mt-2 flex-shrink-0 w-1.5 h-1.5 rounded-full ${bullet}`} />
+                                                        {item}
+                                                    </li>
+                                                ))}
+                                            </ul>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </ScrollArea>
+                    ) : (
+                        <div className="flex items-center justify-center h-full text-sm text-muted-foreground">
+                            <pre className="bg-gray-50 border rounded p-3 text-xs text-left max-w-lg overflow-auto max-h-64">
+                                {JSON.stringify(payload.data, null, 2)}
+                            </pre>
+                        </div>
+                    )}
+                </div>
+            </DialogContent>
+        </Dialog>
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Main Page
+// ---------------------------------------------------------------------------
 
 export default function DocumentsHistoryPage() {
     const params = useParams();
-    const [documents, setDocuments] = useState<any[]>([]); // Relaxed type slightly to allow dynamic fallback
+    const [documents, setDocuments] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
+    const [viewerPayload, setViewerPayload] = useState<ViewerPayload | null>(null);
 
     const getCleanId = () => {
         const raw = params?.id || params?.d;
@@ -33,15 +165,10 @@ export default function DocumentsHistoryPage() {
     const [uploadFile, setUploadFile] = useState<File | null>(null);
     const [uploadName, setUploadName] = useState("");
     const [uploadType, setUploadType] = useState("");
-
     const [selectedVersions, setSelectedVersions] = useState<{ [type: string]: string }>({});
 
-    // 1. Fetch Data
     const loadDocuments = async () => {
-        if (!startupId) {
-            setLoading(false);
-            return;
-        }
+        if (!startupId) { setLoading(false); return; }
         setLoading(true);
         try {
             const data = await documentsService.getGroupedDocuments(startupId);
@@ -53,38 +180,33 @@ export default function DocumentsHistoryPage() {
         }
     };
 
-    useEffect(() => {
-        loadDocuments();
-    }, [startupId]);
+    useEffect(() => { loadDocuments(); }, [startupId]);
 
-    // 2. Handlers
+    const getCurrentVersionObj = (doc: any) => {
+        if (!doc.versions || doc.versions.length === 0) return null;
+        const selectedVid = selectedVersions[doc.type];
+        if (!selectedVid) return doc.versions[0];
+        return doc.versions.find((v: any) => v.vid === selectedVid) || doc.versions[0];
+    };
+
+    const isJsonOnlyDoc = (doc: any) => {
+        const version = getCurrentVersionObj(doc);
+        const path = version?.path || doc.current_path;
+        return !path || path.trim() === "";
+    };
+
     const handleToggleVisibility = async (docType: string, versionId: string, currentStatus: boolean) => {
         const newStatus = !currentStatus;
-
-        // Safely map versions (prevents crash if doc.versions is undefined)
-        const updatedDocs = documents.map(doc => {
-            if (doc.type === docType) {
-                return {
-                    ...doc,
-                    versions: (doc.versions || []).map((v: any) =>
-                        v.vid === versionId ? { ...v, is_public: newStatus } : v
-                    )
-                };
-            }
-            return doc;
-        });
-        setDocuments(updatedDocs);
-
+        setDocuments(documents.map(doc => {
+            if (doc.type !== docType) return doc;
+            return { ...doc, versions: (doc.versions || []).map((v: any) => v.vid === versionId ? { ...v, is_public: newStatus } : v) };
+        }));
         const success = await documentsService.toggleVersionVisibility(versionId, newStatus);
-        if (!success) {
-            alert("Failed to change visibility settings.");
-            loadDocuments();
-        }
+        if (!success) { alert("Failed to change visibility settings."); loadDocuments(); }
     };
 
     const handleUploadSubmit = async () => {
         if (!uploadFile || !uploadName || !uploadType || !startupId) return;
-
         setIsUploading(true);
         try {
             const success = await documentsService.uploadDocument(startupId, uploadType, uploadFile);
@@ -102,38 +224,28 @@ export default function DocumentsHistoryPage() {
         }
     };
 
-    // 👇 FIX: Bulletproof function to prevent React crashes if AI docs lack a versions array
-    const getCurrentVersionObj = (doc: any) => {
-        if (!doc.versions || doc.versions.length === 0) return null;
-
-        const selectedVid = selectedVersions[doc.type];
-        if (!selectedVid) return doc.versions[0];
-
-        return doc.versions.find((v: any) => v.vid === selectedVid) || doc.versions[0];
-    };
-
-    // 👇 FIX: Safely fallback to the main document path if the version path is missing
     const handleView = (doc: any) => {
+        if (isJsonOnlyDoc(doc)) {
+            setViewerPayload({ type: "swot", data: doc.json_response, name: doc.document_name || doc.type });
+            return;
+        }
         const version = getCurrentVersionObj(doc);
-        const pathToOpen = version?.path || doc.current_path;
-
-        if (pathToOpen) {
-            window.open(pathToOpen, "_blank");
+        const path = version?.path || doc.current_path;
+        if (path && path.trim() !== "") {
+            setViewerPayload({ type: "pdf", url: path, name: doc.document_name || doc.type });
         } else {
-            alert("This document is still processing or has no file attached.");
+            alert("This document has no file attached.");
         }
     };
 
     const handleDownload = (doc: any) => {
-        const version = getCurrentVersionObj(doc);
-        const pathToOpen = version?.path || doc.current_path;
-
-        if (pathToOpen) {
-            window.open(pathToOpen, "_blank");
-        } else if (doc.json_response) {
-            const jsonStr = typeof doc.json_response === 'string'
-                ? doc.json_response
-                : JSON.stringify(doc.json_response, null, 2);
+        if (!isJsonOnlyDoc(doc)) {
+            const version = getCurrentVersionObj(doc);
+            const path = version?.path || doc.current_path;
+            if (path) { window.open(path, "_blank"); return; }
+        }
+        if (doc.json_response) {
+            const jsonStr = typeof doc.json_response === "string" ? doc.json_response : JSON.stringify(doc.json_response, null, 2);
             const blob = new Blob([jsonStr], { type: "application/json" });
             const url = URL.createObjectURL(blob);
             const link = document.createElement("a");
@@ -143,25 +255,27 @@ export default function DocumentsHistoryPage() {
             link.click();
             document.body.removeChild(link);
             URL.revokeObjectURL(url);
-        } else {
-            alert("No file or content available to download.");
+            return;
         }
+        alert("No file or content available to download.");
     };
 
     const getIcon = (type: string) => {
         const t = type?.toLowerCase() || "";
+        if (t.includes("swot")) return "📊";
         if (t.includes("pdf") || t.includes("evaluation") || t.includes("report")) return "📄";
         if (t.includes("excel") || t.includes("financial") || t.includes("cap")) return "📊";
         if (t.includes("ppt") || t.includes("deck")) return "📽️";
         return "📁";
     };
 
-    // 3. Render
     return (
         <div className="min-h-screen bg-gradient-to-br from-[#F0EADC] via-[#fff] to-[#FFD95D]/20">
-            {/* Top Navigation Bar */}
+            {viewerPayload && (
+                <DocumentViewerModal payload={viewerPayload} onClose={() => setViewerPayload(null)} />
+            )}
+
             <div className="border-b bg-white/80 backdrop-blur-lg sticky top-0 z-50 shadow-sm">
-                {/* 👇 Edge-to-edge width (w-full) with thicker padding (py-4) */}
                 <div className="flex w-full items-center px-6 md:px-12 py-4">
                     <div className="flex items-center gap-4">
                         <Link href={`/founder/startup/${startupId}`}>
@@ -169,17 +283,14 @@ export default function DocumentsHistoryPage() {
                                 <ArrowLeft className="h-5 w-5" />
                             </Button>
                         </Link>
-                        <div className="flex flex-col justify-center">
-                            <h1 className="text-xl font-bold text-[#576238] leading-tight flex items-center gap-2">
-                                Documents
-                            </h1>
-                            <p className="text-sm text-muted-foreground">
-                                Document version history and access control
-                            </p>
+                        <div>
+                            <h1 className="text-xl font-bold text-[#576238] leading-tight">Documents</h1>
+                            <p className="text-sm text-muted-foreground">Document version history and access control</p>
                         </div>
                     </div>
                 </div>
             </div>
+
             <main className="container mx-auto px-4 py-8">
                 <div className="max-w-5xl mx-auto space-y-8">
                     <div className="grid md:grid-cols-1 gap-6">
@@ -193,51 +304,41 @@ export default function DocumentsHistoryPage() {
                             </div>
                         ) : documents.map((doc, index) => {
                             const activeVersion = getCurrentVersionObj(doc);
+                            const jsonOnly = isJsonOnlyDoc(doc);
 
                             return (
-                                <motion.div
-                                    key={doc.did || doc.type || index}
-                                    initial={{ opacity: 0, y: 20 }}
-                                    animate={{ opacity: 1, y: 0 }}
-                                    transition={{ delay: index * 0.1 }}
-                                >
+                                <motion.div key={doc.did || doc.type || index} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.1 }}>
                                     <Card className="p-6 border-2 transition-all bg-white hover:border-[#FFD95D]">
                                         <div className="flex flex-col md:flex-row gap-6">
-                                            {/* LEFT SIDE */}
                                             <div className="flex items-start gap-4 md:w-1/3">
                                                 <div className="text-5xl">{getIcon(doc.type)}</div>
                                                 <div className="flex-grow">
-                                                    <h3 className="font-bold text-[#576238] text-lg mb-1">
-                                                        {doc.document_name || doc.type}
-                                                    </h3>
+                                                    <h3 className="font-bold text-[#576238] text-lg mb-1">{doc.document_name || doc.type}</h3>
                                                     <div className="flex flex-col gap-1 text-xs text-muted-foreground">
                                                         <div className="flex items-center gap-2">
                                                             <span className="font-semibold text-gray-500">Version:</span>
-                                                            <span className="truncate max-w-[150px]">
-                                                                v{activeVersion ? activeVersion.version_number : doc.current_version}
-                                                            </span>
+                                                            <span className="truncate max-w-[150px]">v{activeVersion ? activeVersion.version_number : doc.current_version}</span>
                                                         </div>
-                                                        {/* 👇 FIX: Safe date parsing fallback */}
                                                         <span>Created: {new Date(activeVersion?.created_at || doc.updated_at || Date.now()).toLocaleDateString()}</span>
+                                                        {jsonOnly && (
+                                                            <span className="mt-1 inline-flex items-center text-[10px] bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full w-fit">
+                                                                AI JSON output
+                                                            </span>
+                                                        )}
                                                     </div>
                                                 </div>
                                             </div>
 
-                                            {/* RIGHT SIDE */}
                                             <div className="md:w-2/3 space-y-4">
                                                 <div className="flex items-center gap-3">
                                                     <div className="flex-grow">
                                                         <Label className="text-xs text-muted-foreground mb-1 block">Select Version</Label>
-
-                                                        {/* 👇 FIX: Conditionally render Select ONLY if versions exist */}
                                                         {doc.versions && doc.versions.length > 0 ? (
                                                             <Select
-                                                                value={selectedVersions[doc.type] || (doc.versions[0]?.vid)}
-                                                                onValueChange={(val) => setSelectedVersions({ ...selectedVersions, [doc.type]: val })}
+                                                                value={selectedVersions[doc.type] || doc.versions[0]?.vid}
+                                                                onValueChange={val => setSelectedVersions({ ...selectedVersions, [doc.type]: val })}
                                                             >
-                                                                <SelectTrigger className="w-full h-9">
-                                                                    <SelectValue placeholder="Select Version" />
-                                                                </SelectTrigger>
+                                                                <SelectTrigger className="w-full h-9"><SelectValue placeholder="Select Version" /></SelectTrigger>
                                                                 <SelectContent>
                                                                     {doc.versions.map((v: any) => (
                                                                         <SelectItem key={v.vid} value={v.vid}>
@@ -247,9 +348,7 @@ export default function DocumentsHistoryPage() {
                                                                 </SelectContent>
                                                             </Select>
                                                         ) : (
-                                                            <div className="w-full h-9 border rounded-md bg-gray-50 flex items-center px-3 text-sm text-gray-500">
-                                                                Latest AI Output
-                                                            </div>
+                                                            <div className="w-full h-9 border rounded-md bg-gray-50 flex items-center px-3 text-sm text-gray-500">Latest AI Output</div>
                                                         )}
                                                     </div>
 
@@ -257,19 +356,13 @@ export default function DocumentsHistoryPage() {
                                                         <div className="flex flex-col items-center">
                                                             <Label className="text-xs text-muted-foreground mb-1 block">Visibility</Label>
                                                             <div className="flex items-center gap-2 border p-1 px-2 rounded-md h-9 bg-gray-50">
-                                                                {activeVersion.is_public ? (
-                                                                    <Globe className="h-4 w-4 text-[#576238]" />
-                                                                ) : (
-                                                                    <Lock className="h-4 w-4 text-gray-400" />
-                                                                )}
+                                                                {activeVersion.is_public ? <Globe className="h-4 w-4 text-[#576238]" /> : <Lock className="h-4 w-4 text-gray-400" />}
                                                                 <Switch
                                                                     checked={activeVersion.is_public}
                                                                     onCheckedChange={() => handleToggleVisibility(doc.type, activeVersion.vid, activeVersion.is_public)}
                                                                     className="scale-75 data-[state=checked]:bg-[#576238]"
                                                                 />
-                                                                <span className="text-xs font-medium w-12">
-                                                                    {activeVersion.is_public ? "Public" : "Private"}
-                                                                </span>
+                                                                <span className="text-xs font-medium w-12">{activeVersion.is_public ? "Public" : "Private"}</span>
                                                             </div>
                                                         </div>
                                                     )}
@@ -278,15 +371,13 @@ export default function DocumentsHistoryPage() {
                                                 <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
                                                     <Button variant="outline" size="sm" onClick={() => handleView(doc)}>
                                                         <Eye className="h-4 w-4 mr-2" />
-                                                        View File
+                                                        {jsonOnly ? "View Analysis" : "View File"}
                                                     </Button>
                                                     <Button variant="outline" size="sm" onClick={() => handleDownload(doc)}>
-                                                        <Download className="h-4 w-4 mr-2" />
-                                                        Download
+                                                        <Download className="h-4 w-4 mr-2" /> Download
                                                     </Button>
                                                     <Button variant="outline" size="sm" disabled={!activeVersion}>
-                                                        <Users className="h-4 w-4 mr-2" />
-                                                        Permissions
+                                                        <Users className="h-4 w-4 mr-2" /> Permissions
                                                     </Button>
                                                 </div>
                                             </div>
@@ -298,7 +389,7 @@ export default function DocumentsHistoryPage() {
 
                         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
                             <Card onClick={() => setIsUploadOpen(true)} className="p-6 h-full flex flex-col items-center justify-center border-2 border-dashed border-[#576238]/30 bg-white/50 hover:bg-[#F0EADC]/30 cursor-pointer min-h-[150px]">
-                                <div className="text-5xl mb-4 opacity-50">➕</div>
+                                <div className="text-5xl mb-4 opacity-50">+</div>
                                 <h3 className="font-bold text-[#576238]">Upload New Document</h3>
                             </Card>
                         </motion.div>
@@ -307,12 +398,12 @@ export default function DocumentsHistoryPage() {
             </main>
 
             <Dialog open={isUploadOpen} onOpenChange={setIsUploadOpen}>
-                <DialogContent>
+                <DialogContent aria-describedby={undefined}>
                     <DialogHeader><DialogTitle>Upload Document</DialogTitle></DialogHeader>
                     <div className="grid gap-4 py-4">
                         <div className="grid gap-2">
                             <Label>Document Name</Label>
-                            <Input value={uploadName} onChange={(e) => setUploadName(e.target.value)} />
+                            <Input value={uploadName} onChange={e => setUploadName(e.target.value)} />
                         </div>
                         <div className="grid gap-2">
                             <Label>Type</Label>
@@ -329,7 +420,7 @@ export default function DocumentsHistoryPage() {
                         </div>
                         <div className="grid gap-2">
                             <Label>File</Label>
-                            <Input type="file" onChange={(e) => setUploadFile(e.target.files?.[0] || null)} />
+                            <Input type="file" onChange={e => setUploadFile(e.target.files?.[0] || null)} />
                         </div>
                     </div>
                     <DialogFooter>
