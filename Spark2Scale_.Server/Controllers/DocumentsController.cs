@@ -86,17 +86,20 @@ namespace Spark2Scale_.Server.Controllers
                         else { accessStatus = "locked"; path = null; }
                     }
 
-                    string? jsonString = null;
+                    object? parsedJson = null;
                     if (d.JsonResponse != null)
                     {
-                        if (d.JsonResponse is Newtonsoft.Json.Linq.JToken jToken)
-                            jsonString = jToken.ToString(Newtonsoft.Json.Formatting.None);
-                        else if (d.JsonResponse is System.Text.Json.JsonElement je)
-                            jsonString = je.GetRawText();
-                        else if (d.JsonResponse is string str)
-                            jsonString = str;
+                        // If it somehow got saved as a string, parse it back to a JSON object
+                        if (d.JsonResponse is string str)
+                        {
+                            try { parsedJson = System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(str); }
+                            catch { parsedJson = str; }
+                        }
                         else
-                            jsonString = JsonConvert.SerializeObject(d.JsonResponse);
+                        {
+                            // It's already a valid object (JToken, JsonElement, etc.), leave it alone!
+                            parsedJson = d.JsonResponse;
+                        }
                     }
 
                     return new
@@ -110,7 +113,7 @@ namespace Spark2Scale_.Server.Controllers
                         canaccess = d.CanAccess,
                         updated_at = d.UpdatedAt,
                         access_status = accessStatus,
-                        json_response = jsonString
+                        json_response = parsedJson
                     };
                 });
 
@@ -292,8 +295,9 @@ namespace Spark2Scale_.Server.Controllers
         {
             Console.WriteLine($"\n========== START GENERATE SWOT ==========");
             Console.WriteLine($"[GenerateSwot] Invoked with ID: {id}");
-            
-            if (!Guid.TryParse(id, out Guid sId)) {
+
+            if (!Guid.TryParse(id, out Guid sId))
+            {
                 Console.WriteLine($"[GenerateSwot] Invalid ID format.");
                 return BadRequest("Invalid ID format");
             }
@@ -302,7 +306,8 @@ namespace Spark2Scale_.Server.Controllers
             {
                 Console.WriteLine($"[GenerateSwot] STEP 1: Fetching Startup...");
                 var startup = (await _supabase.From<Startup>().Where(s => s.Sid == sId).Get()).Models.FirstOrDefault();
-                if (startup == null) {
+                if (startup == null)
+                {
                     Console.WriteLine($"[GenerateSwot] Startup not found for ID: {sId}");
                     return NotFound("Startup not found");
                 }
@@ -315,7 +320,8 @@ namespace Spark2Scale_.Server.Controllers
                     .Get();
 
                 var marketResearchDoc = existingDocs.Models.FirstOrDefault();
-                if (marketResearchDoc == null || marketResearchDoc.JsonResponse == null) {
+                if (marketResearchDoc == null || marketResearchDoc.JsonResponse == null)
+                {
                     Console.WriteLine($"[GenerateSwot] Market Research doc missing or empty.");
                     return BadRequest("Market Research document is required to generate SWOT analysis.");
                 }
@@ -326,24 +332,25 @@ namespace Spark2Scale_.Server.Controllers
                 {
                     client.Timeout = TimeSpan.FromMinutes(3);
 
-                    // Market_research might be a stringified JSON string, or a structured JObject.
-                    // Let's ensure it goes out as a proper JSON structure, not an escaped string.
-                    object marketResearchPayload = marketResearchDoc.JsonResponse;
-                    if (marketResearchDoc.JsonResponse is string mrString)
-                    {
-                        try { marketResearchPayload = JsonConvert.DeserializeObject(mrString); }
-                        catch { /* keep as string if it fails to parse */ }
-                    }
+                    // FIX: JsonResponse is typed as `object` and the Supabase C# client deserializes
+                    // JSONB columns into Newtonsoft JObject. System.Text.Json cannot serialize JObject
+                    // correctly — it produces nested empty arrays instead of the real data.
+                    // Solution: always serialize with Newtonsoft first (which handles its own JObject/JToken
+                    // types correctly), then deserialize into a System.Text.Json.JsonElement for a clean,
+                    // framework-agnostic value that PostAsJsonAsync will serialize perfectly.
+                    string mrRawJson = marketResearchDoc.JsonResponse is string alreadyString
+                        ? alreadyString
+                        : Newtonsoft.Json.JsonConvert.SerializeObject(marketResearchDoc.JsonResponse);
 
-                    // To prevent Python "'list' object has no attribute 'get'" or string errors
-                    if (marketResearchPayload is Newtonsoft.Json.Linq.JArray || 
-                        (marketResearchPayload is JsonElement je && je.ValueKind == JsonValueKind.Array))
+                    JsonElement marketResearchPayload;
+                    try
                     {
-                        marketResearchPayload = new { items = marketResearchPayload };
+                        marketResearchPayload = System.Text.Json.JsonSerializer.Deserialize<JsonElement>(mrRawJson);
                     }
-                    else if (marketResearchPayload is string str)
+                    catch
                     {
-                        marketResearchPayload = new { content = str };
+                        Console.WriteLine("[GenerateSwot] WARNING: Failed to deserialize market research JSON. Sending empty object.");
+                        marketResearchPayload = System.Text.Json.JsonSerializer.Deserialize<JsonElement>("{}");
                     }
 
                     var externalPayload = new
@@ -355,8 +362,7 @@ namespace Spark2Scale_.Server.Controllers
                     };
 
                     Console.WriteLine($"[GenerateSwot] External Payload: idea_name='{externalPayload.idea_name}' region='{externalPayload.region}'");
-                    
-                    // Log the entire payload so we can see exactly what Market Research contains
+
                     string payloadStr = JsonConvert.SerializeObject(externalPayload, Formatting.Indented);
                     Console.WriteLine($"[GenerateSwot] --- FULL PAYLOAD SENT TO AI ---");
                     Console.WriteLine(payloadStr);
@@ -364,20 +370,19 @@ namespace Spark2Scale_.Server.Controllers
 
                     var response = await client.PostAsJsonAsync("https://spark2scale-ai-server.azurewebsites.net/api/v1/swot/generate", externalPayload);
                     Console.WriteLine($"[GenerateSwot] External Response Status: {response.StatusCode}");
-                    
+
                     if (!response.IsSuccessStatusCode)
                     {
                         var error = await response.Content.ReadAsStringAsync();
                         Console.WriteLine($"[GenerateSwot] AI Service Failed. Error: {error}");
                         return StatusCode((int)response.StatusCode, $"AI Service Failed: {error}");
                     }
-                    
+
                     jsonContent = await response.Content.ReadAsStringAsync();
                     Console.WriteLine($"[GenerateSwot] AI Output received (length: {jsonContent?.Length}).");
                 }
 
                 Console.WriteLine($"[GenerateSwot] STEP 4: Parsing JSON...");
-                // 1. Safely Parse JSON
                 object jsonObjectToSave;
                 try { jsonObjectToSave = System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(jsonContent ?? "{}"); }
                 catch { jsonObjectToSave = new { raw_output = jsonContent }; }
@@ -387,13 +392,12 @@ namespace Spark2Scale_.Server.Controllers
                 {
                     var supabaseUrl = Environment.GetEnvironmentVariable("SUPABASE_URL") ?? Environment.GetEnvironmentVariable("URL");
                     var supabaseKey = Environment.GetEnvironmentVariable("SUPABASE_KEY") ?? Environment.GetEnvironmentVariable("KEY");
-                    
+
                     using var http = _httpClientFactory.CreateClient();
                     http.DefaultRequestHeaders.Add("apikey", supabaseKey);
                     http.DefaultRequestHeaders.Add("Authorization", $"Bearer {supabaseKey}");
                     http.DefaultRequestHeaders.Add("Prefer", "return=representation");
 
-                    // Find old active documents
                     var swotDocs = await _supabase.From<Document>()
                         .Filter("startup_id", Supabase.Postgrest.Constants.Operator.Equals, sId.ToString())
                         .Filter("type", Supabase.Postgrest.Constants.Operator.Equals, "SWOT Analysis")
@@ -403,7 +407,6 @@ namespace Spark2Scale_.Server.Controllers
                     var currentDoc = swotDocs.Models.FirstOrDefault();
                     int nextVersion = 1;
 
-                    // Archive old document if it exists
                     if (currentDoc != null)
                     {
                         Console.WriteLine($"[GenerateSwot] Archiving older version: v{currentDoc.CurrentVersion}");
@@ -413,17 +416,16 @@ namespace Spark2Scale_.Server.Controllers
                         nextVersion = currentDoc.CurrentVersion + 1;
                     }
 
-                    // Setup the New Document
                     var newDocId = Guid.NewGuid();
                     Console.WriteLine($"[GenerateSwot] Creating new SWOT document v{nextVersion} with ID {newDocId}");
-                    
+
                     var insertPayload = new
                     {
                         did = newDocId,
                         startup_id = sId,
                         document_name = $"SWOT Analysis v{nextVersion}",
                         type = "SWOT Analysis",
-                        current_path = "", // IMPORTANT: Empty/Null Path per user instructions
+                        current_path = "",
                         current_version = nextVersion,
                         canaccess = 1,
                         updated_at = DateTime.UtcNow,
@@ -476,16 +478,16 @@ namespace Spark2Scale_.Server.Controllers
                 }
 
                 Console.WriteLine($"[GenerateSwot] STEP 6: Returning Success...");
-                // Return success to the React frontend immediately!
                 Console.WriteLine($"[GenerateSwot] Returning content length: {jsonContent?.Length}");
                 Console.WriteLine($"========== END GENERATE SWOT ==========\n");
                 return Content(jsonContent ?? "{}", "application/json", System.Text.Encoding.UTF8);
             }
-            catch (Exception ex) { 
+            catch (Exception ex)
+            {
                 Console.WriteLine($"[GenerateSwot] CRITICAL EXCEPTION CAUGHT: {ex.Message}");
                 Console.WriteLine($"[GenerateSwot] StackTrace: {ex.StackTrace}");
                 Console.WriteLine($"========== END GENERATE SWOT (ERROR) ==========\n");
-                return StatusCode(500, new { error = "Internal Server Error", message = ex.Message }); 
+                return StatusCode(500, new { error = "Internal Server Error", message = ex.Message });
             }
         }
 
