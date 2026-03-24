@@ -6,13 +6,18 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using System.Text.Json;
 using System;
+using Microsoft.OpenApi.Models;
+using Swashbuckle.AspNetCore.SwaggerUI;
 
 // Load .env for local development
 Env.Load();
 
+// 1. Load environment variables
+DotNetEnv.Env.Load();
+
 var builder = WebApplication.CreateBuilder(args);
 
-// CORS policy name
+// 2. CORS configuration
 var MyAllowSpecificOrigins = "_myAllowSpecificOrigins";
 
 // CORS configuration

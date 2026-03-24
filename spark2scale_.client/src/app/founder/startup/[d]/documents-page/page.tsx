@@ -250,7 +250,7 @@ export default function DocumentsHistoryPage() {
                 ? JSON.parse(doc.json_response)
                 : doc.json_response;
 
-            const pdfRes = await fetch('https://spark2scale-ai-server.azurewebsites.net/api/v1/evaluation/generate-report', {
+            const pdfRes = await fetch('https://spark2scale-ai-api-server.azurewebsites.net/api/v1/evaluation/generate-report', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(parsedJson)

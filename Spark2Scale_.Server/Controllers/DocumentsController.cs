@@ -385,7 +385,7 @@ namespace Spark2Scale_.Server.Controllers
                     Console.WriteLine(payloadStr);
                     Console.WriteLine($"------------------------------------------");
 
-                    var response = await client.PostAsJsonAsync("https://spark2scale-ai-server.azurewebsites.net/api/v1/swot/generate", externalPayload);
+                    var response = await client.PostAsJsonAsync("https://spark2scale-ai-api-server.azurewebsites.net/api/v1/swot/generate", externalPayload);
                     Console.WriteLine($"[GenerateSwot] External Response Status: {response.StatusCode}");
 
                     if (!response.IsSuccessStatusCode)

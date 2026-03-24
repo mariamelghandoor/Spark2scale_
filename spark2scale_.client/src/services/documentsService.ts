@@ -5,14 +5,6 @@ import apiClient from "@/lib/apiClient";
 
 export const REQUIRED_DOCS = [
     {
-        id: "pitch_deck",
-        name: "Pitch Deck",
-        icon: Presentation,
-        desc: "PDF (Preferred) or PPTX. Ensures design consistency.",
-        accept: ".pdf,.ppt,.pptx",
-        aiPrompt: "Help me generate a structure for my Pitch Deck based on my other documents."
-    },
-    {
         id: "swot",
         name: "SWOT Analysis",
         icon: FileText,

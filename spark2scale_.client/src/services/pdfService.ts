@@ -12,7 +12,7 @@ export const pdfService = {
 
         // Use a clean axios instance to bypass apiClient interceptors
         const response = await axios.post(
-            'https://spark2scale-ai-server.azurewebsites.net/api/v1/pdf/extract-from-pdf',
+            'https://spark2scale-ai-api-server.azurewebsites.net/api/v1/pdf/extract-from-pdf',
             formData,
             {
                 headers: {

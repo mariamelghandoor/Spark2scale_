@@ -54,30 +54,99 @@ export default function FounderDashboard() {
         if (user) setUserName(user.fname || "User");
     }, [user, authLoading, router]);
 
+
     useEffect(() => {
         if (!user?.id) return;
         const CACHE_KEY = `dashboard_data_${user.id}`;
         const loaderTimer = setTimeout(() => setShowLoader(true), 200);
+
         const loadData = async () => {
+            // Show cached data instantly while fetching fresh data
             const cached = localStorage.getItem(CACHE_KEY);
             if (cached) {
                 try {
                     const parsed = JSON.parse(cached);
-                    if (parsed.length > 0) { setStartups(parsed); clearTimeout(loaderTimer); setIsFetching(false); }
-                } catch (e) { console.error("Cache error", e); }
+                    if (parsed.length > 0) {
+                        setStartups(parsed);
+                        clearTimeout(loaderTimer);
+                        setIsFetching(false);
+                    }
+                } catch (e) {
+                    console.error("Cache error", e);
+                }
             }
+
             try {
                 const data = await startupService.getByFounder(user.id);
-                const formattedStartups = data.map((s: any) => ({
-                    id: s.sid, name: s.startupname, field: s.field, region: s.region,
-                    stage: s.startup_stage, progress: s.progress_count, likes: s.total_likes, isBroken: s.progress_has_gap
-                }));
-                setStartups(formattedStartups);
-                localStorage.setItem(CACHE_KEY, JSON.stringify(formattedStartups));
+
+                // Parallel-fetch workflow + pitchdecks for every startup
+                const enriched = await Promise.all(
+                    data.map(async (s: any) => {
+                        const [wfResult, pitchResult] = await Promise.allSettled([
+                            fetch(`${(process.env.NEXT_PUBLIC_API_URL || "http://localhost:5231").replace(/\/$/, "").replace(/\/api$/, "")}/api/StartupWorkflow/${s.sid}`).then(r => r.ok ? r.json() : null),
+                            fetch(`${(process.env.NEXT_PUBLIC_API_URL || "http://localhost:5231").replace(/\/$/, "").replace(/\/api$/, "")}/api/PitchDecks?startupId=${s.sid}`).then(r => r.ok ? r.json() : []),
+                        ]);
+
+                        // ── Stage Count ──────────────────────────────────────────
+                        let progress = s.progress_count ?? 0;
+                        let isBroken = s.progress_has_gap ?? false;
+
+                        if (wfResult.status === "fulfilled" && wfResult.value) {
+                            const wf = wfResult.value;
+
+                            // Handle both camelCase (JSON serializer) and snake_case (raw DB)
+                            const stages = [
+                                wf.ideaCheck ?? wf.idea_check ?? wf.IdeaCheck ?? false,
+                                wf.marketResearch ?? wf.market_research ?? wf.MarketResearch ?? false,
+                                wf.evaluation ?? wf.Evaluation ?? false,
+                                wf.recommendation ?? wf.Recommendation ?? false,
+                                wf.documents ?? wf.Documents ?? false,
+                                wf.pitchDeck ?? wf.pitch_deck ?? wf.PitchDeck ?? false,
+                            ];
+
+                            progress = stages.filter(Boolean).length;
+
+                            // Gap = a completed stage appears AFTER an incomplete one
+                            let seenIncomplete = false;
+                            isBroken = stages.some(completed => {
+                                if (!completed) { seenIncomplete = true; return false; }
+                                return seenIncomplete; // completed after a gap
+                            });
+                        }
+
+                        // ── Likes Count ──────────────────────────────────────────
+                        let likes = s.total_likes ?? 0;
+
+                        if (pitchResult.status === "fulfilled" && Array.isArray(pitchResult.value)) {
+                            likes = pitchResult.value.reduce(
+                                (sum: number, p: any) => sum + (p.countlikes ?? 0),
+                                0
+                            );
+                        }
+
+                        return {
+                            id: s.sid,
+                            name: s.startupname,
+                            field: s.field,
+                            region: s.region,
+                            stage: s.startup_stage,
+                            progress,
+                            likes,
+                            isBroken,
+                        };
+                    })
+                );
+
+                setStartups(enriched);
+                localStorage.setItem(CACHE_KEY, JSON.stringify(enriched));
                 clearTimeout(loaderTimer);
-            } catch (error) { console.error("Failed to load startups", error); }
-            finally { setIsFetching(false); }
+            } catch (error) {
+                console.error("Failed to load startups", error);
+            } finally {
+                setIsFetching(false);
+            }
         };
+
         loadData();
         return () => clearTimeout(loaderTimer);
     }, [user]);

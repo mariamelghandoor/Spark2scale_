@@ -72,7 +72,7 @@ interface MessageApiResponse {
 }
 
 // --- External AI API base URL ---
-const AI_API_BASE = 'https://spark2scale-ai-server.azurewebsites.net/api/v1';
+const AI_API_BASE = 'https://spark2scale-ai-api-server.azurewebsites.net/api/v1';
 
 export const ideaCheckService = {
     // 1. Get Basic Startup Info

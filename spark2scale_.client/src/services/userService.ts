@@ -1,3 +1,4 @@
+// spark2scale_.client/src/services/userService.ts
 import apiClient from '@/lib/apiClient';
 
 export interface UserProfileDto {
@@ -40,13 +41,12 @@ export const userService = {
     },
 
     updateProfile: async (userId: string, formData: FormData) => {
-        // We let the browser set the Content-Type header for FormData automatically 
-        // (usually includes the boundary), or explicitly set it if your client requires.
-        const response = await apiClient.put<{ avatarUrl: string }>(`/api/Users/update-profile/${userId}`, formData, {
-            headers: {
-                'Content-Type': 'multipart/form-data',
-            },
-        });
+        // FIX: Removed the manual 'Content-Type' header.
+        // Axios automatically sets it to 'multipart/form-data; boundary=...' when passing FormData.
+        const response = await apiClient.put<{ avatarUrl: string }>(
+            `/api/Users/update-profile/${userId}`,
+            formData
+        );
         return response.data;
     },
 

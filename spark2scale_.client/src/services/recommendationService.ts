@@ -468,7 +468,7 @@ export const recommendationService = {
     // Falls back to local mock data if the API is unavailable / over-quota.
     // ---------------------------------------------------------
     async generateAIRecommendation(): Promise<RecommendationContent | null> {
-        const AI_AGENT_URL = "https://spark2scale-ai-server.azurewebsites.net/api/v1/recommend";
+        const AI_AGENT_URL = "https://spark2scale-ai-api-server.azurewebsites.net/api/v1/recommend";
         const requestId    = `req_${Date.now()}`;
 
         // ── Shared insight builder from mock inputs ──────────────────

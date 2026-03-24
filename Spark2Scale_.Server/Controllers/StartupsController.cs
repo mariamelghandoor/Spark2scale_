@@ -337,7 +337,7 @@ namespace Spark2Scale_.Server.Controllers
                         region = request.Region
                     };
 
-                    var response = await client.PostAsJsonAsync("https://spark2scale-ai-server.azurewebsites.net/api/v1/market-research/research", externalPayload);
+                    var response = await client.PostAsJsonAsync("https://spark2scale-ai-api-server.azurewebsites.net/api/v1/market-research/research", externalPayload);
                     if (!response.IsSuccessStatusCode)
                     {
                         var error = await response.Content.ReadAsStringAsync();

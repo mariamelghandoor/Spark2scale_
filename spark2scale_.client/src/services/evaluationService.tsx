@@ -111,7 +111,7 @@ export const evaluationService = {
             };
 
             console.log("🚀 Step 2: Starting AI Job on Azure...", payload);
-            const startJobRes = await fetch('https://spark2scale-ai-server.azurewebsites.net/api/v1/evaluation/evaluate/all', {
+            const startJobRes = await fetch('https://spark2scale-ai-api-server.azurewebsites.net/api/v1/evaluation/evaluate/all', {
                 method: 'POST',
                 headers: {
                     'accept': 'application/json',
@@ -131,7 +131,7 @@ export const evaluationService = {
             let finalResult = null;
 
             while (true) {
-                const statusRes = await fetch(`https://spark2scale-ai-server.azurewebsites.net/api/v1/evaluation/evaluate/status/${jobId}`);
+                const statusRes = await fetch(`https://spark2scale-ai-api-server.azurewebsites.net/api/v1/evaluation/evaluate/status/${jobId}`);
                 const statusData = await statusRes.json();
 
                 if (statusData.status === 'completed') {
@@ -147,7 +147,7 @@ export const evaluationService = {
             }
 
             console.log("📦 Step 4: Requesting PDFs from Python server...");
-            const pdfRes = await fetch('https://spark2scale-ai-server.azurewebsites.net/api/v1/evaluation/generate-report', {
+            const pdfRes = await fetch('https://spark2scale-ai-api-server.azurewebsites.net/api/v1/evaluation/generate-report', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(finalResult)
