@@ -157,15 +157,17 @@ export const evaluationService = {
 
             const zipBlob = await pdfRes.blob();
 
-            console.log("🗜️ Step 5: Unzipping the package...");
             const zip = new JSZip();
             const unzipped = await zip.loadAsync(zipBlob);
 
-            const founderFileKey = Object.keys(unzipped.files).find(name => name.includes("Founder_Report"));
-            const investorFileKey = Object.keys(unzipped.files).find(name => name.includes("Investor_Memo"));
+            // Change these search strings to match the Python server output
+            const founderFileKey = Object.keys(unzipped.files).find(name => name.startsWith("F_"));
+            const investorFileKey = Object.keys(unzipped.files).find(name => name.startsWith("I_"));
 
-            if (!founderFileKey || !investorFileKey) throw new Error("ZIP did not contain expected PDFs");
-
+            if (!founderFileKey || !investorFileKey) {
+                console.error("Available files in ZIP:", Object.keys(unzipped.files)); // Debugging
+                throw new Error("ZIP did not contain expected PDFs (F_ or I_ prefixes)");
+            }
             // Extract them as Blobs
             const founderPdfBlob = await unzipped.files[founderFileKey].async("blob");
             const investorPdfBlob = await unzipped.files[investorFileKey].async("blob");

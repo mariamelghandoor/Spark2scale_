@@ -264,9 +264,9 @@ export default function DocumentsHistoryPage() {
 
             let fileKey;
             if (doc.type.toLowerCase().includes("founder")) {
-                fileKey = Object.keys(unzipped.files).find(name => name.includes("Founder_Report"));
+                fileKey = Object.keys(unzipped.files).find(name => name.includes("F"));
             } else if (doc.type.toLowerCase().includes("investor")) {
-                fileKey = Object.keys(unzipped.files).find(name => name.includes("Investor_Memo"));
+                fileKey = Object.keys(unzipped.files).find(name => name.includes("I"));
             }
 
             if (!fileKey) throw new Error("Target PDF not found in the generated ZIP");
