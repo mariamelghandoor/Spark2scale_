@@ -221,7 +221,6 @@ namespace Spark2Scale_.Server.Controllers
                 http.DefaultRequestHeaders.Add("Authorization", $"Bearer {supabaseKey}");
                 http.DefaultRequestHeaders.Add("Prefer", "return=representation");
 
-                // 👇 FIX: Fully qualified System.Text.Encoding.UTF8
                 var patchUrl = $"{supabaseUrl}/rest/v1/documents?startup_id=eq.{input.StartupId}&type=eq.{input.Type}&is_current=eq.true";
                 var patchRequest = new HttpRequestMessage(new HttpMethod("PATCH"), patchUrl) { Content = new StringContent("{\"is_current\": false}", System.Text.Encoding.UTF8, "application/json") };
                 await http.SendAsync(patchRequest);
@@ -242,7 +241,6 @@ namespace Spark2Scale_.Server.Controllers
                     json_response = input.Content
                 };
 
-                // 👇 FIX: Fully qualified System.Text.Encoding.UTF8
                 var insertRequest = new HttpRequestMessage(HttpMethod.Post, $"{supabaseUrl}/rest/v1/documents") { Content = new StringContent(System.Text.Json.JsonSerializer.Serialize(insertPayload), System.Text.Encoding.UTF8, "application/json") };
                 var response = await http.SendAsync(insertRequest);
 
@@ -272,24 +270,41 @@ namespace Spark2Scale_.Server.Controllers
         public async Task<IActionResult> SaveAiEvaluations([FromForm] SaveAiEvaluationsFormDto input)
         {
             if (!Guid.TryParse(input.StartupId, out Guid sId)) return BadRequest("Invalid ID.");
+            if (input.FounderFile == null || input.InvestorFile == null) return BadRequest("Missing PDF files.");
+
             try
             {
                 string founderUrl = await UploadHelper(input.FounderFile, "Founder_Report", sId);
                 string investorUrl = await UploadHelper(input.InvestorFile, "Investor_Memo", sId);
 
-                object? parsedJson = null;
-                if (!string.IsNullOrEmpty(input.JsonResponse))
+                // 1. Safely Parse the JSON String using Newtonsoft
+                object finalJsonObject = null;
+
+                if (!string.IsNullOrWhiteSpace(input.JsonResponse))
                 {
-                    try { parsedJson = JsonConvert.DeserializeObject<object>(input.JsonResponse); }
-                    catch { parsedJson = new { raw_output = input.JsonResponse }; }
+                    try
+                    {
+                        // JObject strictly forces it into Newtonsoft's format, completely avoiding System.Text.Json
+                        finalJsonObject = Newtonsoft.Json.Linq.JObject.Parse(input.JsonResponse);
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"Failed to parse AI JSON. Falling back to wrapper. Error: {ex.Message}");
+                        finalJsonObject = new { raw_output = input.JsonResponse };
+                    }
                 }
 
-                await CreateDocHelper("Founder Evaluation", founderUrl, 0, sId, parsedJson);
-                await CreateDocHelper("Investor Evaluation", investorUrl, 1, sId, parsedJson);
+                // 2. Pass the strongly parsed object down to the helper
+                await CreateDocHelper("Founder Evaluation", founderUrl, 0, sId, finalJsonObject);
+                await CreateDocHelper("Investor Evaluation", investorUrl, 1, sId, finalJsonObject);
 
                 return Ok(new { success = true });
             }
-            catch (Exception ex) { return StatusCode(500, $"Error saving evaluations: {ex.Message}"); }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error saving evaluations: {ex.Message}");
+                return StatusCode(500, new { success = false, message = ex.Message });
+            }
         }
 
         [HttpPost("{id}/generate-swot")]
@@ -493,6 +508,7 @@ namespace Spark2Scale_.Server.Controllers
             }
         }
 
+        // --- RESTORED UPLOAD HELPER ---
         private async Task<string> UploadHelper(IFormFile file, string prefix, Guid sId)
         {
             var fileName = $"{sId}/{DateTime.Now.Ticks}_{prefix}.pdf";
@@ -502,18 +518,138 @@ namespace Spark2Scale_.Server.Controllers
             return _supabase.Storage.From("startup-docs").GetPublicUrl(fileName);
         }
 
-        private async Task CreateDocHelper(string type, string url, int access, Guid sId, object? json)
+        // --- UPDATED CREATE DOC HELPER ---
+        // Parameter changed to `object parsedJson` to accept Newtonsoft objects
+        private async Task CreateDocHelper(string type, string url, int access, Guid sId, object parsedJson)
         {
             var docId = Guid.NewGuid();
-            var doc = new Document { Did = docId, StartupId = sId, DocumentName = type + ".pdf", Type = type, CurrentPath = url, CurrentVersion = 1, CanAccess = access, UpdatedAt = DateTime.UtcNow, CreatedAt = DateTime.UtcNow, IsCurrent = true, JsonResponse = json };
-            await _supabase.From<Document>().Insert(doc);
+            var now = DateTime.UtcNow;
 
-            var versionDoc = new DocumentVersion { DocumentId = docId, StartupId = sId, VersionNumber = 1, Path = url, CreatedAt = DateTime.UtcNow, GeneratedBy = "AI" };
+            // Archive existing docs of this type
+            var existingDocs = await _supabase.From<Document>()
+            .Where(x => x.StartupId == sId)
+            .Where(x => x.Type == type)
+            .Where(x => x.IsCurrent == true)
+            .Get();
+
+            var currentDoc = existingDocs.Models.FirstOrDefault();
+            int nextVersion = 1;
+
+            if (currentDoc != null)
+            {
+                currentDoc.IsCurrent = false;
+                await _supabase.From<Document>().Update(currentDoc);
+                nextVersion = currentDoc.CurrentVersion + 1;
+            }
+
+            // Insert the Document (using the parsedJson object)
+            var doc = new Document
+            {
+                Did = docId,
+                StartupId = sId,
+                DocumentName = type + $" v{nextVersion}.pdf",
+                Type = type,
+                CurrentPath = url,
+                CurrentVersion = nextVersion,
+                CanAccess = access,
+                UpdatedAt = now,
+                CreatedAt = now,
+                IsCurrent = true,
+                JsonResponse = parsedJson // Clean object
+            };
+
+            // FIX: Upsert forces Supabase to respect your exact local docId!
+            await _supabase.From<Document>().Upsert(doc);
+
+            // Insert the Version
+            var versionDoc = new DocumentVersion
+            {
+                DocumentId = docId, // Now perfectly matches the parent!
+                StartupId = sId,
+                VersionNumber = nextVersion,
+                Path = url,
+                CreatedAt = now,
+                GeneratedBy = "AI"
+            };
             await _supabase.From<DocumentVersion>().Insert(versionDoc);
+        }
+
+        [HttpGet("grouped")]
+        public async Task<IActionResult> GetGroupedDocuments([FromQuery] string startupId)
+        {
+            if (!Guid.TryParse(startupId, out Guid sId)) return BadRequest("Invalid ID");
+
+            try
+            {
+                // 1. Fetch all current documents for this startup
+                var docsResult = await _supabase.From<Document>()
+                    .Where(x => x.StartupId == sId)
+                    .Where(x => x.IsCurrent == true)
+                    .Order("updated_at", Supabase.Postgrest.Constants.Ordering.Descending)
+                    .Get();
+
+                var currentDocs = docsResult.Models;
+
+                // 2. Fetch all versions history
+                var versionsResult = await _supabase.From<DocumentVersion>()
+                    .Where(x => x.StartupId == sId)
+                    .Order("version_number", Supabase.Postgrest.Constants.Ordering.Descending)
+                    .Get();
+
+                var allVersions = versionsResult.Models;
+
+                // 3. Map them together exactly how React wants them
+                var dtos = currentDocs.Select(d =>
+                {
+                    // Safely convert whatever JSON format Supabase returned into a string
+                    string? jsonString = null;
+                    if (d.JsonResponse != null)
+                    {
+                        if (d.JsonResponse is Newtonsoft.Json.Linq.JToken jToken)
+                            jsonString = jToken.ToString(Newtonsoft.Json.Formatting.None);
+                        else if (d.JsonResponse is System.Text.Json.JsonElement je)
+                            jsonString = je.GetRawText();
+                        else if (d.JsonResponse is string str)
+                            jsonString = str;
+                        else
+                            jsonString = JsonConvert.SerializeObject(d.JsonResponse);
+                    }
+
+                    return new
+                    {
+                        did = d.Did,
+                        startup_id = d.StartupId,
+                        document_name = d.DocumentName,
+                        type = d.Type,
+                        current_path = d.CurrentPath,
+                        current_version = d.CurrentVersion,
+                        updated_at = d.UpdatedAt,
+                        json_response = jsonString, // <--- This allows React to see it's an AI document!
+
+                        // Attach the nested versions array
+                        versions = allVersions
+                            .Where(v => v.DocumentId == d.Did)
+                            .Select(v => new
+                            {
+                                vid = v.Vid,
+                                version_number = v.VersionNumber,
+                                path = v.Path,
+                                created_at = v.CreatedAt,
+                                is_public = v.IsPublic
+                            }).ToList()
+                    };
+                });
+
+                return Ok(dtos);
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, $"Error grouping docs: {ex.Message}");
+            }
         }
     }
 
-    public class SaveAIResponseDto
+        public class SaveAIResponseDto
     {
         public Guid StartupId { get; set; }
         public string? Type { get; set; }

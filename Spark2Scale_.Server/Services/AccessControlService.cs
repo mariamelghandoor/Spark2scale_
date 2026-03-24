@@ -18,7 +18,7 @@ namespace Spark2Scale_.Server.Services
 
         public async Task<bool> IsFounderOrOwner(string token, Guid startupId)
         {
-            if (string.IsNullOrWhiteSpace(token)) 
+            if (string.IsNullOrWhiteSpace(token))
             {
                 Console.WriteLine($"[AuthDebug] Token is missing or empty.");
                 return false;
@@ -28,10 +28,10 @@ namespace Spark2Scale_.Server.Services
             {
                 // 1. Validate Token & Get User
                 var user = await _supabase.Auth.GetUser(token);
-                
-                if (user == null || user.Id == null) 
+
+                if (user == null || user.Id == null)
                 {
-                    Console.WriteLine($"[AuthDebug] GetUser returned null or no ID for token: {token.Substring(0, Math.Min(10, token.Length))}...");
+                    Console.WriteLine($"[AuthDebug] GetUser returned null for token: {token.Substring(0, Math.Min(10, token.Length))}...");
                     return false;
                 }
 
@@ -39,21 +39,16 @@ namespace Spark2Scale_.Server.Services
                 Console.WriteLine($"[AuthDebug] User Identified: {userId}");
                 Console.WriteLine($"[AuthDebug] Checking ownership for Startup: {startupId}");
 
-                // 2. Check if User is the Founder (Owner) of the startup
+                // 2. FIX: Select only sid + founder_id to avoid ORM crash on json_response (JSONB column)
                 var startupCheck = await _supabase.From<Startup>()
+                    .Select("sid,founder_id")
                     .Where(s => s.Sid == startupId && s.FounderId == userId)
                     .Get();
 
                 bool isOwner = startupCheck.Models.Any();
                 Console.WriteLine($"[AuthDebug] Ownership Check Result: {isOwner}");
-                
-                if (isOwner) return true;
 
-                // 3. Optional: Check if User has 'Founder' role explicitly in public.users (if that's the requirement)
-                // But generally, only the specific startup owner should edit.
-                // For now, strict ownership is safer.
-
-                return false;
+                return isOwner;
             }
             catch (Exception ex)
             {
@@ -64,11 +59,13 @@ namespace Spark2Scale_.Server.Services
 
         public async Task<string?> GetUserId(string token)
         {
-             if (string.IsNullOrWhiteSpace(token)) return null;
-             try {
+            if (string.IsNullOrWhiteSpace(token)) return null;
+            try
+            {
                 var user = await _supabase.Auth.GetUser(token);
                 return user?.Id;
-             } catch { return null; }
+            }
+            catch { return null; }
         }
     }
 }

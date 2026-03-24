@@ -23,7 +23,8 @@ builder.Services.AddCors(options =>
         // Allows localhost for dev and your future Azure Static Web App URL
         policy.SetIsOriginAllowed(origin => new Uri(origin).Host == "localhost" || origin.Contains("azurestaticapps.net") || origin == Environment.GetEnvironmentVariable("CLIENT_URL"))
               .AllowAnyHeader()
-              .AllowAnyMethod();
+              .AllowAnyMethod()
+              .AllowCredentials(); // <--- ADDED THIS LINE
     });
 });
 
@@ -36,7 +37,7 @@ builder.Services.AddControllers()
     .AddJsonOptions(options =>
     {
         options.JsonSerializerOptions.PropertyNameCaseInsensitive = true;
-        options.JsonSerializerOptions.PropertyNamingPolicy = null; 
+        options.JsonSerializerOptions.PropertyNamingPolicy = null;
     });
 
 builder.Services.AddEndpointsApiExplorer();
@@ -94,7 +95,7 @@ if (app.Environment.IsDevelopment() || app.Environment.IsProduction())
     app.UseSwaggerUI(options =>
     {
         options.SwaggerEndpoint("/swagger/v1/swagger.json", "v1");
-        options.RoutePrefix = "swagger"; 
+        options.RoutePrefix = "swagger";
     });
 }
 app.UseAuthorization();

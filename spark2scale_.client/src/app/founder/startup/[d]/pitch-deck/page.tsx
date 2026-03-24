@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { ArrowLeft, Upload, Loader2, BarChart3, CheckCheck } from "lucide-react";
+import { ArrowLeft, Upload, Loader2, BarChart3, CheckCheck, Mic, Play, CheckCircle } from "lucide-react";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { useParams, useRouter } from "next/navigation";
@@ -108,7 +108,6 @@ export default function PitchDeckPage() {
         }
     };
 
-    // Updated: Uses Service
     const handleCompleteStage = async () => {
         setIsCompleting(true);
         try {
@@ -169,7 +168,6 @@ export default function PitchDeckPage() {
                             </p>
                         </div>
                     </div>
-                    {/* Status Badge */}
                     {isStageDone && (
                         <div className="px-4 py-1.5 bg-green-100 text-green-700 rounded-full text-sm font-medium border border-green-200 flex items-center gap-2">
                             <CheckCheck className="h-4 w-4" /> Completed
@@ -180,6 +178,53 @@ export default function PitchDeckPage() {
 
             <main className="container mx-auto px-4 py-8">
                 <div className="max-w-4xl mx-auto">
+
+                    {/* NEW: Meet with AI Section */}
+                    <motion.div
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: 0.1 }}
+                    >
+                        <Card className="mb-6 border-2 border-[#576238] overflow-hidden group">
+                            <div className="bg-[#576238] p-4 flex items-center justify-between text-white">
+                                <div className="flex items-center gap-3">
+                                    <div className="bg-[#FFD95D] p-2 rounded-lg">
+                                        <Mic className="h-6 w-6 text-[#576238]" />
+                                    </div>
+                                    <div>
+                                        <h3 className="font-bold text-lg">Meet with AI – Pitch Enhancer</h3>
+                                        <p className="text-xs text-[#F0EADC]/80">AI-powered immersive voice rehearsal</p>
+                                    </div>
+                                </div>
+                                <Link href={`/founder/startup/${startupId}/pitch-deck/simulator`}>
+                                    <Button className="bg-[#FFD95D] hover:bg-[#ffe89a] text-[#576238] font-bold border-none">
+                                        Start Rehearsal
+                                    </Button>
+                                </Link>
+                            </div>
+                            <div className="p-4 bg-white grid grid-cols-3 gap-4">
+                                <div className="flex items-center gap-2">
+                                    <div className="w-8 h-8 rounded bg-[#F0EADC] flex items-center justify-center">
+                                        <span className="text-xs font-bold text-[#576238]">1</span>
+                                    </div>
+                                    <span className="text-xs font-semibold">Build Persona</span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <div className="w-8 h-8 rounded bg-[#F0EADC] flex items-center justify-center">
+                                        <span className="text-xs font-bold text-[#576238]">2</span>
+                                    </div>
+                                    <span className="text-xs font-semibold">Live Simulation</span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <div className="w-8 h-8 rounded bg-[#F0EADC] flex items-center justify-center">
+                                        <span className="text-xs font-bold text-[#576238]">3</span>
+                                    </div>
+                                    <span className="text-xs font-semibold">AI Evaluation</span>
+                                </div>
+                            </div>
+                        </Card>
+                    </motion.div>
+
                     {/* Upload Section */}
                     {userRole === 'Founder' && (
                         <motion.div

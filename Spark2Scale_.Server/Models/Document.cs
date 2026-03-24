@@ -85,7 +85,7 @@ namespace Spark2Scale_.Server.Models
     public class SaveAiEvaluationsFormDto
     {
         public string StartupId { get; set; }
-        public string JsonResponse { get; set; } // We receive it as a string now!
+        public string JsonResponse { get; set; } 
         public IFormFile FounderFile { get; set; }
         public IFormFile InvestorFile { get; set; }
     }

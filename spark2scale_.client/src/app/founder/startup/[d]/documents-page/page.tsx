@@ -17,10 +17,11 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { ScrollArea } from "@/components/ui/scroll-area";
 
-import { documentsService } from "@/services/documentsService";
+import JSZip from "jszip";
+import { documentService } from "@/services/documentService";
 
 // ---------------------------------------------------------------------------
-// Viewer
+// Viewer Modal
 // ---------------------------------------------------------------------------
 
 interface SwotData {
@@ -153,6 +154,9 @@ export default function DocumentsHistoryPage() {
     const [loading, setLoading] = useState(true);
     const [viewerPayload, setViewerPayload] = useState<ViewerPayload | null>(null);
 
+    // Track which document is currently being generated dynamically
+    const [generatingDocId, setGeneratingDocId] = useState<string | null>(null);
+
     const getCleanId = () => {
         const raw = params?.id || params?.d;
         if (!raw) return "";
@@ -171,7 +175,7 @@ export default function DocumentsHistoryPage() {
         if (!startupId) { setLoading(false); return; }
         setLoading(true);
         try {
-            const data = await documentsService.getGroupedDocuments(startupId);
+            const data = await documentService.getGroupedDocuments(startupId);
             setDocuments(data || []);
         } catch (error) {
             console.error("Failed to load documents", error);
@@ -201,63 +205,150 @@ export default function DocumentsHistoryPage() {
             if (doc.type !== docType) return doc;
             return { ...doc, versions: (doc.versions || []).map((v: any) => v.vid === versionId ? { ...v, is_public: newStatus } : v) };
         }));
-        const success = await documentsService.toggleVersionVisibility(versionId, newStatus);
+        const success = await documentService.toggleVersionVisibility(versionId, newStatus);
         if (!success) { alert("Failed to change visibility settings."); loadDocuments(); }
     };
 
     const handleUploadSubmit = async () => {
         if (!uploadFile || !uploadName || !uploadType || !startupId) return;
+
         setIsUploading(true);
         try {
-            const success = await documentsService.uploadDocument(startupId, uploadType, uploadFile);
-            if (success) {
+            // 1. Pack the data into FormData exactly as your C# backend expects
+            const formData = new FormData();
+            formData.append("StartupId", startupId);
+            formData.append("DocName", uploadName);
+            formData.append("Type", uploadType);
+            formData.append("File", uploadFile);
+
+            // 2. Pass the single formData object to the singular documentService
+            const result = await documentService.uploadDocument(formData);
+
+            if (result) {
                 setIsUploadOpen(false);
                 setUploadFile(null);
                 setUploadName("");
                 setUploadType("");
                 loadDocuments();
-            } else {
-                alert("Upload failed. Please try again.");
             }
+        } catch (error) {
+            console.error("Upload failed:", error);
+            alert("Upload failed. Please try again.");
         } finally {
             setIsUploading(false);
         }
     };
 
-    const handleView = (doc: any) => {
-        if (isJsonOnlyDoc(doc)) {
-            setViewerPayload({ type: "swot", data: doc.json_response, name: doc.document_name || doc.type });
-            return;
-        }
-        const version = getCurrentVersionObj(doc);
-        const path = version?.path || doc.current_path;
-        if (path && path.trim() !== "") {
-            setViewerPayload({ type: "pdf", url: path, name: doc.document_name || doc.type });
-        } else {
-            alert("This document has no file attached.");
+    // ============================================================================
+    // 🧠 DYNAMIC AI GENERATION LOGIC
+    // ============================================================================
+    const handleDynamicRender = async (doc: any, action: 'view' | 'download') => {
+        try {
+            setGeneratingDocId(doc.did);
+
+            const parsedJson = typeof doc.json_response === 'string'
+                ? JSON.parse(doc.json_response)
+                : doc.json_response;
+
+            const pdfRes = await fetch('https://spark2scale-ai-server.azurewebsites.net/api/v1/evaluation/generate-report', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(parsedJson)
+            });
+
+            if (!pdfRes.ok) throw new Error("Failed to generate PDF from AI Server");
+
+            const zipBlob = await pdfRes.blob();
+            const zip = new JSZip();
+            const unzipped = await zip.loadAsync(zipBlob);
+
+            let fileKey;
+            if (doc.type.toLowerCase().includes("founder")) {
+                fileKey = Object.keys(unzipped.files).find(name => name.includes("Founder_Report"));
+            } else if (doc.type.toLowerCase().includes("investor")) {
+                fileKey = Object.keys(unzipped.files).find(name => name.includes("Investor_Memo"));
+            }
+
+            if (!fileKey) throw new Error("Target PDF not found in the generated ZIP");
+
+            const pdfBuffer = await unzipped.files[fileKey].async("arraybuffer");
+            const properPdfBlob = new Blob([pdfBuffer], { type: 'application/pdf' });
+            const blobUrl = URL.createObjectURL(properPdfBlob);
+
+            if (action === 'view') {
+                window.open(blobUrl, "_blank");
+            } else {
+                const a = document.createElement('a');
+                a.href = blobUrl;
+                a.download = doc.document_name || `${doc.type}.pdf`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+            }
+
+            setTimeout(() => URL.revokeObjectURL(blobUrl), 10000);
+
+        } catch (error) {
+            console.error("Dynamic generation failed:", error);
+            alert("Failed to generate document dynamically. Ensure AI server is running.");
+        } finally {
+            setGeneratingDocId(null);
         }
     };
 
-    const handleDownload = (doc: any) => {
-        if (!isJsonOnlyDoc(doc)) {
-            const version = getCurrentVersionObj(doc);
-            const path = version?.path || doc.current_path;
-            if (path) { window.open(path, "_blank"); return; }
-        }
-        if (doc.json_response) {
-            const jsonStr = typeof doc.json_response === "string" ? doc.json_response : JSON.stringify(doc.json_response, null, 2);
-            const blob = new Blob([jsonStr], { type: "application/json" });
-            const url = URL.createObjectURL(blob);
-            const link = document.createElement("a");
-            link.href = url;
-            link.download = `${doc.document_name || doc.type || "document"}.json`;
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            URL.revokeObjectURL(url);
+    // ============================================================================
+    // 🚦 ROUTING LOGIC FOR VIEW & DOWNLOAD
+    // ============================================================================
+    const handleAction = (doc: any, action: 'view' | 'download') => {
+        const isAIEvaluation = (doc.type.toLowerCase().includes('evaluation') || doc.type.toLowerCase() === 'recommendation') && doc.json_response;
+
+        // Condition A: Dynamic Evaluation Generate Document
+        if (isAIEvaluation) {
+            handleDynamicRender(doc, action);
             return;
         }
-        alert("No file or content available to download.");
+
+        // Condition B: JSON only / SWOT Viewer Base Logic
+        if (isJsonOnlyDoc(doc)) {
+            if (action === 'view') {
+                setViewerPayload({ type: "swot", data: doc.json_response, name: doc.document_name || doc.type });
+            } else {
+                const jsonStr = typeof doc.json_response === "string" ? doc.json_response : JSON.stringify(doc.json_response, null, 2);
+                const blob = new Blob([jsonStr], { type: "application/json" });
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement("a");
+                link.href = url;
+                link.download = `${doc.document_name || doc.type || "document"}.json`;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                URL.revokeObjectURL(url);
+            }
+            return;
+        }
+
+        // Condition C: Standard File Open / PDF Viewer (PPT, PDF, etc.)
+        const version = getCurrentVersionObj(doc);
+        const pathToOpen = version?.path || doc.current_path;
+
+        if (pathToOpen) {
+            const isPPT = pathToOpen.toLowerCase().includes('.ppt') ||
+                doc.type?.toLowerCase().includes('ppt') ||
+                doc.type?.toLowerCase().includes('pitch deck');
+
+            if (action === 'view') {
+                if (isPPT) {
+                    const viewerUrl = `https://view.officeapps.live.com/op/view.aspx?src=${encodeURIComponent(pathToOpen)}`;
+                    window.open(viewerUrl, "_blank");
+                } else {
+                    setViewerPayload({ type: "pdf", url: pathToOpen, name: doc.document_name || doc.type });
+                }
+            } else if (action === 'download') {
+                window.open(pathToOpen, "_blank");
+            }
+        } else {
+            alert("This document is still processing or has no file attached.");
+        }
     };
 
     const getIcon = (type: string) => {
@@ -283,8 +374,10 @@ export default function DocumentsHistoryPage() {
                                 <ArrowLeft className="h-5 w-5" />
                             </Button>
                         </Link>
-                        <div>
-                            <h1 className="text-xl font-bold text-[#576238] leading-tight">Documents</h1>
+                        <div className="flex flex-col justify-center">
+                            <h1 className="text-xl font-bold text-[#576238] leading-tight flex items-center gap-2">
+                                Documents
+                            </h1>
                             <p className="text-sm text-muted-foreground">Document version history and access control</p>
                         </div>
                     </div>
@@ -305,6 +398,8 @@ export default function DocumentsHistoryPage() {
                         ) : documents.map((doc, index) => {
                             const activeVersion = getCurrentVersionObj(doc);
                             const jsonOnly = isJsonOnlyDoc(doc);
+                            const isGenerating = generatingDocId === doc.did;
+                            const isAIEvaluation = (doc.type.toLowerCase().includes('evaluation') || doc.type.toLowerCase() === 'recommendation') && doc.json_response;
 
                             return (
                                 <motion.div key={doc.did || doc.type || index} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.1 }}>
@@ -368,15 +463,28 @@ export default function DocumentsHistoryPage() {
                                                     )}
                                                 </div>
 
-                                                <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-                                                    <Button variant="outline" size="sm" onClick={() => handleView(doc)}>
-                                                        <Eye className="h-4 w-4 mr-2" />
-                                                        {jsonOnly ? "View Analysis" : "View File"}
+                                                <div className="flex flex-wrap gap-2 mt-2">
+                                                    <Button
+                                                        variant="outline"
+                                                        size="sm"
+                                                        onClick={() => handleAction(doc, 'view')}
+                                                        disabled={isGenerating}
+                                                        className="flex-1 md:flex-none"
+                                                    >
+                                                        {isGenerating ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Eye className="h-4 w-4 mr-2" />}
+                                                        {isGenerating ? "Generating..." : (jsonOnly && !isAIEvaluation ? "View Analysis" : "View File")}
                                                     </Button>
-                                                    <Button variant="outline" size="sm" onClick={() => handleDownload(doc)}>
-                                                        <Download className="h-4 w-4 mr-2" /> Download
+                                                    <Button
+                                                        variant="outline"
+                                                        size="sm"
+                                                        onClick={() => handleAction(doc, 'download')}
+                                                        disabled={isGenerating}
+                                                        className="flex-1 md:flex-none"
+                                                    >
+                                                        {isGenerating ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Download className="h-4 w-4 mr-2" />}
+                                                        Download
                                                     </Button>
-                                                    <Button variant="outline" size="sm" disabled={!activeVersion}>
+                                                    <Button variant="outline" size="sm" disabled={!activeVersion} className="flex-1 md:flex-none">
                                                         <Users className="h-4 w-4 mr-2" /> Permissions
                                                     </Button>
                                                 </div>
