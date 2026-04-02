@@ -10,44 +10,41 @@
   },
   "profiles": {
     "http": {
-      "commandName": "Project",
-      "dotnetRunMessages": true,
-      "launchBrowser": true,
-      "launchUrl": "swagger",
-      "applicationUrl": "http://localhost:5231",
-      "environmentVariables": {
-        "ASPNETCORE_ENVIRONMENT": "Development",
-        "SUPABASE_URL": "https://xdkxbibtoggcjvgtktaf.supabase.co",
-        "SUPABASE_KEY": "[YOUR_SUPABASE_KEY]",
-        "GMAIL_USER": "doha.hemdan7@gmail.com",
-        "GMAIL_APP_PASSWORD": "[YOUR_GMAIL_APP_PASSWORD]"
-      }
+        "commandName": "Project",
+        "dotnetRunMessages": true,
+        "launchBrowser": true,
+        "launchUrl": "swagger",
+        "applicationUrl": "http://localhost:5231",
+        "environmentVariables": {
+            "ASPNETCORE_ENVIRONMENT": "Development",
+            "ASPNETCORE_HOSTINGSTARTUPASSEMBLIES": "Microsoft.AspNetCore.SpaProxy",
+            "GMAIL_USER": "doha.hemdan7@gmail.com",
+            "GMAIL_APP_PASSWORD": "eric asal exgo yzwe"
+        }
     },
     "https": {
-      "commandName": "Project",
-      "dotnetRunMessages": true,
-      "launchBrowser": true,
-      "launchUrl": "swagger",
-      "applicationUrl": "https://localhost:7231;http://localhost:5231",
-      "environmentVariables": {
-        "ASPNETCORE_ENVIRONMENT": "Development",
-        "SUPABASE_URL": "https://xdkxbibtoggcjvgtktaf.supabase.co",
-        "SUPABASE_KEY": "[YOUR_SUPABASE_KEY]",
-        "GMAIL_USER": "doha.hemdan7@gmail.com",
-        "GMAIL_APP_PASSWORD": "[YOUR_GMAIL_APP_PASSWORD]"
-      }
+        "commandName": "Project",
+        "dotnetRunMessages": true,
+        "launchBrowser": true,
+        "launchUrl": "swagger",
+        "applicationUrl": "https://localhost:5231;http://localhost:5240",
+        "environmentVariables": {
+            "ASPNETCORE_ENVIRONMENT": "Development",
+            "ASPNETCORE_HOSTINGSTARTUPASSEMBLIES": "Microsoft.AspNetCore.SpaProxy",
+            "GMAIL_USER": "doha.hemdan7@gmail.com",
+            "GMAIL_APP_PASSWORD": "eric asal exgo yzwe"
+        }
     },
     "IIS Express": {
       "commandName": "IISExpress",
       "launchBrowser": true,
       "launchUrl": "swagger",
-      "environmentVariables": {
-        "ASPNETCORE_ENVIRONMENT": "Development",
-        "SUPABASE_URL": "https://xdkxbibtoggcjvgtktaf.supabase.co",
-        "SUPABASE_KEY": "[YOUR_SUPABASE_KEY]",
-        "GMAIL_USER": "doha.hemdan7@gmail.com",
-        "GMAIL_APP_PASSWORD": "[YOUR_GMAIL_APP_PASSWORD]"
-      }
+        "environmentVariables": {
+            "ASPNETCORE_ENVIRONMENT": "Development",
+            "ASPNETCORE_HOSTINGSTARTUPASSEMBLIES": "Microsoft.AspNetCore.SpaProxy",
+            "GMAIL_USER": "doha.hemdan7@gmail.com",
+            "GMAIL_APP_PASSWORD": "eric asal exgo yzwe"
+        }
     }
   }
 }
