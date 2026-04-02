@@ -14,6 +14,8 @@ import { useParams } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
+import { App } from "@/components/livekit-app/app";
+import { APP_CONFIG_DEFAULTS } from "@/app-config";
 
 type SimulationPhase = "setup" | "preparing" | "meeting" | "evaluation";
 
@@ -206,71 +208,23 @@ export default function PitchSimulator() {
 
                 {/* PHASE 3: MEETING */}
                 {phase === "meeting" && (
-                    <motion.div key="meeting" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex flex-col h-screen bg-neutral-900">
-                        <div className="p-4 flex justify-between items-center bg-black/40 text-white backdrop-blur-md">
+                    <motion.div key="meeting" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex flex-col h-screen bg-[#050505]">
+                        <div className="p-4 flex justify-between items-center bg-black/40 text-white backdrop-blur-md absolute top-0 left-0 right-0 z-50">
                             <div className="flex items-center gap-2">
                                 <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
-                                <span className="text-xs font-bold uppercase tracking-widest">Live Voice Session</span>
+                                <span className="text-xs font-bold uppercase tracking-widest">Live Voice Session ({selectedPersona.name})</span>
                             </div>
-                            <div className="bg-neutral-800 px-4 py-1 rounded-full border border-neutral-700 font-mono">
-                                {formatTime(timeLeft)}
+                            <div className="flex gap-4 items-center">
+                                <div className="bg-neutral-800 px-4 py-1 rounded-full border border-neutral-700 font-mono">
+                                    {formatTime(timeLeft)}
+                                </div>
+                                <Button variant="destructive" size="sm" className="rounded-full font-black italic uppercase text-xs" onClick={() => setPhase("evaluation")}>
+                                    <PhoneOff className="mr-2 h-4 w-4" /> End
+                                </Button>
                             </div>
                         </div>
-
-                        <div className="flex-grow flex items-center justify-center gap-12 md:gap-24">
-                            {/* User */}
-                            <div className="flex flex-col items-center gap-4">
-                                <div className="relative">
-                                    <div className="w-32 h-32 md:w-48 md:h-48 rounded-full bg-neutral-800 border-4 border-neutral-700 flex items-center justify-center overflow-hidden shadow-2xl">
-                                        <User size={64} className="text-neutral-600" />
-                                    </div>
-                                    {!isMuted && (
-                                        <motion.div
-                                            animate={{ scale: [1, 1.2, 1], opacity: [0.5, 0, 0.5] }}
-                                            transition={{ repeat: Infinity, duration: 2 }}
-                                            className="absolute inset-0 border-4 border-green-500 rounded-full"
-                                        />
-                                    )}
-                                </div>
-                                <span className="text-white font-bold">You</span>
-                            </div>
-
-                            {/* AI */}
-                            <div className="flex flex-col items-center gap-4">
-                                <div className="relative">
-                                    <motion.div
-                                        animate={isAiSpeaking ? { scale: [1, 1.05, 1] } : {}}
-                                        transition={{ repeat: Infinity, duration: 1 }}
-                                        className={cn("w-32 h-32 md:w-48 md:h-48 rounded-full flex items-center justify-center text-7xl shadow-2xl", selectedPersona.color)}
-                                    >
-                                        {selectedPersona.avatar}
-                                    </motion.div>
-                                    {isAiSpeaking && (
-                                        <motion.div
-                                            animate={{ scale: [1, 1.3, 1], opacity: [0.5, 0, 0.5] }}
-                                            transition={{ repeat: Infinity, duration: 1.5 }}
-                                            className="absolute inset-0 border-4 border-[#FFD95D] rounded-full"
-                                        />
-                                    )}
-                                </div>
-                                <span className="text-[#FFD95D] font-bold uppercase tracking-tighter">
-                                    {isAiSpeaking ? "Speaking..." : "Listening"}
-                                </span>
-                            </div>
-                        </div>
-
-                        <div className="p-8 bg-black flex justify-center items-center gap-6">
-                            <Button
-                                variant="outline"
-                                size="icon"
-                                className={cn("w-14 h-14 rounded-full border-none", isMuted ? "bg-red-500 text-white" : "bg-neutral-800 text-white")}
-                                onClick={() => setIsMuted(!isMuted)}
-                            >
-                                {isMuted ? <MicOff /> : <Mic />}
-                            </Button>
-                            <Button variant="destructive" size="lg" className="rounded-2xl h-16 px-12 font-black italic uppercase" onClick={() => setPhase("evaluation")}>
-                                <PhoneOff className="mr-2" /> End Call
-                            </Button>
+                        <div className="flex-grow w-full h-full relative" style={{ height: "100svh" }}>
+                            <App appConfig={APP_CONFIG_DEFAULTS} />
                         </div>
                     </motion.div>
                 )}
