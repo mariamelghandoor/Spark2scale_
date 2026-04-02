@@ -1,10 +1,11 @@
 {
-    "$schema": "http://json.schemastore.org/launchsettings.json",
+    "$schema": "
+        ://json.schemastore.org/launchsettings.json",
     "iisSettings": {
         "windowsAuthentication": false,
         "anonymousAuthentication": true,
         "iisExpress": {
-            "applicationUrl": "http://localhost:10853",
+            "applicationUrl": "https://localhost:10853",
             "sslPort": 44359
         }
     },
@@ -14,7 +15,7 @@
             "dotnetRunMessages": true,
             "launchBrowser": true,
             "launchUrl": "swagger",
-            "applicationUrl": "http://localhost:5231",
+            "applicationUrl": "https://localhost:5231",
             "environmentVariables": {
                 "ASPNETCORE_ENVIRONMENT": "Development",
                 "ASPNETCORE_HOSTINGSTARTUPASSEMBLIES": "Microsoft.AspNetCore.SpaProxy",
@@ -27,7 +28,7 @@
             "dotnetRunMessages": true,
             "launchBrowser": true,
             "launchUrl": "swagger",
-            "applicationUrl": "https://localhost:5231;http://localhost:5240",
+            "applicationUrl": "https://localhost:5231;https://localhost:5240",
             "environmentVariables": {
                 "ASPNETCORE_ENVIRONMENT": "Development",
                 "ASPNETCORE_HOSTINGSTARTUPASSEMBLIES": "Microsoft.AspNetCore.SpaProxy",
