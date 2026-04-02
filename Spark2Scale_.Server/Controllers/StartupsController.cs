@@ -1,4 +1,4 @@
-﻿using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc;
 using Spark2Scale_.Server.Models;
 using System;
 using System.Collections.Generic;
@@ -326,14 +326,66 @@ namespace Spark2Scale_.Server.Controllers
                 var startup = (await _supabase.From<Startup>().Select(SAFE_COLS).Where(s => s.Sid == sId).Get()).Models.FirstOrDefault();
                 if (startup == null) return NotFound("Startup not found");
 
+                // 1. Fetch the enriched JSON response you added from the Founder Client dashboard!
+                JsonElement startupDataPayload = System.Text.Json.JsonSerializer.Deserialize<JsonElement>("{}");
+                try
+                {
+                    var supabaseUrl = Environment.GetEnvironmentVariable("SUPABASE_URL") ?? Environment.GetEnvironmentVariable("URL");
+                    var supabaseKey = Environment.GetEnvironmentVariable("SUPABASE_KEY") ?? Environment.GetEnvironmentVariable("KEY");
+                    using var h = new HttpClient();
+                    h.DefaultRequestHeaders.Add("apikey", supabaseKey);
+                    h.DefaultRequestHeaders.Add("Authorization", $"Bearer {supabaseKey}");
+                    var rawRes = await h.GetAsync($"{supabaseUrl}/rest/v1/startups?select=json_response&sid=eq.{sId}");
+                    if (rawRes.IsSuccessStatusCode)
+                    {
+                        var body = await rawRes.Content.ReadAsStringAsync();
+                        var array = JsonNode.Parse(body)?.AsArray();
+                        if (array != null && array.Count > 0)
+                        {
+                            var tokens = array[0]["json_response"]?.ToString();
+                            if (!string.IsNullOrWhiteSpace(tokens))
+                            {
+                                startupDataPayload = System.Text.Json.JsonSerializer.Deserialize<JsonElement>(tokens);
+                            }
+                        }
+                    }
+                }
+                catch { }
+
+                string fullIdea = startup.IdeaDescription ?? "No description";
+                string shortIdeaName = fullIdea.Length > 50 ? fullIdea.Substring(0, 47) + "..." : fullIdea;
+
+                // 2. We concatenate all the rich data into the "problem" field because the AI server only takes idea, problem, and region.
+                string richProblemText = $"Task: Identify primary market pain points for {startup.StartupName}\n\n";
+                richProblemText += $"Core Idea: {fullIdea}\n";
+                try
+                {
+                    if (startupDataPayload.TryGetProperty("startup_evaluation", out var eval))
+                    {
+                        string problemDef = eval.TryGetProperty("problem_definition", out var pd) ? pd.ToString() : "";
+                        string productSol = eval.TryGetProperty("product_and_solution", out var ps) ? ps.ToString() : "";
+                        string market = eval.TryGetProperty("market_and_scope", out var ms) ? ms.ToString() : "";
+                        string bizModel = eval.TryGetProperty("business_model", out var bm) ? bm.ToString() : "";
+                        
+                        richProblemText += $"Problem Details: {problemDef}\n" +
+                                           $"Solution Details: {productSol}\n" +
+                                           $"Market Scope: {market}\n" +
+                                           $"Business Model: {bizModel}";
+                    }
+                }
+                catch (Exception flattenEx)
+                {
+                    Console.WriteLine($"[GenerateMarketResearch] Flattening JSON to text failed: {flattenEx.Message}");
+                }
+
                 string jsonContent = "";
                 using (var client = new HttpClient())
                 {
                     client.Timeout = TimeSpan.FromMinutes(3);
                     var externalPayload = new
                     {
-                        idea = startup.IdeaDescription ?? "No description",
-                        problem = "Identify primary market pain points for " + startup.StartupName,
+                        idea = shortIdeaName,
+                        problem = richProblemText,
                         region = request.Region
                     };
 
