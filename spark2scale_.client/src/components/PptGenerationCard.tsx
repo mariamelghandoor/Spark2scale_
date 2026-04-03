@@ -67,7 +67,7 @@ export default function DocumentsPage() {
             const dbDocs = await documentsService.getDocuments(cleanId);
 
             // Check for existing PPT
-            const pptDoc = dbDocs.find(d => d.type.toLowerCase() === "pitch deck (ppt)");
+            const pptDoc = dbDocs.find(d => d.type.toLowerCase() === "Pitch Deck (PPT)");
             if (pptDoc?.current_path) setPptUrl(pptDoc.current_path);
 
             const mergedState: DocState[] = REQUIRED_DOCS.map(req => {

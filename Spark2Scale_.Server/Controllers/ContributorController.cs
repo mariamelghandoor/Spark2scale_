@@ -1,4 +1,4 @@
-﻿using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc;
 using Supabase;
 using Spark2Scale_.Server.Models;
 using Spark2Scale_.Server.Services; // Ensure EmailService is imported
@@ -103,8 +103,8 @@ namespace Spark2Scale_.Server.Controllers
             {
                 var newContributor = new Contributor
                 {
-                    user_id = request.UserId,
-                    startup_id = request.StartupId
+                    UserId = request.UserId,
+                    StartupId = request.StartupId
                 };
 
                 await _supabase.From<Contributor>().Insert(newContributor);

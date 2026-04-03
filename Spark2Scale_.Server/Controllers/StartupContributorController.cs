@@ -1,4 +1,4 @@
-﻿using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc;
 using Supabase;
 using Spark2Scale_.Server.Models;
 using System;
@@ -47,7 +47,7 @@ namespace Spark2Scale_.Server.Controllers
                 return BadRequest("Startup does not exist.");
 
             var contributorCheck = await _supabase.From<Contributor>()
-                .Where(c => c.user_id == contributorGuid)
+                .Where(c => c.UserId == contributorGuid)
                 .Get();
 
             if (!contributorCheck.Models.Any())
