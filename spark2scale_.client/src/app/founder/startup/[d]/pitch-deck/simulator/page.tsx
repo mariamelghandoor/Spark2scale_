@@ -6,7 +6,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import {
     ArrowLeft, Mic, MicOff, PhoneOff, Clock, User, CheckCircle2,
     UserCircle2, Brain, TrendingUp, ShieldCheck, Zap, Target, Trophy,
-    AlertTriangle, ChevronRight
+    AlertTriangle, ChevronRight, Loader2
 } from "lucide-react";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
@@ -54,6 +54,29 @@ export default function PitchSimulator() {
     const [isMuted, setIsMuted] = useState(false);
     const [timeLeft, setTimeLeft] = useState(10 * 60);
     const [prepProgress, setPrepProgress] = useState(0);
+    const [isExtracting, setIsExtracting] = useState(true);
+
+    // Phase 1: Pre-flight Extraction (Trigger in background while they pick settings!)
+    useEffect(() => {
+        if (phase === "setup") {
+            setIsExtracting(true);
+            // Kick off the 60-second extraction on the Python server while the user interacts with the UI
+            const pythonApiUrl = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'https://spark2scale-ai-api-server.azurewebsites.net';
+            fetch(`${pythonApiUrl}/api/v1/pitch-analyzer/extract`, { method: 'POST' })
+                .then(async (response) => {
+                    if (!response.ok) {
+                        const errText = await response.text();
+                        throw new Error(`Server returned ${response.status}: ${errText}`);
+                    }
+                    console.log('Background extraction completed successfully!');
+                    setIsExtracting(false);
+                })
+                .catch(e => {
+                    console.error('Extraction trigger failed:', e);
+                    setIsExtracting(false); // Make sure to unblock the UI even if it fails
+                });
+        }
+    }, [phase]);
 
     // Phase 2: Preparation Timer
     useEffect(() => {
@@ -186,8 +209,16 @@ export default function PitchSimulator() {
                                             </div>
                                         ))}
                                     </div>
-                                    <Button className="w-full mt-8 bg-[#FFD95D] hover:bg-[#ffe89a] text-black font-bold h-14" onClick={() => setPhase("preparing")}>
-                                        Start Simulation <ChevronRight className="ml-2 h-4 w-4" />
+                                    <Button 
+                                        className="w-full mt-8 bg-[#FFD95D] hover:bg-[#ffe89a] text-black font-bold h-14" 
+                                        onClick={() => setPhase("preparing")}
+                                        disabled={isExtracting}
+                                    >
+                                        {isExtracting ? (
+                                            <><Loader2 className="mr-2 h-5 w-5 animate-spin" /> Preparing AI Context...</>
+                                        ) : (
+                                            <>Start Simulation <ChevronRight className="ml-2 h-4 w-4" /></>
+                                        )}
                                     </Button>
                                 </Card>
                             </div>

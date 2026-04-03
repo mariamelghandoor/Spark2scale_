@@ -1,6 +1,4 @@
 import { NextResponse } from 'next/server';
-import { AccessToken, type AccessTokenOptions, type VideoGrant } from 'livekit-server-sdk';
-import { RoomConfiguration } from '@livekit/protocol';
 
 type ConnectionDetails = {
   serverUrl: string;
@@ -9,58 +7,65 @@ type ConnectionDetails = {
   participantToken: string;
 };
 
-// NOTE: you are expected to define the following environment variables in `.env.local`:
-const API_KEY = process.env.LIVEKIT_API_KEY;
-const API_SECRET = process.env.LIVEKIT_API_SECRET;
-const LIVEKIT_URL = process.env.LIVEKIT_URL;
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5231';
+// Note: Make sure NEXT_PUBLIC_LIVEKIT_URL or LIVEKIT_URL is set in your .env.local
+const LIVEKIT_URL = process.env.NEXT_PUBLIC_LIVEKIT_URL || process.env.LIVEKIT_URL || 'wss://spark2scake-m21msxah.livekit.cloud';
 
-// don't cache the results
 export const revalidate = 0;
 
 export async function POST(req: Request) {
-  if (process.env.NODE_ENV !== 'development') {
-    throw new Error(
-      'THIS API ROUTE IS INSECURE. DO NOT USE THIS ROUTE IN PRODUCTION WITHOUT AN AUTHENTICATION LAYER.'
-    );
-  }
-
   try {
-    if (LIVEKIT_URL === undefined) {
+    if (!LIVEKIT_URL) {
       throw new Error('LIVEKIT_URL is not defined');
     }
-    if (API_KEY === undefined) {
-      throw new Error('LIVEKIT_API_KEY is not defined');
+
+    // In a real application, you would extract the user context (e.g. from session/cookies)
+    // and pass the actual sessionId/userId to the backend.
+    const participantName = 'Founder';
+    const participantIdentity = `user_${Math.floor(Math.random() * 10000)}`;
+    const sessionId = `session_${Math.floor(Math.random() * 10000)}`;
+
+    // 1. Trigger the Python AI Worker to wake up / spawn (so it's ready to handle the LiveKit session)
+    try {
+      const pythonApiUrl = process.env.PYTHON_API_URL || 'https://spark2scale-ai-api-server.azurewebsites.net';
+      await fetch(`${pythonApiUrl}/api/v1/pitch-analyzer/start`, {
+        method: 'POST',
+      });
+      console.log('Successfully pinged the Python LiveKit Worker');
+    } catch (e) {
+      console.error('Failed to wake up the Python LiveKit Worker:', e);
+      // We don't throw Error here because we don't want to block the token if the worker is already running or unresponsive.
     }
-    if (API_SECRET === undefined) {
-      throw new Error('LIVEKIT_API_SECRET is not defined');
+
+    // 2. Negotiate the Token with the .NET Backend
+    const response = await fetch(`${API_BASE_URL}/api/PitchSession/generate-token`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        sessionId: sessionId,
+        userId: participantIdentity,
+        userName: participantName,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to generate token from backend. Status: ${response.status}`);
     }
 
-    // Parse room config from request body.
-    const body = await req.json().catch(() => ({}));
+    // The .NET backend returns { token, roomName } based on the anonymous object property names (default JSON casing behavior)
+    const backendData = await response.json();
+    const token = backendData.token || backendData.Token;
+    const roomName = backendData.roomName || backendData.RoomName;
 
-    // Only parse the room_config if the frontend actually sent one
-    const roomConfig = body?.room_config
-      ? RoomConfiguration.fromJson(body.room_config, { ignoreUnknownFields: true })
-      : undefined;
-
-    // Generate participant token
-    const participantName = 'user';
-    const participantIdentity = `voice_assistant_user_${Math.floor(Math.random() * 10_000)}`;
-    const roomName = `voice_assistant_room_${Math.floor(Math.random() * 10_000)}`;
-
-    const participantToken = await createParticipantToken(
-      { identity: participantIdentity, name: participantName },
-      roomName,
-      roomConfig
-    );
-
-    // Return connection details
     const data: ConnectionDetails = {
       serverUrl: LIVEKIT_URL,
-      roomName,
-      participantName,
-      participantToken,
+      roomName: roomName,
+      participantName: participantName,
+      participantToken: token,
     };
+    
     const headers = new Headers({
       'Cache-Control': 'no-store',
     });
@@ -70,30 +75,6 @@ export async function POST(req: Request) {
       console.error(error);
       return new NextResponse(error.message, { status: 500 });
     }
+    return new NextResponse('Internal Server Error', { status: 500 });
   }
-}
-
-function createParticipantToken(
-  userInfo: AccessTokenOptions,
-  roomName: string,
-  roomConfig: RoomConfiguration | undefined,
-): Promise<string> {
-  const at = new AccessToken(API_KEY, API_SECRET, {
-    ...userInfo,
-    ttl: '15m',
-  });
-  const grant: VideoGrant = {
-    room: roomName,
-    roomJoin: true,
-    canPublish: true,
-    canPublishData: true,
-    canSubscribe: true,
-  };
-  at.addGrant(grant);
-
-  if (roomConfig) {
-    at.roomConfig = roomConfig;
-  }
-
-  return at.toJwt();
-}
+}
