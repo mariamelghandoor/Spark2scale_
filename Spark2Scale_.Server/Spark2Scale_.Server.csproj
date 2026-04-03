@@ -11,6 +11,7 @@
 
   <ItemGroup>
     <PackageReference Include="DotNetEnv" Version="3.1.1" />
+    <PackageReference Include="Livekit.Server.Sdk.Dotnet" Version="1.2.1" />
     <PackageReference Include="Microsoft.AspNetCore.SpaProxy">
       <Version>7.*-*</Version>
     </PackageReference>

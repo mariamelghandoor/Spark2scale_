@@ -179,15 +179,23 @@ export default function AuthCallbackPage() {
                     // -----------------------------
                     // -----------------------------
 
-                    // Store for valid redirect construction
-                    const startupsId = inviteCtx?.startupId;
+                    // Determine correct redirect based on userType from the server response
+                    const resolvedUserType = (data.user?.userType || data.user?.user_type || '').toLowerCase();
+                    const userEmail = String(data.user?.email || data.user?.Email || '');
 
-                    // Redirect to Sign In page with redirect param to specific startup
-                    const userEmail = data.user?.email || data.user?.Email || '';
-                    redirectPath = `/signin?verified=true&email=${encodeURIComponent(userEmail)}`;
+                    console.log('[AuthCallback] Resolved userType from server:', resolvedUserType);
 
-                    if (startupsId) {
-                        redirectPath += `&redirect=/contributor/startup/${startupsId}`;
+                    if (resolvedUserType === 'contributor' && inviteCtx?.startupId) {
+                        // Contributor with a linked startup → go directly to startup page
+                        redirectPath = `/signin?verified=true&email=${encodeURIComponent(userEmail)}&redirect=/contributor/startup/${inviteCtx.startupId}`;
+                    } else if (resolvedUserType === 'contributor') {
+                        // Contributor without a startup link yet
+                        redirectPath = `/signin?verified=true&email=${encodeURIComponent(userEmail)}&redirect=/contributor/dashboard`;
+                    } else if (resolvedUserType === 'investor') {
+                        redirectPath = `/signin?verified=true&email=${encodeURIComponent(userEmail)}&redirect=/investor/feed`;
+                    } else {
+                        // founder or unknown → go to founder dashboard
+                        redirectPath = `/signin?verified=true&email=${encodeURIComponent(userEmail)}&redirect=/founder/dashboard`;
                     }
 
                     await handleAuthSuccess(data.token, router, cleanApiUrl, data.user as any, redirectPath);

@@ -269,7 +269,7 @@ namespace Spark2Scale_.Server.Controllers
 
                             var payload = new
                             {
-                                type = "magiclink", // or "signup" but magiclink works for verification too and logs them in
+                                type = "signup", // FIX: "signup" type preserves user_metadata in the token, "magiclink" loses it
                                 email = email,
                                 redirect_to = redirectUrl
                             };
