@@ -221,3 +221,30 @@
 nextjs-portal {
     display: none !important;
 }
+
+/* Pitch Session: override LiveKit app background to olive green with darker gold accents */
+.pitch-session-theme,
+.pitch-session-theme * {
+    --background: #576238;
+    --foreground: #ffffff;
+    --muted: #4a5430;
+    --muted-foreground: rgba(255,255,255,0.60);
+    --border: rgba(255,255,255,0.14);
+    --input: rgba(255,255,255,0.14);
+    --card: #4a5430;
+    --card-foreground: #ffffff;
+    --popover: #4a5430;
+    --popover-foreground: #ffffff;
+    /* Darker gold replaces the bright #FFD95D inside the session */
+    --secondary: #c9a52c;
+    --secondary-foreground: #1a1a1a;
+    --accent: #c9a52c;
+    --accent-foreground: #1a1a1a;
+    --primary: #c9a52c;
+    --primary-foreground: #1a1a1a;
+    --ring: #c9a52c;
+}
+
+.pitch-session-theme main {
+    background-color: #576238 !important;
+}
