@@ -508,6 +508,196 @@ namespace Spark2Scale_.Server.Controllers
             }
         }
 
+        [HttpPost("{id}/generate-competitor-matrix")]
+        public async Task<IActionResult> GenerateCompetitorMatrix(string id)
+        {
+            Console.WriteLine($"\n========== START GENERATE COMPETITOR MATRIX ==========");
+            Console.WriteLine($"[GenerateCompetitorMatrix] Invoked with ID: {id}");
+
+            if (!Guid.TryParse(id, out Guid sId))
+            {
+                Console.WriteLine($"[GenerateCompetitorMatrix] Invalid ID format.");
+                return BadRequest("Invalid ID format");
+            }
+
+            try
+            {
+                Console.WriteLine($"[GenerateCompetitorMatrix] STEP 1: Fetching Startup...");
+                var startup = (await _supabase.From<Startup>().Where(s => s.Sid == sId).Get()).Models.FirstOrDefault();
+                if (startup == null)
+                {
+                    Console.WriteLine($"[GenerateCompetitorMatrix] Startup not found for ID: {sId}");
+                    return NotFound("Startup not found");
+                }
+
+                Console.WriteLine($"[GenerateCompetitorMatrix] STEP 2: Fetching Market Research Document...");
+                var existingDocs = await _supabase.From<Document>()
+                    .Filter("startup_id", Supabase.Postgrest.Constants.Operator.Equals, sId.ToString())
+                    .Filter("type", Supabase.Postgrest.Constants.Operator.Equals, "Market Research")
+                    .Filter("is_current", Supabase.Postgrest.Constants.Operator.Equals, "true")
+                    .Get();
+
+                var marketResearchDoc = existingDocs.Models.FirstOrDefault();
+                if (marketResearchDoc == null || marketResearchDoc.JsonResponse == null)
+                {
+                    Console.WriteLine($"[GenerateCompetitorMatrix] Market Research doc missing or empty.");
+                    return BadRequest("Market Research document is required to generate Competitor Matrix analysis.");
+                }
+
+                Console.WriteLine($"[GenerateCompetitorMatrix] STEP 3: Calling External AI Service...");
+                string jsonContent = "";
+                using (var client = new HttpClient())
+                {
+                    client.Timeout = TimeSpan.FromMinutes(3);
+
+                    string mrRawJson = marketResearchDoc.JsonResponse is string alreadyString
+                        ? alreadyString
+                        : Newtonsoft.Json.JsonConvert.SerializeObject(marketResearchDoc.JsonResponse);
+
+                    JsonElement marketResearchPayload;
+                    try
+                    {
+                        marketResearchPayload = System.Text.Json.JsonSerializer.Deserialize<JsonElement>(mrRawJson);
+                    }
+                    catch
+                    {
+                        Console.WriteLine("[GenerateCompetitorMatrix] WARNING: Failed to deserialize market research JSON. Sending empty object.");
+                        marketResearchPayload = System.Text.Json.JsonSerializer.Deserialize<JsonElement>("{}");
+                    }
+
+                    var externalPayload = new
+                    {
+                        idea_name = startup.StartupName ?? "No name",
+                        idea_description = startup.IdeaDescription ?? "No description",
+                        region = startup.Region ?? "Global",
+                        market_research = marketResearchPayload
+                    };
+
+                    Console.WriteLine($"[GenerateCompetitorMatrix] External Payload: idea_name='{externalPayload.idea_name}' region='{externalPayload.region}'");
+
+                    var response = await client.PostAsJsonAsync("https://spark2scale-ai-api-server.azurewebsites.net/api/v1/competitor-matrix/generate", externalPayload);
+                    Console.WriteLine($"[GenerateCompetitorMatrix] External Response Status: {response.StatusCode}");
+
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        var error = await response.Content.ReadAsStringAsync();
+                        Console.WriteLine($"[GenerateCompetitorMatrix] AI Service Failed. Error: {error}");
+                        return StatusCode((int)response.StatusCode, $"AI Service Failed: {error}");
+                    }
+
+                    jsonContent = await response.Content.ReadAsStringAsync();
+                    Console.WriteLine($"[GenerateCompetitorMatrix] AI Output received (length: {jsonContent?.Length}).");
+                }
+
+                Console.WriteLine($"[GenerateCompetitorMatrix] STEP 4: Parsing JSON...");
+                object jsonObjectToSave;
+                try { jsonObjectToSave = System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(jsonContent ?? "{}"); }
+                catch { jsonObjectToSave = new { raw_output = jsonContent }; }
+
+                Console.WriteLine($"[GenerateCompetitorMatrix] STEP 5: Updating Database...");
+                try
+                {
+                    var supabaseUrl = Environment.GetEnvironmentVariable("SUPABASE_URL") ?? Environment.GetEnvironmentVariable("URL");
+                    var supabaseKey = Environment.GetEnvironmentVariable("SUPABASE_KEY") ?? Environment.GetEnvironmentVariable("KEY");
+
+                    using var http = _httpClientFactory.CreateClient();
+                    http.DefaultRequestHeaders.Add("apikey", supabaseKey);
+                    http.DefaultRequestHeaders.Add("Authorization", $"Bearer {supabaseKey}");
+                    http.DefaultRequestHeaders.Add("Prefer", "return=representation");
+
+                    var compDocs = await _supabase.From<Document>()
+                        .Filter("startup_id", Supabase.Postgrest.Constants.Operator.Equals, sId.ToString())
+                        .Filter("type", Supabase.Postgrest.Constants.Operator.Equals, "Competitor Matrix")
+                        .Filter("is_current", Supabase.Postgrest.Constants.Operator.Equals, "true")
+                        .Get();
+
+                    var currentDoc = compDocs.Models.FirstOrDefault();
+                    int nextVersion = 1;
+
+                    if (currentDoc != null)
+                    {
+                        Console.WriteLine($"[GenerateCompetitorMatrix] Archiving older version: v{currentDoc.CurrentVersion}");
+                        var patchUrl = $"{supabaseUrl}/rest/v1/documents?did=eq.{currentDoc.Did}";
+                        var patchRequest = new HttpRequestMessage(new HttpMethod("PATCH"), patchUrl) { Content = new StringContent("{\"is_current\": false}", System.Text.Encoding.UTF8, "application/json") };
+                        await http.SendAsync(patchRequest);
+                        nextVersion = currentDoc.CurrentVersion + 1;
+                    }
+
+                    var newDocId = Guid.NewGuid();
+                    Console.WriteLine($"[GenerateCompetitorMatrix] Creating new Competitor Matrix document v{nextVersion} with ID {newDocId}");
+
+                    var insertPayload = new
+                    {
+                        did = newDocId,
+                        startup_id = sId,
+                        document_name = $"Competitor Matrix Analysis v{nextVersion}",
+                        type = "Competitor Matrix",
+                        current_path = "",
+                        current_version = nextVersion,
+                        canaccess = 1,
+                        updated_at = DateTime.UtcNow,
+                        created_at = DateTime.UtcNow,
+                        is_current = true,
+                        json_response = jsonObjectToSave
+                    };
+
+                    try
+                    {
+                        var insertRequest = new HttpRequestMessage(HttpMethod.Post, $"{supabaseUrl}/rest/v1/documents") { Content = new StringContent(System.Text.Json.JsonSerializer.Serialize(insertPayload), System.Text.Encoding.UTF8, "application/json") };
+                        var docRes = await http.SendAsync(insertRequest);
+                        if (!docRes.IsSuccessStatusCode)
+                        {
+                            var err = await docRes.Content.ReadAsStringAsync();
+                            Console.WriteLine($"[GenerateCompetitorMatrix] Document inserted failed: {err}");
+                        }
+                        else
+                        {
+                            Console.WriteLine($"[GenerateCompetitorMatrix] Document inserted successfully.");
+                        }
+                    }
+                    catch (Exception docEx)
+                    {
+                        Console.WriteLine($"[Ignored] Document response parsing error: {docEx.Message}");
+                    }
+
+                    try
+                    {
+                        var versionDoc = new DocumentVersion
+                        {
+                            DocumentId = newDocId,
+                            StartupId = sId,
+                            VersionNumber = nextVersion,
+                            Path = "",
+                            CreatedAt = DateTime.UtcNow,
+                            GeneratedBy = "AI"
+                        };
+                        await _supabase.From<DocumentVersion>().Insert(versionDoc);
+                        Console.WriteLine($"[GenerateCompetitorMatrix] DocumentVersion inserted successfully.");
+                    }
+                    catch (Exception verEx)
+                    {
+                        Console.WriteLine($"[Ignored] DocumentVersion save failed: {verEx.Message}");
+                    }
+                }
+                catch (Exception dbEx)
+                {
+                    Console.WriteLine($"[GenerateCompetitorMatrix] Database setup error: {dbEx.Message}");
+                }
+
+                Console.WriteLine($"[GenerateCompetitorMatrix] STEP 6: Returning Success...");
+                Console.WriteLine($"[GenerateCompetitorMatrix] Returning content length: {jsonContent?.Length}");
+                Console.WriteLine($"========== END GENERATE COMPETITOR MATRIX ==========\n");
+                return Content(jsonContent ?? "{}", "application/json", System.Text.Encoding.UTF8);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[GenerateCompetitorMatrix] CRITICAL EXCEPTION CAUGHT: {ex.Message}");
+                Console.WriteLine($"[GenerateCompetitorMatrix] StackTrace: {ex.StackTrace}");
+                Console.WriteLine($"========== END GENERATE COMPETITOR MATRIX (ERROR) ==========\n");
+                return StatusCode(500, new { error = "Internal Server Error", message = ex.Message });
+            }
+        }
+
         // --- RESTORED UPLOAD HELPER ---
         private async Task<string> UploadHelper(IFormFile file, string prefix, Guid sId)
         {

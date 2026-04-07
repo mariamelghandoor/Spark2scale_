@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
@@ -117,8 +117,40 @@ const SWOT_QUADRANTS = [
     },
 ];
 
+interface CompetitorData {
+    name: string;
+    company_website?: string | null;
+    sw_profile?: string | null;
+    linkedin_url?: string | null;
+    physical_location?: string | null;
+    competitor_type?: string;
+    target_audience?: string;
+    value_proposition?: string;
+    pricing_model?: string;
+    core_features?: string;
+    strengths?: string;
+    weaknesses?: string;
+}
+
+function parseCompetitorMatrix(raw: unknown): CompetitorData[] | null {
+    if (!raw) return null;
+    try {
+        let obj: any = raw;
+        while (typeof obj === "string") {
+            obj = JSON.parse(obj);
+        }
+        const out = obj?.competitor_analysis_document?.json_data || obj?.json_data || obj;
+        if (Array.isArray(out)) {
+            return out as CompetitorData[];
+        }
+        return null;
+    } catch {
+        return null;
+    }
+}
+
 interface ViewerPayload {
-    type: "swot" | "pdf";
+    type: "swot" | "pdf" | "competitor_matrix";
     data?: unknown;
     url?: string;
     name: string;
@@ -132,83 +164,167 @@ function DocumentViewerModal({
     onClose: () => void;
 }) {
     const swot = payload.type === "swot" ? parseSwot(payload.data) : null;
+    const competitors = payload.type === "competitor_matrix" ? parseCompetitorMatrix(payload.data) : null;
 
     return (
         <Dialog open onOpenChange={onClose}>
             <DialogContent
                 aria-describedby={undefined}
-                className="max-w-[90vw] w-[90vw] h-[90vh] p-0 overflow-hidden flex flex-col"
+                style={(payload.type === "competitor_matrix" || payload.type === "swot") ? { width: "95vw", maxWidth: "95vw", height: "94vh" } : undefined}
+                className={(payload.type === "competitor_matrix" || payload.type === "swot") ? "p-0 bg-[#F4F1EA] overflow-hidden flex flex-col" : "max-w-[90vw] w-[90vw] h-[90vh] p-0 overflow-hidden flex flex-col"}
             >
-                {/* Header */}
-                <DialogHeader className="flex-shrink-0 px-6 py-4 bg-[#576238] text-white flex flex-row items-center justify-between">
-                    <div>
-                        <DialogTitle className="text-base font-bold text-white leading-tight">
-                            {payload.type === "swot" ? "SWOT Analysis" : "Document Viewer"} — {payload.name}
-                        </DialogTitle>
-                        <p className="text-xs text-white/60 mt-0.5">
-                            {payload.type === "swot" ? "AI-Generated" : "PDF Preview"}
-                        </p>
-                    </div>
-                    <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={onClose}
-                        className="text-white hover:bg-white/20 h-8 w-8 flex-shrink-0"
-                    >
-                        <X className="h-4 w-4" />
-                    </Button>
-                </DialogHeader>
+                {(payload.type === "competitor_matrix" || payload.type === "swot") && (competitors || swot) ? (
+                    <>
+                        <DialogHeader className="sr-only">
+                            <DialogTitle>{payload.name}</DialogTitle>
+                        </DialogHeader>
+                        <div className="flex-1 overflow-y-auto p-4 md:p-8 relative">
+                            <Button variant="ghost" size="icon" onClick={onClose} className="absolute top-6 right-6 md:top-10 md:right-10 bg-black/5 hover:bg-black/10 rounded-full h-8 w-8 z-10 text-[#576238]">
+                                <X className="h-4 w-4" />
+                            </Button>
+                            <div className="bg-white text-black w-full max-w-5xl mx-auto shadow-2xl rounded overflow-hidden relative">
+                                {/* Olive header band */}
+                                <div className="bg-[#576238] text-white px-10 py-6">
+                                    <p className="text-xs uppercase tracking-widest opacity-70 mb-1 font-sans">Spark2Scale</p>
+                                    <h1 className="text-xl font-bold font-sans">
+                                        {payload.type === "swot" ? "SWOT Analysis" : "Competitor Matrix Analysis"}
+                                    </h1>
+                                    <p className="text-sm opacity-75 mt-1">{payload.name}</p>
+                                </div>
+                                {/* Mustard accent stripe */}
+                                <div className="h-1.5 bg-[#ffd95d]" />
 
-                {/* Body */}
-                <div className="flex-1 overflow-hidden">
-                    {payload.type === "pdf" && payload.url ? (
-                        <iframe
-                            src={payload.url}
-                            className="w-full h-full border-0"
-                            title={payload.name}
-                        />
-                    ) : swot ? (
-                        <ScrollArea className="h-full">
-                            <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-4">
-                                {SWOT_QUADRANTS.map(({ key, label, icon: Icon, border, bg, headerBg, iconColor, countClass, bullet }) => {
-                                    const items = swot[key] ?? [];
-                                    return (
-                                        <div key={key} className={`rounded-xl border-2 ${border} ${bg} overflow-hidden`}>
-                                            <div className={`${headerBg} px-4 py-3 flex items-center gap-2`}>
-                                                <Icon className={`h-4 w-4 ${iconColor}`} />
-                                                <span className="font-semibold text-sm text-gray-800">{label}</span>
-                                                <span className={`ml-auto text-[11px] font-semibold px-2 py-0.5 rounded-full ${countClass}`}>
-                                                    {items.length}
-                                                </span>
-                                            </div>
-                                            <ul className="p-4 space-y-3">
-                                                {items.length === 0 ? (
-                                                    <li className="text-xs text-muted-foreground italic">No items found.</li>
-                                                ) : (
-                                                    items.map((item, i) => (
-                                                        <li key={i} className="flex items-start gap-2.5 text-sm text-gray-700 leading-relaxed">
-                                                            <span className={`mt-2 flex-shrink-0 w-1.5 h-1.5 rounded-full ${bullet}`} />
-                                                            {item}
-                                                        </li>
-                                                    ))
-                                                )}
-                                            </ul>
+                                <div className="px-6 md:px-10 py-8 space-y-10">
+                                    <p className="text-xs text-gray-400 mb-6">
+                                        Generated: {new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })}
+                                    </p>
+
+                                    {/* Competitor Matrix Content */}
+                                    {payload.type === "competitor_matrix" && competitors && (
+                                        <div className="space-y-10">
+                                            {competitors.map((comp, idx) => (
+                                                <section key={idx}>
+                                                    <div className="bg-[#576238] text-white px-4 py-2 font-bold text-xs uppercase tracking-widest font-sans rounded-sm flex items-center justify-between mb-2">
+                                                        <span>{comp.name}</span>
+                                                        {comp.competitor_type && (
+                                                            <span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded-full tracking-wider ${comp.competitor_type.toLowerCase() === 'direct' ? 'bg-red-500/20 text-red-100' : 'bg-white/20 text-white'}`}>
+                                                                {comp.competitor_type}
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                    {comp.company_website && (
+                                                        <a href={comp.company_website} target="_blank" rel="noreferrer" className="text-xs text-blue-500 hover:underline mb-2 block ml-1">
+                                                            {comp.company_website}
+                                                        </a>
+                                                    )}
+                                                    <table className="w-full border-collapse text-sm mt-1">
+                                                        <tbody>
+                                                            {[
+                                                                ["Value Proposition", comp.value_proposition],
+                                                                ["Target Audience", comp.target_audience],
+                                                                ["Pricing Model", comp.pricing_model],
+                                                                ["Core Features", comp.core_features],
+                                                                ["Strengths", comp.strengths],
+                                                                ["Weaknesses", comp.weaknesses],
+                                                            ].filter(row => row[1]).map(([label, val], i) => (
+                                                                <tr key={JSON.stringify(label)} className={i % 2 === 0 ? "bg-[#F4F1EA]" : "bg-white"}>
+                                                                    <td className="font-bold text-[#576238] px-4 py-2.5 w-40 border border-gray-200 align-top">
+                                                                        {label}
+                                                                    </td>
+                                                                    <td className="px-4 py-2.5 text-gray-700 border border-gray-200">
+                                                                        {val}
+                                                                    </td>
+                                                                </tr>
+                                                            ))}
+                                                        </tbody>
+                                                    </table>
+                                                </section>
+                                            ))}
+                                            {competitors.length === 0 && (
+                                                <div className="py-12 text-center text-gray-500 italic">No competitors found.</div>
+                                            )}
                                         </div>
-                                    );
-                                })}
-                            </div>
-                        </ScrollArea>
-                    ) : (
-                        <div className="flex items-center justify-center h-full text-sm text-muted-foreground">
-                            <div className="text-center space-y-2">
-                                <p>Could not parse document structure.</p>
-                                <pre className="bg-gray-50 border rounded p-3 text-xs text-left max-w-lg overflow-auto max-h-64">
-                                    {JSON.stringify(payload.data, null, 2)}
-                                </pre>
+                                    )}
+
+                                    {/* SWOT Analysis Content */}
+                                    {payload.type === "swot" && swot && (
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pb-6">
+                                            {SWOT_QUADRANTS.map(({ key, label, icon: Icon, border, bg, headerBg, iconColor, countClass, bullet }) => {
+                                                const items = swot[key] ?? [];
+                                                return (
+                                                    <div key={key} className={`rounded-xl border-2 ${border} ${bg} overflow-hidden shadow-sm`}>
+                                                        <div className={`${headerBg} px-4 py-3 flex items-center gap-2 border-b ${border}`}>
+                                                            <Icon className={`h-4 w-4 ${iconColor}`} />
+                                                            <span className="font-semibold text-sm text-gray-800">{label}</span>
+                                                            <span className={`ml-auto text-[11px] font-semibold px-2 py-0.5 rounded-full ${countClass}`}>{items.length}</span>
+                                                        </div>
+                                                        <ul className="p-4 space-y-3">
+                                                            {items.length === 0 ? (
+                                                                <li className="text-xs text-muted-foreground italic">No items found.</li>
+                                                            ) : items.map((item, i) => (
+                                                                <li key={i} className="flex items-start gap-2.5 text-sm text-gray-700 leading-relaxed font-sans">
+                                                                    <span className={`mt-2 flex-shrink-0 w-1.5 h-1.5 rounded-full ${bullet}`} />
+                                                                    {item}
+                                                                </li>
+                                                            ))}
+                                                        </ul>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* Mustard footer */}
+                                <div className="bg-[#ffd95d] px-10 py-3 text-center text-xs font-medium text-[#2c3e50]">
+                                    Generated by Spark2Scale AI
+                                </div>
                             </div>
                         </div>
-                    )}
-                </div>
+                    </>
+                ) : (
+                    <>
+                        {/* Header fallback for PDF / unknown */}
+                        <DialogHeader className="flex-shrink-0 px-6 py-4 bg-[#576238] text-white flex flex-row items-center justify-between">
+                            <div>
+                                <DialogTitle className="text-base font-bold text-white leading-tight">
+                                    Document Viewer — {payload.name}
+                                </DialogTitle>
+                                <p className="text-xs text-white/60 mt-0.5">
+                                    {payload.type === "pdf" ? "PDF Preview" : "Raw Data Viewer"}
+                                </p>
+                            </div>
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={onClose}
+                                className="text-white hover:bg-white/20 h-8 w-8 flex-shrink-0"
+                            >
+                                <X className="h-4 w-4" />
+                            </Button>
+                        </DialogHeader>
+
+                        {/* Body fallback */}
+                        <div className="flex-1 overflow-hidden">
+                            {payload.type === "pdf" && payload.url ? (
+                                <iframe
+                                    src={payload.url}
+                                    className="w-full h-full border-0"
+                                    title={payload.name}
+                                />
+                            ) : (
+                                <div className="flex items-center justify-center h-full text-sm text-muted-foreground">
+                                    <div className="text-center space-y-2">
+                                        <p>Could not parse document structure.</p>
+                                        <pre className="bg-gray-50 border rounded p-3 text-xs text-left max-w-lg overflow-auto max-h-64">
+                                            {JSON.stringify(payload.data, null, 2)}
+                                        </pre>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    </>
+                )}
             </DialogContent>
         </Dialog>
     );
@@ -431,9 +547,14 @@ export default function DocumentsPage() {
         setMessages(prev => [...prev, { role: "user", content: `Generate the ${docConfig.name} for me.` }]);
 
         try {
-            const success = docId === "swot"
-                ? await documentsService.generateSwot(cleanId)
-                : await documentsService.generateMockDocument(cleanId, docConfig.name);
+            let success = false;
+            if (docId === "swot") {
+                success = await documentsService.generateSwot(cleanId);
+            } else if (docId === "competitor_matrix") {
+                success = await documentsService.generateCompetitorMatrix(cleanId);
+            } else {
+                success = await documentsService.generateMockDocument(cleanId, docConfig.name);
+            }
 
             if (success) {
                 await fetchData();
@@ -487,6 +608,10 @@ export default function DocumentsPage() {
             return;
         }
         if (state.jsonResponse) {
+            if (state.configId === "competitor_matrix") {
+                setViewerPayload({ type: "competitor_matrix", data: state.jsonResponse, name: state.name });
+                return;
+            }
             setViewerPayload({ type: "swot", data: state.jsonResponse, name: state.name });
             return;
         }

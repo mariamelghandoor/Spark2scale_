@@ -1,6 +1,6 @@
 // services/documentsService.ts
 
-import { Presentation, FileText } from "lucide-react";
+import { Presentation, FileText, Users } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 
 export const REQUIRED_DOCS = [
@@ -11,6 +11,14 @@ export const REQUIRED_DOCS = [
         desc: "PDF or Word. Strengths, Weaknesses, Opportunities, and Threats.",
         accept: ".pdf,.doc,.docx",
         aiPrompt: "Help me generate a SWOT analysis based on my startup idea."
+    },
+    {
+        id: "competitor_matrix",
+        name: "Competitor Matrix",
+        icon: Users,
+        desc: "JSON document containing competitor analysis and matrix.",
+        accept: ".json",
+        aiPrompt: "Help me generate a competitor matrix analysis based on my startup idea."
     }
 ];
 
@@ -144,6 +152,17 @@ export const documentsService = {
             return true;
         } catch (error) {
             console.error("[generateSwot] Error:", error);
+            return false;
+        }
+    },
+
+    async generateCompetitorMatrix(startupId: string): Promise<boolean> {
+        try {
+            const res = await apiClient.post(`/api/documents/${startupId}/generate-competitor-matrix`);
+            console.log("[generateCompetitorMatrix] Response:", res.data);
+            return true;
+        } catch (error) {
+            console.error("[generateCompetitorMatrix] Error:", error);
             return false;
         }
     },
