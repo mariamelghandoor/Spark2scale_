@@ -1,8 +1,11 @@
-﻿using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc;
 using Spark2Scale_.Server.Models;
 using System;
 using System.Threading.Tasks;
 using System.Linq;
+using System.Net.Http;
+using System.Text.Json;
+using System.Text;
 
 namespace Spark2Scale_.Server.Controllers
 {
@@ -11,49 +14,58 @@ namespace Spark2Scale_.Server.Controllers
     public class PitchDeckLikesController : ControllerBase
     {
         private readonly Supabase.Client _supabase;
+        private static readonly HttpClient _httpClient = new HttpClient();
 
         public PitchDeckLikesController(Supabase.Client supabase)
         {
             _supabase = supabase;
         }
 
-        // POST: api/pitchdecklikes/add
-        [HttpPost("add")]
-        public async Task<IActionResult> AddLike([FromBody] PitchDeckLikeInsertDto input)
+        // POST: api/pitchdecklikes/interact
+        [HttpPost("interact")]
+        public async Task<IActionResult> Interact([FromBody] PitchDeckInteractionDto input)
         {
             // 1. Validate Input
             if (input == null || input.investor_id == Guid.Empty || input.pitchdeck_id == Guid.Empty)
                 return BadRequest("Invalid data. Investor ID and PitchDeck ID are required.");
 
             // 2. Map DTO to Database Model
-            var newLike = new PitchDeckLike
+            var interaction = new PitchDeckLike
             {
                 InvestorId = input.investor_id,
                 PitchDeckId = input.pitchdeck_id,
-                LikedAt = DateTime.UtcNow
+                LikedAt = DateTime.UtcNow,
+                Liked = input.liked,
+                Contacted = input.contacted
             };
 
             try
             {
-                // 3. Insert into Supabase 'pitchdeck_likes' table
-                var result = await _supabase.From<PitchDeckLike>().Insert(newLike);
+                // 3. Upsert into Supabase 'pitchdeck_likes' table with explicit OnConflict for composite keys
+                var options = new Supabase.Postgrest.QueryOptions { OnConflict = "investor_id,pitchdeck_id" };
+                var result = await _supabase.From<PitchDeckLike>().Upsert(interaction, options);
 
                 // 4. Update the count on the parent PitchDeck table (Optional but recommended)
-                _ = IncrementPitchDeckLikes(input.pitchdeck_id);
+                if (input.liked)
+                {
+                    _ = IncrementPitchDeckLikes(input.pitchdeck_id);
+                }
 
-                return Ok(new { message = "Pitch deck liked successfully!" });
+                _ = NotifyPythonAIEngine(input);
+
+                return Ok(new { message = "Interaction recorded successfully!" });
             }
             catch (Supabase.Postgrest.Exceptions.PostgrestException ex)
             {
-                if (ex.Message.Contains("duplicate key value"))
-                {
-                    return BadRequest("This investor has already liked this pitch deck.");
-                }
                 if (ex.Message.Contains("violates foreign key constraint"))
                 {
-                    return BadRequest("Invalid Investor ID or PitchDeck ID.");
+                    return BadRequest(new { message = "Invalid Investor ID or PitchDeck ID. The user or pitch does not exist in the database." });
                 }
-                throw;
+                return StatusCode(500, new { error = ex.Message, details = ex.StackTrace, type = "PostgrestException" });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { error = ex.Message, details = ex.StackTrace, type = ex.GetType().Name });
             }
         }
 
@@ -74,6 +86,25 @@ namespace Spark2Scale_.Server.Controllers
                 }
             }
             catch { /* Ignore update errors to keep response fast */ }
+        }
+
+        private async Task NotifyPythonAIEngine(PitchDeckInteractionDto input)
+        {
+            try
+            {
+                var payload = new
+                {
+                    user_id = input.investor_id.ToString(),
+                    pitch_id = input.pitchdeck_id.ToString(),
+                    liked = input.liked,
+                    contacted = input.contacted
+                };
+
+                var content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
+                // TODO: Update the endpoint URL if necessary
+                await _httpClient.PostAsync("http://127.0.0.1:8000/api/ai/interaction", content);
+            }
+            catch { /* Ignore errors */ }
         }
     }
 }

@@ -1,8 +1,8 @@
-﻿"use client";
+"use client";
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Calendar, X, Heart, Eye, Video, Sparkles, Trophy, Loader2 } from "lucide-react";
+import { Calendar, X, Heart, Eye, Video, Sparkles, Trophy, Loader2, MessageCircle } from "lucide-react";
 import Link from "next/link";
 import { motion, useMotionValue, useTransform } from "framer-motion";
 import NotificationsDropdown from "@/components/shared/NotificationsDropdown";
@@ -196,17 +196,19 @@ export default function InvestorFeed() {
         setActionLoading(true);
 
         try {
-            const response = await apiClient.post('/api/pitchdecklikes/add', {
+            const response = await apiClient.post('/api/pitchdecklikes/interact', {
                 investor_id: investorId,
                 pitchdeck_id: pitchId,
+                liked: true,
+                contacted: false
             });
 
-            const data = response.data;
+            const data = response.data as any;
             setLikedPitches(prev => new Set([...prev, pitchId]));
 
             setPitchDecks(prev => prev.map(pitch =>
                 pitch.pitchdeckid === pitchId
-                    ? { ...pitch, countlikes: data.newLikeCount }
+                    ? { ...pitch, countlikes: data.newLikeCount || pitch.countlikes + 1 }
                     : pitch
             ));
         } catch (err) {
@@ -216,19 +218,55 @@ export default function InvestorFeed() {
         }
     };
 
+    const handleContactFounder = async (pitchId: string) => {
+        if (actionLoading) return;
+        setActionLoading(true);
+
+        try {
+            const response = await apiClient.post('/api/pitchdecklikes/interact', {
+                investor_id: investorId,
+                pitchdeck_id: pitchId,
+                liked: true,
+                contacted: true
+            });
+
+            const data = response.data as any;
+            setLikedPitches(prev => new Set([...prev, pitchId]));
+
+            setPitchDecks(prev => prev.map(pitch =>
+                pitch.pitchdeckid === pitchId
+                    ? { ...pitch, countlikes: data.newLikeCount || pitch.countlikes + 1 }
+                    : pitch
+            ));
+            
+            // Optionally provide some feedback or move to next
+        } catch (err) {
+            console.error("Error contacting founder:", err);
+        } finally {
+            setActionLoading(false);
+            if (currentIndex < pitchDecks.length - 1) {
+                setCurrentIndex(currentIndex + 1);
+            } else {
+                setCurrentIndex(pitchDecks.length);
+            }
+        }
+    };
+
     const handleDislike = async (pitchId: string) => {
         if (actionLoading) return;
         setActionLoading(true);
         try {
-            if (likedPitches.has(pitchId)) {
-                const response = await apiClient.delete('/api/pitchdecklikes/remove', {
-                    data: {
-                        investor_id: investorId,
-                        pitchdeck_id: pitchId,
-                    }
-                });
+            // Record interaction as not liked
+            const response = await apiClient.post('/api/pitchdecklikes/interact', {
+                investor_id: investorId,
+                pitchdeck_id: pitchId,
+                liked: false,
+                contacted: false
+            });
 
-                const data = response.data;
+            const data = response.data as any;
+            
+            if (likedPitches.has(pitchId)) {
                 setLikedPitches(prev => {
                     const newSet = new Set(prev);
                     newSet.delete(pitchId);
@@ -237,7 +275,7 @@ export default function InvestorFeed() {
 
                 setPitchDecks(prev => prev.map(pitch =>
                     pitch.pitchdeckid === pitchId
-                        ? { ...pitch, countlikes: data.newLikeCount || Math.max(0, pitch.countlikes - 1) }
+                        ? { ...pitch, countlikes: data.newLikeCount ?? Math.max(0, pitch.countlikes - 1) }
                         : pitch
                 ));
             }
@@ -245,9 +283,13 @@ export default function InvestorFeed() {
             console.error("Error handling dislike:", err);
         } finally {
             setActionLoading(false);
+            if (currentIndex < pitchDecks.length - 1) {
+                setCurrentIndex(currentIndex + 1);
+            } else {
+                setCurrentIndex(pitchDecks.length);
+            }
         }
     };
-
     const handleSwipe = async (direction: "left" | "right") => {
         if (actionLoading || currentIndex >= pitchDecks.length) return;
 
@@ -418,9 +460,15 @@ export default function InvestorFeed() {
                     )}
 
                     {currentIndex < pitchDecks.length && pitchDecks.length > 0 && (
-                        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }} className="flex justify-center gap-6 mt-8">
-                            <Button onClick={() => handleSwipe("left")} disabled={actionLoading} size="lg" variant="outline" className="rounded-full w-16 h-16 border-2 border-red-500 text-red-500 hover:bg-red-50 disabled:opacity-50">{actionLoading ? <Loader2 className="h-6 w-6 animate-spin" /> : <X className="h-6 w-6" />}</Button>
-                            <Button onClick={() => handleSwipe("right")} disabled={actionLoading} size="lg" className={`rounded-full w-16 h-16 disabled:opacity-50 ${isCurrentLiked ? 'bg-red-500 hover:bg-red-600' : 'bg-[#576238] hover:bg-[#6b7c3f]'}`}>{actionLoading ? <Loader2 className="h-6 w-6 animate-spin" /> : <Heart className={`h-6 w-6 ${isCurrentLiked ? 'fill-white' : ''}`} />}</Button>
+                        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }} className="flex justify-center items-center gap-4 mt-8">
+                            <Button onClick={() => handleSwipe("left")} disabled={actionLoading} size="lg" variant="outline" className="rounded-full w-14 h-14 border-2 border-red-500 text-red-500 hover:bg-red-50 disabled:opacity-50">{actionLoading ? <Loader2 className="h-6 w-6 animate-spin" /> : <X className="h-6 w-6" />}</Button>
+                            
+                            <Button onClick={() => handleContactFounder(currentPitch.pitchdeckid)} disabled={actionLoading} size="lg" className="rounded-full px-6 py-6 border-2 border-[#576238] bg-white text-[#576238] hover:bg-[#576238] hover:text-white disabled:opacity-50 font-bold transition-colors">
+                                {actionLoading ? <Loader2 className="h-6 w-6 animate-spin mr-2" /> : <MessageCircle className="h-6 w-6 mr-2" />}
+                                Contact Founder
+                            </Button>
+
+                            <Button onClick={() => handleSwipe("right")} disabled={actionLoading} size="lg" className={`rounded-full w-14 h-14 disabled:opacity-50 ${isCurrentLiked ? 'bg-red-500 hover:bg-red-600' : 'bg-[#576238] hover:bg-[#6b7c3f]'}`}>{actionLoading ? <Loader2 className="h-6 w-6 animate-spin" /> : <Heart className={`h-6 w-6 ${isCurrentLiked ? 'fill-white' : ''}`} />}</Button>
                         </motion.div>
                     )}
                 </div>
