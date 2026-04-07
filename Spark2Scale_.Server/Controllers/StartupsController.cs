@@ -407,17 +407,8 @@ namespace Spark2Scale_.Server.Controllers
                     catch { jsonObjectToSave = new { raw_output = jsonContent }; }
                 }
 
-                // 2. Upload to Storage
-                var fileName = $"{sId}/market_research_{DateTime.UtcNow.Ticks}.json";
-                var fileBytes = System.Text.Encoding.UTF8.GetBytes(jsonContent);
+                // 2. We no longer upload to Supabase Storage, pure JSON response!
                 string publicUrl = "";
-
-                try
-                {
-                    await _supabase.Storage.From("startup-docs").Upload(fileBytes, fileName);
-                    publicUrl = _supabase.Storage.From("startup-docs").GetPublicUrl(fileName);
-                }
-                catch (Exception ex) { _logger.LogWarning($"Storage upload failed: {ex.Message}"); }
 
                 try
                 {

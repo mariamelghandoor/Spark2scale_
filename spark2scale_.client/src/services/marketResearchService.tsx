@@ -1,4 +1,4 @@
-﻿// src/services/marketResearchService.tsx
+// src/services/marketResearchService.tsx
 
 import apiClient from "@/lib/apiClient";
 
@@ -50,18 +50,7 @@ export const marketResearchService = {
                 return merged;
             }
 
-            if (activeDoc.current_path && !activeDoc.document_name.endsWith(".pdf")) {
-                try {
-                    const fileRes = await fetch(activeDoc.current_path);
-                    if (fileRes.ok) {
-                        const jsonContent = await fileRes.json();
-                        return { ...activeDoc, ...jsonContent };
-                    }
-                } catch (err) {
-                    console.warn("Download failed:", err);
-                }
-            }
-
+            console.warn("No json_response found for active Market Research document.");
             return activeDoc;
         } catch (error) {
             console.error("Error fetching research:", error);
