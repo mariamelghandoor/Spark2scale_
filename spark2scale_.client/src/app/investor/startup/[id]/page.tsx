@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -22,6 +22,9 @@ import { Label } from "@/components/ui/label";
 import { meetingService } from "@/services/meetingService";
 import { userService } from "@/services/userService";
 import { evaluationService, EvaluationDocument } from "@/services/evaluationService";
+
+// --- Use React-to-Print for Native, High-Quality PDFs ---
+import { useReactToPrint } from 'react-to-print';
 
 interface Startup {
     sid: string;
@@ -76,10 +79,10 @@ const InvestorView = ({ data }: { data: any }) => {
     const displayScore = typeof rawScore === 'number' ? rawScore.toFixed(1) : parseFloat(rawScore || "0").toFixed(1);
 
     return (
-        <div className="space-y-8 animate-in fade-in duration-500 text-left">
+        <div className="space-y-8 animate-in fade-in duration-500 text-left print:p-8 print:bg-white">
 
             {/* Investor Memo Header */}
-            <div className="bg-[#576238] rounded-2xl p-6 md:p-8 shadow-lg text-white flex flex-col md:flex-row gap-6 md:items-center justify-between border border-[#6b7c3f]">
+            <div className="bg-[#576238] rounded-2xl p-6 md:p-8 shadow-lg text-white flex flex-col md:flex-row print:flex-row gap-6 md:items-center print:items-center justify-between border border-[#6b7c3f] print:break-inside-avoid">
                 <div className="max-w-2xl">
                     <div className="flex items-center gap-2 mb-3 opacity-80">
                         <Briefcase className="text-[#FFD95D] w-5 h-5" />
@@ -89,7 +92,7 @@ const InvestorView = ({ data }: { data: any }) => {
                     <p className="text-white/90 text-lg leading-relaxed font-serif">{content["Executive Summary"]}</p>
                 </div>
 
-                <div className="bg-[#4a532f] p-6 rounded-xl border border-[#FFD95D]/20 text-center min-w-[200px]">
+                <div className="bg-[#4a532f] p-6 rounded-xl border border-[#FFD95D]/20 text-center min-w-[200px] print:min-w-[180px]">
                     <span className="block text-sm uppercase tracking-widest text-white/70 font-bold mb-2">Deal Verdict</span>
                     <span className={`inline-block px-4 py-2 border rounded-lg text-lg font-black ${verdict?.includes('Ready') ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30' : 'bg-rose-500/20 text-rose-300 border-rose-500/30'}`}>
                         {verdict}
@@ -101,7 +104,7 @@ const InvestorView = ({ data }: { data: any }) => {
                 </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+            <div className="grid grid-cols-1 md:grid-cols-2 print:grid-cols-2 gap-8 print:break-inside-avoid">
                 {/* Deal Breakers */}
                 <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden flex flex-col">
                     <div className="bg-rose-50 border-b border-rose-100 p-6 flex items-center gap-3">
@@ -146,14 +149,14 @@ const InvestorView = ({ data }: { data: any }) => {
             </div>
 
             {/* Visual Map and Dimension Rationales Matrix */}
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+            <div className="grid grid-cols-1 lg:grid-cols-12 print:grid-cols-12 gap-8 pt-4">
 
                 {/* Radar Chart for Investors */}
-                <div className="lg:col-span-5 bg-white rounded-2xl shadow-sm border border-slate-200 p-6 flex flex-col">
+                <div className="lg:col-span-5 print:col-span-5 bg-white rounded-2xl shadow-sm border border-slate-200 p-6 flex flex-col print:break-inside-avoid">
                     <h2 className="text-xl font-bold text-slate-800 mb-6 flex items-center gap-2">
                         <Target className="text-slate-400 w-5 h-5" /> Dimension Map
                     </h2>
-                    <div className="w-full h-72">
+                    <div className="w-full h-72 print:h-80">
                         <ResponsiveContainer width="100%" height="100%">
                             <RadarChart cx="50%" cy="50%" outerRadius="75%" data={chartData}>
                                 <PolarGrid stroke="#e2e8f0" />
@@ -167,11 +170,11 @@ const InvestorView = ({ data }: { data: any }) => {
                 </div>
 
                 {/* Rationales Matrix */}
-                <div className="lg:col-span-7">
+                <div className="lg:col-span-7 print:col-span-7">
                     <h2 className="text-xl font-bold text-slate-800 mb-6 flex items-center gap-2">
                         <FileText className="text-slate-400 w-5 h-5" /> Dimension Analysis Matrix
                     </h2>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 print:grid-cols-2 gap-4">
                         {/* Map over the SCORECARD to guarantee all 9 dimensions render */}
                         {Object.entries(scorecard).map(([key, scoreValue], idx) => {
                             const dimName = key.toUpperCase();
@@ -185,7 +188,7 @@ const InvestorView = ({ data }: { data: any }) => {
                             const rationaleText = rationaleObj?.rationale || "No detailed rationale provided for this dimension.";
 
                             return (
-                                <div key={idx} className={`p-5 rounded-xl border ${isRedFlag ? 'bg-rose-50/50 border-rose-200' : 'bg-white border-slate-200'} shadow-sm`}>
+                                <div key={idx} className={`p-5 rounded-xl border ${isRedFlag ? 'bg-rose-50/50 border-rose-200' : 'bg-white border-slate-200'} shadow-sm print:break-inside-avoid`}>
                                     <div className="flex justify-between items-center mb-3">
                                         <h3 className="font-bold text-slate-800 uppercase tracking-wide text-sm">{dimName}</h3>
                                         <span className={`px-2 py-0.5 rounded text-xs font-bold ${isRedFlag ? 'bg-rose-100 text-rose-700' : 'bg-[#F4F1EA] text-[#576238]'}`}>
@@ -224,6 +227,9 @@ export default function InvestorStartupProfile() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [requestLoading, setRequestLoading] = useState(false);
+
+    // --- PDF GENERATION REF ---
+    const reportRef = useRef<HTMLDivElement>(null);
 
     // --- SCHEDULING STATE ---
     const [founderEmail, setFounderEmail] = useState<string>("");
@@ -310,7 +316,6 @@ export default function InvestorStartupProfile() {
 
             toast.success("Access requested! The founder has been notified.");
 
-            // Refresh documents
             const docsRes = await apiClient.get<StartupDocument[]>(`/api/documents?startupId=${id}&investorId=${investorId}`);
             setDocuments(docsRes.data);
         } catch (err) {
@@ -320,6 +325,13 @@ export default function InvestorStartupProfile() {
             setRequestLoading(false);
         }
     };
+
+    // --- ONE-CLICK PDF GENERATION LOGIC (NATIVE) ---
+    const handleDownloadPdf = useReactToPrint({
+        content: () => reportRef.current,
+        documentTitle: `${startup?.startupname?.replace(/\s+/g, '_') || 'Startup'}_Investment_Memo`,
+        onAfterPrint: () => toast.success("PDF Downloaded successfully!"),
+    });
 
     // --- SCHEDULING LOGIC ---
     const generateMeetLink = () => {
@@ -601,13 +613,21 @@ export default function InvestorStartupProfile() {
                                 {normalizedInvestorData ? (
                                     <div className="space-y-6">
                                         <div className="flex justify-end">
-                                            <Button variant="outline" className="border-[#576238] text-[#576238] hover:bg-[#F4F1EA] shadow-sm bg-white" asChild>
-                                                <a href={evalDoc?.current_path || "#"} target="_blank" download>
-                                                    <Download className="h-4 w-4 mr-2" /> Download Full Report
-                                                </a>
+                                            {/* ONE CLICK DOWNLOAD BUTTON */}
+                                            <Button
+                                                variant="outline"
+                                                className="border-[#576238] text-[#576238] hover:bg-[#F4F1EA] shadow-sm bg-white"
+                                                onClick={handleDownloadPdf}
+                                            >
+                                                <Download className="h-4 w-4 mr-2" /> Download Full Report
                                             </Button>
                                         </div>
-                                        <InvestorView data={normalizedInvestorData} />
+
+                                        {/* --- WRAP REPORT IN A REF DIV FOR PRINTING --- */}
+                                        <div ref={reportRef} className="bg-[#fcfaf7] p-2 sm:p-6 rounded-2xl print:bg-[#fcfaf7] print:p-8">
+                                            <InvestorView data={normalizedInvestorData} />
+                                        </div>
+
                                     </div>
                                 ) : (
                                     <Card className="p-8 shadow-sm border-2 border-slate-200 bg-white">

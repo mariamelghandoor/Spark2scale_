@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ArrowLeft, Download, PlayCircle, CheckCircle, FileText, Loader2, Trash2, AlertTriangle, Target, Info } from "lucide-react";
@@ -10,6 +10,11 @@ import { useParams } from "next/navigation";
 import { evaluationService, EvaluationDocument } from "@/services/evaluationService";
 import { startupService } from "@/services/startupService";
 import { Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer, Tooltip } from 'recharts';
+import { toast } from "sonner"; // Added for notifications
+
+// --- PDF Generation Imports ---
+import { toPng } from 'html-to-image';
+import jsPDF from 'jspdf';
 
 // Import the Lego Loader
 import LegoResearchLoader from "@/components/lego/LegoResearchLoader";
@@ -103,7 +108,6 @@ const FounderView = ({ data }: { data: any }) => {
                         <p className="text-sm text-slate-500">Select a dimension to explore details.</p>
                     </div>
 
-                    {/* MOVED BUTTONS HERE: Top-down user flow */}
                     <div className="flex flex-wrap gap-2 justify-center sm:justify-start mb-6">
                         {chartData.map((dim: any) => {
                             const isActive = activeDimension === dim.originalName;
@@ -118,7 +122,6 @@ const FounderView = ({ data }: { data: any }) => {
                         })}
                     </div>
 
-                    {/* Chart takes the rest of the space below the buttons */}
                     <div className="flex-grow w-full min-h-[280px] mt-auto flex items-center justify-center">
                         <ResponsiveContainer width="100%" height="100%">
                             <RadarChart cx="50%" cy="50%" outerRadius="75%" data={chartData} onClick={(e) => { if (e?.activePayload?.length > 0) setActiveDimension(e.activePayload[0].payload.originalName); }}>
@@ -197,6 +200,10 @@ export default function EvaluatePage() {
     const [userRole, setUserRole] = useState<string>("Viewer");
     const [startupStage, setStartupStage] = useState<string>("Pre-Seed");
 
+    // --- PDF GENERATION STATE ---
+    const reportRef = useRef<HTMLDivElement>(null);
+    const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
+
     useEffect(() => {
         const loadData = async () => {
             if (!startupId) return;
@@ -264,6 +271,49 @@ export default function EvaluatePage() {
             } finally {
                 setIsDeleting(false);
             }
+        }
+    };
+
+    // --- PDF GENERATION LOGIC ---
+    const handleDownloadPdf = async () => {
+        if (!reportRef.current) return;
+        setIsDownloadingPdf(true);
+
+        try {
+            // Give charts a tiny moment to finish any entrance animations
+            await new Promise(resolve => setTimeout(resolve, 500));
+
+            // Use html-to-image to bypass the oklab parsing error
+            const dataUrl = await toPng(reportRef.current, {
+                quality: 1,
+                pixelRatio: 2, // High resolution
+                backgroundColor: '#ffffff', // Ensure white background
+                filter: (node) => {
+                    const exclusionClasses = ['exclude-from-pdf'];
+                    return !exclusionClasses.some(classname => node.classList?.contains(classname));
+                }
+            });
+
+            // Get the actual pixel dimensions of the container
+            const width = reportRef.current.offsetWidth;
+            const height = reportRef.current.offsetHeight;
+
+            // Create a PDF that dynamically matches the exact size
+            const pdf = new jsPDF({
+                orientation: width > height ? 'landscape' : 'portrait',
+                unit: 'px',
+                format: [width, height]
+            });
+
+            pdf.addImage(dataUrl, 'PNG', 0, 0, width, height);
+            pdf.save(`Founder_Evaluation_Report.pdf`);
+
+            toast.success("PDF Downloaded successfully!");
+        } catch (error) {
+            console.error('Error generating PDF:', error);
+            toast.error('Failed to generate PDF. Check console for details.');
+        } finally {
+            setIsDownloadingPdf(false);
         }
     };
 
@@ -395,7 +445,7 @@ export default function EvaluatePage() {
                     {evalDoc && !isGenerating && (
                         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="space-y-8">
 
-                            {/* Clean Action Buttons Row (Replaces the Document Card) */}
+                            {/* Clean Action Buttons Row */}
                             <div className="max-w-5xl mx-auto flex flex-wrap items-center justify-end gap-3 mb-2">
                                 <Button
                                     variant="outline"
@@ -408,15 +458,16 @@ export default function EvaluatePage() {
                                     {isGenerating ? "Regenerating..." : "Regenerate Evaluation"}
                                 </Button>
 
+                                {/* --- ON THE FLY PDF GENERATION BUTTON --- */}
                                 <Button
                                     variant="outline"
                                     size="sm"
                                     className="bg-[#F4F1EA] hover:bg-[#e8e4db] text-[#576238] border-none font-medium shadow-sm transition-colors"
-                                    asChild
+                                    onClick={handleDownloadPdf}
+                                    disabled={isDownloadingPdf}
                                 >
-                                    <a href={evalDoc.current_path} target="_blank" download>
-                                        <Download className="h-4 w-4 mr-2" /> Download PDF
-                                    </a>
+                                    {isDownloadingPdf ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Download className="h-4 w-4 mr-2" />}
+                                    {isDownloadingPdf ? "Generating PDF..." : "Download PDF"}
                                 </Button>
 
                                 {userRole === 'Founder' && (
@@ -437,24 +488,27 @@ export default function EvaluatePage() {
                             {normalizedFounderData ? (
                                 <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-700">
 
-                                    {/* Score Summary Header */}
-                                    <div className="bg-[#576238] text-white rounded-2xl px-6 py-6 md:px-8 flex flex-col md:flex-row justify-between items-start md:items-center shadow-lg border border-[#6b7c3f]">
-                                        <div>
-                                            <p className="text-xs uppercase tracking-widest text-[#FFD95D]/80 mb-1 font-sans font-semibold">Spark2Scale Evaluation</p>
-                                            <h2 className="text-3xl font-bold font-sans">Founder Report</h2>
-                                        </div>
-                                        <div className="text-left md:text-right flex flex-col items-start md:items-end mt-4 md:mt-0">
-                                            <div className="text-4xl font-black text-[#FFD95D] font-serif leading-none tracking-tighter">
-                                                {displayScore} <span className="text-xl text-white/60 font-medium">/ 45</span>
+                                    {/* --- WRAP REPORT IN A REF DIV FOR SCREENSHOTTING --- */}
+                                    <div ref={reportRef} className="bg-[#fcfaf7] p-2 sm:p-6 rounded-2xl space-y-6">
+                                        {/* Score Summary Header */}
+                                        <div className="bg-[#576238] text-white rounded-2xl px-6 py-6 md:px-8 flex flex-col md:flex-row justify-between items-start md:items-center shadow-lg border border-[#6b7c3f]">
+                                            <div>
+                                                <p className="text-xs uppercase tracking-widest text-[#FFD95D]/80 mb-1 font-sans font-semibold">Spark2Scale Evaluation</p>
+                                                <h2 className="text-3xl font-bold font-sans">Founder Report</h2>
                                             </div>
-                                            <div className={`text-xs uppercase tracking-widest font-bold mt-2 px-3 py-1 rounded-md shadow-sm border ${verdict?.includes('Ready') ? 'bg-emerald-500/20 text-emerald-200 border-emerald-500/30' : 'bg-rose-500/20 text-rose-200 border-rose-500/30'}`}>
-                                                {verdict}
+                                            <div className="text-left md:text-right flex flex-col items-start md:items-end mt-4 md:mt-0">
+                                                <div className="text-4xl font-black text-[#FFD95D] font-serif leading-none tracking-tighter">
+                                                    {displayScore} <span className="text-xl text-white/60 font-medium">/ 45</span>
+                                                </div>
+                                                <div className={`text-xs uppercase tracking-widest font-bold mt-2 px-3 py-1 rounded-md shadow-sm border ${verdict?.includes('Ready') ? 'bg-emerald-500/20 text-emerald-200 border-emerald-500/30' : 'bg-rose-500/20 text-rose-200 border-rose-500/30'}`}>
+                                                    {verdict}
+                                                </div>
                                             </div>
                                         </div>
-                                    </div>
 
-                                    {/* Main Content Render */}
-                                    <FounderView data={normalizedFounderData} />
+                                        {/* Main Content Render */}
+                                        <FounderView data={normalizedFounderData} />
+                                    </div>
 
                                 </div>
                             ) : (
