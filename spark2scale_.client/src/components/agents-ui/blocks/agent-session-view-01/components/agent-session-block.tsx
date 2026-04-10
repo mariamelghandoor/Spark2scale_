@@ -264,10 +264,23 @@ export function AgentSessionView_01({
             controls={controls}
             isChatOpen={chatOpen}
             isConnected={session.isConnected}
-            onDisconnect={session.end}
+            onDisconnect={() => {
+              // 1. Disconnect from the LiveKit room (frontend side)
+              session.end();
+              // 2. Tell the backend to stop the worker subprocess.
+              //    This is fire-and-forget — we don't await it because the
+              //    component will unmount. The backend's on_participant_disconnected
+              //    handler also fires automatically, but /stop ensures the
+              //    subprocess is fully killed so the next /start gets clean state.
+              const apiUrl = process.env.NEXT_PUBLIC_PYTHON_API_URL
+                || 'https://spark2scale-ai-api-server.azurewebsites.net';
+              fetch(`${apiUrl}/api/v1/pitch-analyzer/stop`, { method: 'POST' })
+                .catch(() => {}); // silent — component may unmount before response
+            }}
             onIsChatOpenChange={setChatOpen}
           />
         </div>
+
       </motion.div>
     </section>
   );
