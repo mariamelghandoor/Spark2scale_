@@ -171,11 +171,18 @@ const InvestorView = ({ data }: { data: any }) => {
                     <h2 className="text-xl font-bold text-slate-800 mb-6 flex items-center gap-2">
                         <FileText className="text-slate-400 w-5 h-5" /> Dimension Analysis Matrix
                     </h2>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-h-[400px] overflow-y-auto pr-2 pb-4">
-                        {(content["Dimension Rationales"] || []).map((item: any, idx: number) => {
-                            const dimName = item.dimension || "Unknown";
-                            const score = scorecard[dimName.toLowerCase()] || scorecard[dimName] || 0;
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        {/* Map over the SCORECARD to guarantee all 9 dimensions render */}
+                        {Object.entries(scorecard).map(([key, scoreValue], idx) => {
+                            const dimName = key.toUpperCase();
+                            const score = scoreValue as number;
                             const isRedFlag = score < 2;
+
+                            // Safely look up the rationale if the AI provided one
+                            const rationaleObj = (content["Dimension Rationales"] || []).find(
+                                (r: any) => (r.dimension || "").toLowerCase() === key.toLowerCase()
+                            );
+                            const rationaleText = rationaleObj?.rationale || "No detailed rationale provided for this dimension.";
 
                             return (
                                 <div key={idx} className={`p-5 rounded-xl border ${isRedFlag ? 'bg-rose-50/50 border-rose-200' : 'bg-white border-slate-200'} shadow-sm`}>
@@ -186,7 +193,7 @@ const InvestorView = ({ data }: { data: any }) => {
                                         </span>
                                     </div>
                                     <p className={`text-sm leading-relaxed font-serif ${isRedFlag ? 'text-rose-900/80' : 'text-slate-600'}`}>
-                                        {item.rationale}
+                                        {rationaleText}
                                     </p>
                                 </div>
                             )
