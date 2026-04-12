@@ -145,11 +145,14 @@ namespace Spark2Scale_.Server.Controllers
 
             try
             {
-                await _supabase.From<PitchDeck>()
+                // 1. Check if a pitch deck already exists for this startup
+                var existingDecks = await _supabase.From<PitchDeck>()
                              .Where(x => x.startup_id == input.startup_id)
-                             .Set(x => x.is_current, false)
-                             .Update();
+                             .Get();
 
+                var existingDeck = existingDecks.Models.FirstOrDefault();
+
+                // 2. Upload the new video file to Supabase Storage
                 var fileName = $"{input.startup_id}/{Guid.NewGuid()}_{input.file.FileName}";
                 string publicUrl = "";
 
@@ -161,29 +164,59 @@ namespace Spark2Scale_.Server.Controllers
                     publicUrl = _supabase.Storage.From("pitch-videos").GetPublicUrl(fileName);
                 }
 
-                var newDeck = new PitchDeck
+                PitchDeck savedDeck;
+
+                // 3. Update existing row OR Insert a new row
+                if (existingDeck != null)
                 {
-                    startup_id = input.startup_id,
-                    video_url = publicUrl,
-                    tags = new List<string>(),
-                    countlikes = 0,
-                    is_current = true,
-                    created_at = DateTime.UtcNow
-                };
+                    // Increment version number and overwrite the existing video URL
+                    int newVersion = existingDeck.version_number + 1;
 
-                var result = await _supabase.From<PitchDeck>().Insert(newDeck);
-                var inserted = result.Models.FirstOrDefault();
+                    await _supabase.From<PitchDeck>()
+                        .Where(x => x.pitchdeckid == existingDeck.pitchdeckid)
+                        .Set(x => x.video_url, publicUrl)
+                        .Set(x => x.is_current, true)
+                        .Set(x => x.created_at, DateTime.UtcNow)
+                        .Set(x => x.version_number, newVersion)
+                        // Optionally clear the old analysis since the video changed:
+                        // .Set(x => x.analysis, null)
+                        .Update();
 
-                if (inserted == null) return StatusCode(500, "Failed to save to database");
+                    // Re-fetch the row because Supabase C# client may return empty Models after Update()
+                    var refetchResult = await _supabase.From<PitchDeck>()
+                        .Where(x => x.pitchdeckid == existingDeck.pitchdeckid)
+                        .Get();
+                    savedDeck = refetchResult.Models.FirstOrDefault();
+                }
+                else
+                {
+                    // No previous version found — create a new row at version 1
+                    var newDeck = new PitchDeck
+                    {
+                        startup_id = input.startup_id,
+                        video_url = publicUrl,
+                        tags = new List<string>(),
+                        countlikes = 0,
+                        is_current = true,
+                        created_at = DateTime.UtcNow,
+                        version_number = 1
+                    };
+
+                    var insertResult = await _supabase.From<PitchDeck>().Insert(newDeck);
+                    savedDeck = insertResult.Models.FirstOrDefault();
+                }
+
+                if (savedDeck == null) return StatusCode(500, "Failed to save to database");
 
                 return Ok(new PitchDeckResponseDto
                 {
-                    pitchdeckid = inserted.pitchdeckid,
-                    startup_id = inserted.startup_id,
-                    video_url = inserted.video_url,
-                    is_current = inserted.is_current,
-                    tags = inserted.tags,
-                    created_at = inserted.created_at
+                    pitchdeckid = savedDeck.pitchdeckid,
+                    startup_id = savedDeck.startup_id,
+                    video_url = savedDeck.video_url,
+                    is_current = savedDeck.is_current,
+                    tags = savedDeck.tags,
+                    created_at = savedDeck.created_at,
+                    version_number = savedDeck.version_number
                 });
             }
             catch (Exception ex)

@@ -44,6 +44,10 @@ export interface PitchDeck {
     format?: string;
     size?: string;
     uploadedBy?: string;
+    version_number?: number;
+    extracted_subtags?: string[];
+    // jsonb object returned directly from Supabase
+    session_report?: Record<string, unknown>;
 }
 
 export const pitchDeckService = {

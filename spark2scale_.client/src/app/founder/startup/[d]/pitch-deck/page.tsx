@@ -94,7 +94,7 @@ export default function PitchDeckPage() {
 
     // Phase
     const [phase, setPhase] = useState<PagePhase>("management");
-
+    D
     // ── Current pitch deck ID (fetched from backend on mount) ─────────────────
     // Used to link session_report to the correct Supabase row via /extract.
     const [pitchDeckId, setPitchDeckId] = useState<string | null>(null);
@@ -119,6 +119,8 @@ export default function PitchDeckPage() {
     const [isFullView, setIsFullView] = useState(false);
     // Block start without pitch deck + inline msg
     const [pitchBlockMsg, setPitchBlockMsg] = useState<string | null>(null);
+    // Upload error
+    const [uploadError, setUploadError] = useState<string | null>(null);
     // ── Fetch current pitchdeckid for this startup on mount ─────────────────
     // We need this to link the session report to the correct Supabase row.
     // The current pitch deck is the one with is_current=true (returned first by getPitches).
@@ -229,7 +231,7 @@ export default function PitchDeckPage() {
         }
     }, [phase, extractionDone, pitchDeckId, startupId]);
 
-    // File Handlers — Video only
+    // File Handlers — Video only, upload to Supabase via C# backend
     const handleFiles = useCallback(async (files: FileList | File[]) => {
         const videoTypes = ['video/mp4', 'video/webm', 'video/quicktime', 'video/x-msvideo', 'video/x-matroska'];
         const fileArray = Array.from(files).filter(f =>
@@ -238,13 +240,38 @@ export default function PitchDeckPage() {
             f.name.endsWith('.webm') || f.name.endsWith('.avi') || f.name.endsWith('.mkv')
         );
         if (fileArray.length === 0) { alert('Please upload a video file (MP4, MOV, WebM, AVI, MKV).'); return; }
+
         setIsUploading(true);
-        await new Promise(res => setTimeout(res, 1200));
-        setUploadedFiles(prev => [...prev, ...fileArray.map(f => ({
-            name: f.name, size: f.size, url: URL.createObjectURL(f), uploadedAt: new Date().toLocaleString()
-        }))]);
+        setUploadError(null);
+
+        for (const file of fileArray) {
+            try {
+                // Upload to Supabase via C# backend → returns the new PitchDeck row
+                const deck = await pitchDeckService.uploadVideo(startupId, file);
+
+                // Update local state with the real row from Supabase
+                setUploadedFiles([{
+                    name: file.name,
+                    size: file.size,
+                    url: deck.video_url || URL.createObjectURL(file),
+                    uploadedAt: new Date().toLocaleString(),
+                }]);
+
+                // Store the new pitchdeckid so Start button unlocks immediately
+                if (deck.pitchdeckid) {
+                    setPitchDeckId(deck.pitchdeckid);
+                    // Clear any "upload first" warning since we now have a deck
+                    setPitchBlockMsg(null);
+                }
+            } catch (err: unknown) {
+                const msg = err instanceof Error ? err.message : 'Upload failed. Please try again.';
+                setUploadError(msg);
+            }
+        }
+
         setIsUploading(false);
-    }, []);
+    }, [startupId, setPitchDeckId]);
+
 
     const handleDrop = useCallback((e: React.DragEvent) => {
         e.preventDefault(); setIsDragging(false);
@@ -436,7 +463,23 @@ export default function PitchDeckPage() {
                                 </AnimatePresence>
 
                                 {uploadedFiles.length === 0 && !isUploading && (
-                                    <p className="text-center text-sm text-muted-foreground py-2">No files uploaded yet.</p>
+                                    <p className="text-center text-sm text-muted-foreground py-2">No video uploaded yet.</p>
+                                )}
+
+                                {/* Upload error */}
+                                {uploadError && (
+                                    <div className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-red-50 border border-red-200 text-red-700 text-sm font-medium mt-2">
+                                        <AlertTriangle className="h-4 w-4 shrink-0" />
+                                        {uploadError}
+                                    </div>
+                                )}
+
+                                {/* Success: linked to pitch deck row */}
+                                {pitchDeckId && uploadedFiles.length > 0 && (
+                                    <div className="flex items-center gap-2 px-4 py-2 rounded-xl bg-green-50 border border-green-200 text-green-700 text-sm font-medium mt-2">
+                                        <CheckCircle2 className="h-4 w-4 shrink-0" />
+                                        Video saved — AI analyzer is now unlocked.
+                                    </div>
                                 )}
                             </CardContent>
                         </Card>

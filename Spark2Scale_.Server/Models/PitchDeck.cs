@@ -1,6 +1,7 @@
-﻿// Spark2Scale_.Server/Models/PitchDeck.cs
+// Spark2Scale_.Server/Models/PitchDeck.cs
 using Supabase.Postgrest.Attributes;
 using Supabase.Postgrest.Models;
+using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
 using Microsoft.AspNetCore.Http; // Required for IFormFile
@@ -73,6 +74,16 @@ namespace Spark2Scale_.Server.Models
 
         [Column("created_at")]
         public DateTime created_at { get; set; }
+
+        [Column("version_number")]
+        public int version_number { get; set; }
+
+        [Column("extracted_subtags")]
+        public List<string> extracted_subtags { get; set; }
+
+        // jsonb column — must be JObject so Newtonsoft.Json can deserialize it
+        [Column("session_report")]
+        public JObject session_report { get; set; }
     }
 
     // --- 3. Data Transfer Objects (DTOs) ---
@@ -92,6 +103,9 @@ namespace Spark2Scale_.Server.Models
         public List<string> tags { get; set; }
         public int countlikes { get; set; }
         public DateTime created_at { get; set; }
+        public int version_number { get; set; }
+        public List<string> extracted_subtags { get; set; }
+        public object session_report { get; set; }
     }
 
     // DTO for Uploading (Input)
