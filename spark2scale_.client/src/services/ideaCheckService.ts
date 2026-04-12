@@ -277,12 +277,20 @@ export const ideaCheckService = {
     // Add this new method — saves the AI-updated startup data back to your DB
     async updateStartupInDatabase(startupId: string, updatedData: object): Promise<boolean> {
         try {
-            console.log("📝 Saving updated startup data to DB:", JSON.stringify(updatedData, null, 2));
-            await apiClient.put(`/api/startups/update-json/${startupId}`, { jsonResponse: updatedData });
-            console.log("✅ Startup data saved to DB successfully");
+            console.log("Saving updated startup data to DB:", JSON.stringify(updatedData, null, 2));
+
+            // 👇 ADD THESE TWO LINES to attach the Auth Token
+            const token = localStorage.getItem('auth_token');
+            await apiClient.put(
+                `/api/startups/update-json/${startupId}`,
+                { jsonResponse: updatedData },
+                { headers: { Authorization: `Bearer ${token}` } } // <-- Attach it here
+            );
+
+            console.log("Startup data saved to DB successfully");
             return true;
         } catch (error: any) {
-            console.error("❌ Failed to save startup data to DB:", error.response?.data);
+            console.error("Failed to save startup data to DB:", error.response?.data || error.message);
             return false;
         }
     },

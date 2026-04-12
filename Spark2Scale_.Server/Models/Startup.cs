@@ -101,6 +101,10 @@ namespace Spark2Scale_.Server.Models
     {
         public string IdeaDescription { get; set; }
     }
+    public class UpdateJsonDto
+    {
+        public JsonElement jsonResponse { get; set; }
+    }
 
     /// <summary>
     /// DTO used by PUT /api/Startups/{id}/recommendation.

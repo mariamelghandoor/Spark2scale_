@@ -509,5 +509,35 @@ namespace Spark2Scale_.Server.Controllers
 
             return Ok(new { message = "Recommendation saved.", iteration = input.CurrentIteration });
         }
+
+        [HttpPut("update-json/{id}")]
+        public async Task<IActionResult> UpdateStartupJson(string id, [FromBody] UpdateJsonDto input)
+        {
+            if (!Guid.TryParse(id, out Guid sId)) return BadRequest("Invalid ID format");
+
+            try
+            {
+                // 1. (Optional) Check Authorization just like you did in UpdateIdea
+                // var token = Request.Headers["Authorization"].FirstOrDefault()?.Replace("Bearer ", "");
+                // if (string.IsNullOrEmpty(token)) return Unauthorized("Missing authorization token.");
+                // if (!await _access.IsFounderOrOwner(token, sId)) return StatusCode(403, "Only the Founder can update data.");
+
+                // 2. Parse the JSON safely for the Supabase C# Client
+                var rawJson = input.jsonResponse.GetRawText();
+                var supabaseSafeJson = JsonConvert.DeserializeObject<object>(rawJson);
+
+                // 3. Update the json_response column in the database
+                await _supabase.From<Startup>()
+                    .Where(s => s.Sid == sId)
+                    .Set(s => s.JsonResponse, supabaseSafeJson)
+                    .Update();
+
+                return Ok(new { message = "Startup data updated successfully." });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, $"Error updating JSON data: {ex.Message}");
+            }
+        }
     }
 }
