@@ -4,7 +4,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
-    ArrowLeft, Upload, FileText, Mic, Eye, Download,
+    ArrowLeft, Upload, FileText, Mic, Eye, Download, X,
     Maximize2, Brain, CheckCircle2, AlertTriangle, Loader2,
     Presentation, RefreshCw
 } from "lucide-react";
@@ -15,6 +15,7 @@ import { cn } from "@/lib/utils";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { APP_CONFIG_DEFAULTS } from "@/app-config";
 import { App } from "@/components/livekit-app/app";
+import { pitchDeckService } from "@/services/pitchDeckService";
 
 const PYTHON_API_URL = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'https://spark2scale-ai-api-server.azurewebsites.net';
 
@@ -94,6 +95,10 @@ export default function PitchDeckPage() {
     // Phase
     const [phase, setPhase] = useState<PagePhase>("management");
 
+    // ── Current pitch deck ID (fetched from backend on mount) ─────────────────
+    // Used to link session_report to the correct Supabase row via /extract.
+    const [pitchDeckId, setPitchDeckId] = useState<string | null>(null);
+
     // Upload
     const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
     const [isDragging, setIsDragging] = useState(false);
@@ -113,11 +118,35 @@ export default function PitchDeckPage() {
     const [reportError, setReportError] = useState<string | null>(null);
     const [isFullView, setIsFullView] = useState(false);
 
+    // ── Fetch current pitchdeckid for this startup on mount ─────────────────
+    // We need this to link the session report to the correct Supabase row.
+    // The current pitch deck is the one with is_current=true (returned first by getPitches).
+    useEffect(() => {
+        if (!startupId) return;
+        pitchDeckService.getPitches(startupId).then((decks) => {
+            const current = decks.find((d) => d.is_current) ?? decks[0] ?? null;
+            if (current?.pitchdeckid) {
+                setPitchDeckId(current.pitchdeckid);
+            }
+        }).catch(() => {
+            // Non-critical: session will still work, report just won't be persisted
+            console.warn("[PitchDeck] Could not fetch pitchdeckid — report won't be saved to Supabase.");
+        });
+    }, [startupId]);
+
     // ── Fetch last cached report (GET /get-report) — no LLM call ──
     const fetchCachedReport = useCallback(async (): Promise<boolean> => {
         try {
-            const res = await fetch(`${PYTHON_API_URL}/api/v1/pitch-analyzer/get-report`);
+            const url = pitchDeckId
+                ? `${PYTHON_API_URL}/api/v1/pitch-analyzer/get-report?pitchdeckid=${pitchDeckId}`
+                : `${PYTHON_API_URL}/api/v1/pitch-analyzer/get-report`;
+            const res = await fetch(url);
             if (res.ok) {
+                // Redirect to dedicated report page
+                if (pitchDeckId) {
+                    router.push(`/founder/startup/${startupId}/pitch-deck/report`);
+                    return true;
+                }
                 const data: AgentReport = await res.json();
                 setReport(data);
                 setPhase("report");
@@ -125,7 +154,7 @@ export default function PitchDeckPage() {
             }
         } catch (_) { /* ignore */ }
         return false;
-    }, []);
+    }, [pitchDeckId, startupId, router]);
 
     // ── Fetch report from Python API using POST /generate-report ──
     const fetchReport = useCallback(async () => {
@@ -139,9 +168,10 @@ export default function PitchDeckPage() {
             });
 
             if (res.ok) {
-                const data: AgentReport = await res.json();
-                setReport(data);
-                setPhase("report");
+                // ── Redirect to the dedicated report page ───────────────────────
+                // The report was already saved to Supabase inside /generate-report.
+                // The report page fetches it from there.
+                router.push(`/founder/startup/${startupId}/pitch-deck/report`);
             } else {
                 let errMsg: string;
                 try {
@@ -160,7 +190,7 @@ export default function PitchDeckPage() {
             setReportError("Network error while generating report. Please check your connection.");
             setPhase("report");
         }
-    }, []);
+    }, [startupId, router]);
 
     // Stop the backend worker (kills subprocess so next /start is fresh)
     const stopWorker = useCallback(async () => {
@@ -176,7 +206,17 @@ export default function PitchDeckPage() {
         if (phase === "session" && !extractionDone) {
             setIsExtracting(true);
             const pythonApiUrl = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'https://spark2scale-ai-api-server.azurewebsites.net';
-            fetch(`${pythonApiUrl}/api/v1/pitch-analyzer/extract`, { method: 'POST' })
+            fetch(`${pythonApiUrl}/api/v1/pitch-analyzer/extract`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                // Pass pitchdeckid so the backend can link this session to the Supabase row.
+                // If null (no pitch deck uploaded yet), the backend still runs extraction
+                // but will set _supabase_linked: false when generating the report.
+                body: JSON.stringify({
+                    pitchdeckid: pitchDeckId ?? null,
+                    startup_id: startupId ?? null,
+                }),
+            })
                 .then(async (res) => {
                     if (!res.ok) throw new Error(`Server returned ${res.status}`);
                 })
@@ -186,7 +226,7 @@ export default function PitchDeckPage() {
                     setExtractionDone(true);
                 });
         }
-    }, [phase, extractionDone]);
+    }, [phase, extractionDone, pitchDeckId, startupId]);
 
     // File Handlers
     const handleFiles = useCallback(async (files: FileList | File[]) => {
@@ -500,7 +540,7 @@ export default function PitchDeckPage() {
         }
 
         const score = report.score ?? 0;
-        const maxScore = report.max_score ?? 100;
+        const maxScore = report.max_score ?? 45;
         const scoreColor = score >= 80 ? "text-green-600" : score >= 60 ? "text-amber-500" : "text-red-500";
         const rubric = report.rubric ?? {};
         const rubricEntries = Object.entries(rubric);

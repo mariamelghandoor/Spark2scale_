@@ -11,12 +11,13 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { App } from "@/components/livekit-app/app";
 import { APP_CONFIG_DEFAULTS } from "@/app-config";
+import { pitchDeckService } from "@/services/pitchDeckService";
 
 type SimulationPhase = "setup" | "preparing" | "meeting" | "ending" | "evaluation";
 
@@ -81,6 +82,7 @@ function gradeEmoji(grade: string) {
 
 export default function PitchSimulator() {
     const params = useParams();
+    const router = useRouter();
     const rawId = params?.d || params?.id;
     const startupId = rawId ? (Array.isArray(rawId) ? rawId[0] : rawId).toString() : "";
 
@@ -93,15 +95,33 @@ export default function PitchSimulator() {
     const [prepProgress, setPrepProgress] = useState(0);
     const [isExtracting, setIsExtracting] = useState(true);
 
-    // ── Report state ─────────────────────────────────────────────────────────
+    // -- Current pitch deck ID (fetched from backend on mount) ---
+    const [pitchDeckId, setPitchDeckId] = useState<string | null>(null);
+
+    // -- Report state ---
     const [reportData, setReportData] = useState<SessionReport | null>(null);
     const [reportError, setReportError] = useState<string | null>(null);
 
-    // ── Pre-flight Extraction (runs while user picks settings) ───────────────
+    // -- Fetch pitchdeckid on mount ---
+    useEffect(() => {
+        if (!startupId) return;
+        pitchDeckService.getPitches(startupId).then((decks) => {
+            const current = decks.find((d) => d.is_current) ?? decks[0] ?? null;
+            if (current?.pitchdeckid) setPitchDeckId(current.pitchdeckid);
+        }).catch(() => {
+            console.warn("[Simulator] Could not fetch pitchdeckid — report won't be saved to Supabase.");
+        });
+    }, [startupId]);
+
+    // -- Pre-flight Extraction (runs while user picks settings) ---
     useEffect(() => {
         if (phase === "setup") {
             setIsExtracting(true);
-            fetch(`${PYTHON_API_URL}/api/v1/pitch-analyzer/extract`, { method: "POST" })
+            fetch(`${PYTHON_API_URL}/api/v1/pitch-analyzer/extract`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ pitchdeckid: pitchDeckId ?? null, startup_id: startupId ?? null }),
+            })
                 .then(async (res) => {
                     if (!res.ok) throw new Error(`Server returned ${res.status}`);
                     setIsExtracting(false);
@@ -111,7 +131,7 @@ export default function PitchSimulator() {
                     setIsExtracting(false);
                 });
         }
-    }, [phase]);
+    }, [phase, pitchDeckId, startupId]);
 
     // ── Preparation timer ────────────────────────────────────────────────────
     useEffect(() => {
@@ -192,27 +212,27 @@ export default function PitchSimulator() {
         await new Promise(r => setTimeout(r, 2000));
 
         // 3. POST /generate-report — runs the LLM in the FastAPI main process.
-        //    This is the reliable path: the job subprocess is dead by now, but
-        //    the FastAPI process is still alive and has the saved session_state.json
+        //    The backend saves the report to Supabase (pitchdecks.session_report)
+        //    if a pitchdeckid was passed during /extract.
         try {
             const res = await fetch(`${apiUrl}/api/v1/pitch-analyzer/generate-report`, { method: "POST" });
             if (res.ok) {
-                const report = await res.json();
-                setReportData(report);
+                // Always redirect to the dedicated report page
+                setPhase("evaluation"); // brief transition state
+                router.push(`/founder/startup/${startupId}/pitch-deck/report`);
             } else {
                 const errText = await res.text();
                 if (res.status === 422) {
-                    // Session was too short — no speech captured
                     setReportError(errText || "Session too short to generate a report.");
                 } else {
                     setReportError(`Report generation failed (${res.status}). Please try again.`);
                 }
+                setPhase("evaluation");
             }
         } catch (e) {
             setReportError("Network error while generating report. Please check your connection.");
+            setPhase("evaluation");
         }
-
-        setPhase("evaluation");
     };
 
 
