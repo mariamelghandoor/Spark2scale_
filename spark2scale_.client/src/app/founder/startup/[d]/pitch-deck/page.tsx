@@ -4,7 +4,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
-    ArrowLeft, Upload, FileText, Mic, X, Eye, Download,
+    ArrowLeft, Upload, FileText, Mic, Eye, Download,
     Maximize2, Brain, CheckCircle2, AlertTriangle, Loader2,
     Presentation, RefreshCw
 } from "lucide-react";
@@ -54,7 +54,7 @@ function formatFileSize(bytes: number): string {
 function generatePdf(report: AgentReport, startupId: string) {
     const rubric = report.rubric || {};
     const rubricRows = Object.entries(rubric).map(([k, v]) =>
-        `<tr><td style="padding:6px 8px;font-weight:600;color:#576238;">${k.replace(/_/g,' ')}</td><td style="padding:6px 8px;">${v.score ?? '-'}</td><td style="padding:6px 8px;color:#555;">${v.notes ?? ''}</td></tr>`
+        `<tr><td style="padding:6px 8px;font-weight:600;color:#576238;">${k.replace(/_/g, ' ')}</td><td style="padding:6px 8px;">${v.score ?? '-'}</td><td style="padding:6px 8px;color:#555;">${v.notes ?? ''}</td></tr>`
     ).join('');
     const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"/>
     <title>Pitch Analysis Report</title>
@@ -113,30 +113,56 @@ export default function PitchDeckPage() {
     const [reportError, setReportError] = useState<string | null>(null);
     const [isFullView, setIsFullView] = useState(false);
 
-    // Fetch report from Python API
+    // ── Fetch last cached report (GET /get-report) — no LLM call ──
+    const fetchCachedReport = useCallback(async (): Promise<boolean> => {
+        try {
+            const res = await fetch(`${PYTHON_API_URL}/api/v1/pitch-analyzer/get-report`);
+            if (res.ok) {
+                const data: AgentReport = await res.json();
+                setReport(data);
+                setPhase("report");
+                return true;
+            }
+        } catch (_) { /* ignore */ }
+        return false;
+    }, []);
+
+    // ── Fetch report from Python API using POST /generate-report ──
     const fetchReport = useCallback(async () => {
         setPhase("fetching_report");
         setReportError(null);
-        // Poll up to 30s — agent may still be finishing the file write
-        for (let attempt = 0; attempt < 10; attempt++) {
-            try {
-                const res = await fetch(`${PYTHON_API_URL}/api/v1/pitch-analyzer/report`);
-                if (res.ok) {
-                    const data: AgentReport = await res.json();
-                    setReport(data);
-                    setPhase("report");
-                    return;
+
+        try {
+            // Generate report from the synchronously saved state
+            const res = await fetch(`${PYTHON_API_URL}/api/v1/pitch-analyzer/generate-report`, {
+                method: "POST"
+            });
+
+            if (res.ok) {
+                const data: AgentReport = await res.json();
+                setReport(data);
+                setPhase("report");
+            } else {
+                let errMsg: string;
+                try {
+                    const body = await res.json();
+                    errMsg = body?.detail || `Report generation failed (${res.status}).`;
+                } catch {
+                    errMsg = `Report generation failed (${res.status}).`;
                 }
-                if (res.status !== 404) break; // unexpected error, stop polling
-            } catch (_) { /* network error, keep polling */ }
-            await new Promise(r => setTimeout(r, 3000)); // wait 3s before retry
+                if (res.status === 404 || res.status === 422) {
+                    errMsg = "Session was too short — no speech was captured. Please try a full session.";
+                }
+                setReportError(errMsg);
+                setPhase("report");
+            }
+        } catch (e) {
+            setReportError("Network error while generating report. Please check your connection.");
+            setPhase("report");
         }
-        setReportError("Could not retrieve report. The session may have ended early or an error occurred.");
-        setPhase("report");
     }, []);
 
     // Stop the backend worker (kills subprocess so next /start is fresh)
-    // Call this whenever the user exits the session for any reason.
     const stopWorker = useCallback(async () => {
         try {
             await fetch(`${PYTHON_API_URL}/api/v1/pitch-analyzer/stop`, { method: 'POST' });
@@ -348,7 +374,7 @@ export default function PitchDeckPage() {
                         </Card>
                     </motion.div>
 
-                    {/* ── Mark as Complete — same pattern as other stages ── */}
+                    {/* Mark as Complete */}
                     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.2 }}
                         className="text-center pb-4">
                         {!isStageCompleted ? (
@@ -381,7 +407,7 @@ export default function PitchDeckPage() {
         return (
             <div className="pitch-session-theme flex flex-col h-screen" style={{ background: '#576238' }}>
 
-                {/* Sticky navbar — same #576238 olive, blends seamlessly with outer bg */}
+                {/* Sticky navbar */}
                 <div className="flex-shrink-0 w-full z-50" style={{ background: '#576238', borderBottom: '1px solid rgba(255,255,255,0.12)' }}>
                     <div className="flex w-full items-center justify-between px-6 py-3 gap-4">
 
@@ -414,37 +440,31 @@ export default function PitchDeckPage() {
                                 size="sm"
                                 className="font-bold uppercase text-xs tracking-widest bg-red-600 hover:bg-red-700 text-white rounded-full px-5 py-2 shadow-lg border border-red-400"
                                 onClick={async () => {
-                                    // 1. Tell the backend to stop the worker gracefully.
-                                    //    This sets state.phase='done' inside the agent (kills watchers)
-                                    //    and waits for ctx.room.disconnect() to flush the report.
-                                    await stopWorker();
-                                    // 2. Small delay so the report file gets written before polling.
-                                    await new Promise(r => setTimeout(r, 2000));
-                                    // 3. Start polling for the report.
+                                    // 1. Set phase to fetching_report immediately. 
+                                    // This unmounts the <App /> component, which legally disconnects the founder from the LiveKit room.
+                                    setPhase("fetching_report");
+
+                                    // 2. Wait 3.5 seconds. 
+                                    // The Python worker will instantly detect the disconnect and use this time to safely write the transcript to /tmp/session_state.json.
+                                    await new Promise(r => setTimeout(r, 6000));
+
+                                    // 3. Request the report. 
+                                    // The backend will now successfully find and read the saved JSON file.
                                     fetchReport();
+
+                                    // 4. Force-kill the worker in the background to free up Azure memory.
+                                    stopWorker();
                                 }}
                             >
                                 End Session &amp; Get Report
-                            </Button>
-                            <Button
-                                size="sm"
-                                className="text-white text-xs rounded-full px-4 py-2 border border-white/50 bg-transparent hover:bg-white/15 hover:border-white font-semibold tracking-wide"
-                                onClick={async () => {
-                                    // Kill the agent so it doesn't linger in the room
-                                    await stopWorker();
-                                    setPhase("management");
-                                }}
-                            >
-                                <X className="h-3.5 w-3.5 mr-1.5" />
-                                Cancel
                             </Button>
                         </div>
                     </div>
                 </div>
 
-                {/* LiveKit App — fills remaining space; its own CSS handles inner styling */}
+                {/* LiveKit App — fills remaining space */}
                 <div className="flex-1 min-h-0 overflow-hidden">
-                    <App appConfig={APP_CONFIG_DEFAULTS} />
+                    <App appConfig={{ ...APP_CONFIG_DEFAULTS, showLeaveButton: false }} />
                 </div>
             </div>
         );
@@ -464,7 +484,13 @@ export default function PitchDeckPage() {
                         <p className="text-sm text-muted-foreground">{reportError || "No report data was returned."}</p>
                         <div className="flex gap-3 justify-center pt-2">
                             <Button variant="outline" onClick={() => setPhase("management")}>Back</Button>
-                            <Button className="bg-[#576238] text-white" onClick={fetchReport}>
+                            <Button className="bg-[#576238] text-white" onClick={async () => {
+                                setPhase("fetching_report");
+                                setReportError(null);
+                                // Try cached report first (fast path, no LLM call)
+                                const got = await fetchCachedReport();
+                                if (!got) await fetchReport();
+                            }}>
                                 <RefreshCw className="h-4 w-4 mr-2" /> Retry
                             </Button>
                         </div>
@@ -575,11 +601,11 @@ export default function PitchDeckPage() {
                                 <div className="grid md:grid-cols-2 gap-4">
                                     <div className="p-4 bg-green-50 rounded-xl border border-green-100">
                                         <h4 className="font-bold text-green-700 text-sm mb-2">✅ Strengths</h4>
-                                        <ul className="space-y-1">{(report.strengths ?? []).map((s, i) => <li key={i} className="text-xs text-green-700 capitalize">{s.replace(/_/g,' ')}</li>)}</ul>
+                                        <ul className="space-y-1">{(report.strengths ?? []).map((s, i) => <li key={i} className="text-xs text-green-700 capitalize">{s.replace(/_/g, ' ')}</li>)}</ul>
                                     </div>
                                     <div className="p-4 bg-red-50 rounded-xl border border-red-100">
                                         <h4 className="font-bold text-red-700 text-sm mb-2">⚠️ Critical Weaknesses</h4>
-                                        <ul className="space-y-1">{(report.critical_weaknesses ?? []).map((w, i) => <li key={i} className="text-xs text-red-700 capitalize">{w.replace(/_/g,' ')}</li>)}</ul>
+                                        <ul className="space-y-1">{(report.critical_weaknesses ?? []).map((w, i) => <li key={i} className="text-xs text-red-700 capitalize">{w.replace(/_/g, ' ')}</li>)}</ul>
                                     </div>
                                 </div>
 
@@ -650,7 +676,7 @@ export default function PitchDeckPage() {
                                 <Card key={key} className="border border-[#576238]/10">
                                     <CardContent className="p-5">
                                         <div className="flex items-center justify-between mb-2">
-                                            <h3 className="font-bold text-[#576238] text-base capitalize">{key.replace(/_/g,' ')}</h3>
+                                            <h3 className="font-bold text-[#576238] text-base capitalize">{key.replace(/_/g, ' ')}</h3>
                                             <span className={cn("text-lg font-black", (val.score ?? 0) >= 4 ? "text-green-600" : (val.score ?? 0) >= 2.5 ? "text-amber-500" : "text-red-500")}>
                                                 {val.score ?? 0}/5
                                             </span>

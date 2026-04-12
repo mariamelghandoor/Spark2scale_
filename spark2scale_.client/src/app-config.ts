@@ -30,6 +30,9 @@ export interface AppConfig {
 
   // LiveKit Cloud Sandbox configuration
   sandboxId?: string;
+
+  /** When false, hides the leave/disconnect button inside the session view. Default: true. */
+  showLeaveButton?: boolean;
 }
 
 export const APP_CONFIG_DEFAULTS: AppConfig = {

@@ -6,14 +6,12 @@ import { ArrowLeft, RefreshCw, Sparkles, Bot, Loader2, CheckCircle2 } from "luci
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { recommendationService, DBRecommendation } from "@/services/recommendationService";
+import { startupService } from "@/services/startupService";
+import { evaluationService } from "@/services/evaluationService";
 import { RecommendationCard } from "@/components/recommendations/RecommendationCard";
 
-// Import the Lego Loader
-// Import the Lego Loader
-import LegoResearchLoader from "@/components/lego/LegoResearchLoader";
-
 interface NamedRecommendation {
-    rec: DBRecommendation;
+    rec:  DBRecommendation;
     name: string;
     /** DB primary key — used for deletion; may be undefined for local-only items */
     rid?: string;
@@ -22,24 +20,24 @@ interface NamedRecommendation {
 // ── Map raw Supabase snake_case row to DBRecommendation ──────────────────────
 function mapRaw(raw: any, index: number, total: number): NamedRecommendation {
     const rec: DBRecommendation = {
-        Id: raw.rid ?? raw.Id ?? `db-${index}`,
+        Id:        raw.rid   ?? raw.Id    ?? `db-${index}`,
         StartupId: raw.startup_id ?? raw.StartupId ?? "",
-        Type: raw.type ?? raw.Type ?? "recommendation",
-        Content: raw.content ?? raw.Content,
-        Version: raw.version ?? raw.Version ?? index + 1,
+        Type:      raw.type  ?? raw.Type  ?? "recommendation",
+        Content:   raw.content ?? raw.Content,
+        Version:   raw.version ?? raw.Version ?? index + 1,
         CreatedAt: raw.created_at ?? raw.CreatedAt ?? "",
         IsCurrent: raw.is_current ?? raw.IsCurrent ?? false,
     };
     return {
         rec,
         name: `Recommendation ${total - index}`,
-        rid: raw.rid ?? undefined,
+        rid:  raw.rid ?? undefined,
     };
 }
 
 export default function RecommendationsPage() {
-    const params = useParams();
-    const router = useRouter();
+    const params  = useParams();
+    const router  = useRouter();
 
     // ── Stable startup ID (derived once from URL params) ────────────────────
     const [cleanId] = useState<string | null>(() => {
@@ -50,13 +48,13 @@ export default function RecommendationsPage() {
     });
 
     // ── Page states ──────────────────────────────────────────────────────────
-    const [isLoadingHistory, setIsLoadingHistory] = useState(true);
-    const [isGenerating, setIsGenerating] = useState(false);
+    const [isLoadingHistory,  setIsLoadingHistory]  = useState(true);
+    const [isGenerating,      setIsGenerating]      = useState(false);
     const [isMarkingComplete, setIsMarkingComplete] = useState(false);
-    const [isCompleted, setIsCompleted] = useState(false);
+    const [isCompleted,       setIsCompleted]       = useState(false);
     /** true when startup_workflow.recommendation is already true in the DB */
     const [isAlreadyComplete, setIsAlreadyComplete] = useState(false);
-    const [items, setItems] = useState<NamedRecommendation[]>([]);
+    const [items,             setItems]             = useState<NamedRecommendation[]>([]);
 
     // ── Load history on mount ────────────────────────────────────────────────
     useEffect(() => {
@@ -85,7 +83,12 @@ export default function RecommendationsPage() {
         if (!cleanId) return;
         setIsGenerating(true);
         try {
-            const aiResult = await recommendationService.generateAIRecommendation();
+            const [startupData, evalContent] = await Promise.all([
+                startupService.getById(cleanId),
+                evaluationService.getEvaluationContent(cleanId),
+            ]);
+
+            const aiResult = await recommendationService.generateAIRecommendation(startupData, evalContent);
             if (!aiResult) { alert("Failed to generate recommendations. Please try again."); return; }
 
             const [rid] = await Promise.all([
@@ -97,13 +100,13 @@ export default function RecommendationsPage() {
                 const nextNumber = items.length + 1;
                 const newEntry: NamedRecommendation = {
                     name: `Recommendation ${nextNumber}`,
-                    rid: rid !== "saved" ? rid : undefined,
+                    rid:  rid !== "saved" ? rid : undefined,
                     rec: {
-                        Id: rid ?? `local-${nextNumber}`,
+                        Id:        rid ?? `local-${nextNumber}`,
                         StartupId: cleanId,
-                        Type: "recommendation",
-                        Content: aiResult,
-                        Version: nextNumber,
+                        Type:      "recommendation",
+                        Content:   aiResult,
+                        Version:   nextNumber,
                         CreatedAt: new Date().toISOString(),
                         IsCurrent: true,
                     },
@@ -158,7 +161,7 @@ export default function RecommendationsPage() {
         }
     };
 
-    const hasItems = items.length > 0;
+    const hasItems        = items.length > 0;
     const stageIsComplete = isAlreadyComplete || isCompleted;
 
     // ── Render ────────────────────────────────────────────────────────────────
@@ -166,29 +169,22 @@ export default function RecommendationsPage() {
         <div className="min-h-screen bg-[#F4F1EA] font-sans pb-24">
 
             {/* ── Top navigation bar ── */}
-            <div className="bg-white border-b sticky top-0 z-50 shadow-sm">
-                {/* 👇 Edge-to-edge width (w-full) with thicker padding (py-4) */}
-                <div className="flex w-full items-center justify-between px-6 md:px-12 py-4">
-                    <div className="flex items-center gap-4">
-                        <Link href={`/founder/startup/${cleanId}`}>
-                            <Button variant="ghost" size="icon" className="hover:bg-[#576238]/10 hover:text-[#576238]">
-                                <ArrowLeft className="h-5 w-5" />
-                            </Button>
-                        </Link>
-                        <div className="flex flex-col justify-center">
-                            <h1 className="text-xl font-bold text-[#576238] leading-tight">
-                                Recommendation Agent
-                            </h1>
-                            <p className="text-sm text-muted-foreground">
-                                AI-Powered Strategic Analysis
-                            </p>
-                        </div>
+            <div className="bg-white border-b sticky top-0 z-10 shadow-sm">
+                <div className="container mx-auto px-4 py-4 flex items-center gap-4">
+                    <Link href={`/founder/startup/${cleanId}`}>
+                        <Button variant="ghost" size="icon">
+                            <ArrowLeft className="h-5 w-5" />
+                        </Button>
+                    </Link>
+                    <div>
+                        <h1 className="text-xl font-bold text-[#576238]">Recommendation Agent</h1>
+                        <p className="text-sm text-muted-foreground">AI-Powered Strategic Analysis</p>
                     </div>
                     {/* Stage-complete badge in top bar */}
                     {stageIsComplete && (
-                        <div className="px-4 py-1.5 bg-green-100 text-green-700 rounded-full text-sm font-medium border border-green-200 flex items-center">
-                            <CheckCircle2 className="h-4 w-4 mr-1.5" /> Stage Completed
-                        </div>
+                        <span className="ml-auto flex items-center gap-1.5 rounded-full bg-green-100 px-3 py-1 text-xs font-semibold text-green-700">
+                            <CheckCircle2 className="h-3.5 w-3.5" /> Stage Completed
+                        </span>
                     )}
                 </div>
             </div>
@@ -203,20 +199,15 @@ export default function RecommendationsPage() {
                     </div>
                 )}
 
-                {/* 👇 Display the Lego Loader when generating */}
-                {isGenerating && (
-                    <div className="flex justify-center w-full py-12">
-                        <LegoResearchLoader type="Recommend" />
-                    </div>
-                )}
-
-                {/* ── Hero / Generate card (hidden while generating or loading) ── */}
-                {!isLoadingHistory && !isGenerating && (
+                {/* ── Hero / Generate card (shown once history is loaded) ── */}
+                {!isLoadingHistory && (
                     <div className="bg-white rounded-xl border shadow-sm p-8 text-center">
                         <div className="bg-[#576238]/10 w-16 h-16 mx-auto rounded-full flex items-center justify-center mb-4">
-                            {stageIsComplete
-                                ? <CheckCircle2 className="h-8 w-8 text-green-600" />
-                                : <Bot className="h-8 w-8 text-[#576238]" />}
+                            {isGenerating
+                                ? <Sparkles className="h-8 w-8 text-[#576238] animate-spin" />
+                                : stageIsComplete
+                                    ? <CheckCircle2 className="h-8 w-8 text-green-600" />
+                                    : <Bot className="h-8 w-8 text-[#576238]" />}
                         </div>
 
                         <h2 className="text-xl font-bold text-gray-900 mb-2">
@@ -237,15 +228,20 @@ export default function RecommendationsPage() {
                         <Button
                             className="bg-[#576238] hover:bg-[#464f2d] text-white px-6"
                             onClick={handleGenerate}
+                            disabled={isGenerating}
                         >
-                            <RefreshCw className="mr-2 h-4 w-4" />
-                            {hasItems ? "Regenerate Analysis" : "Generate Analysis"}
+                            {isGenerating ? (
+                                <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Analysing…</>
+                            ) : (
+                                <><RefreshCw className="mr-2 h-4 w-4" />
+                                {hasItems ? "Regenerate Analysis" : "Generate Analysis"}</>
+                            )}
                         </Button>
                     </div>
                 )}
 
                 {/* ── Recommendation history (newest first) ── */}
-                {!isLoadingHistory && hasItems && !isGenerating && (
+                {!isLoadingHistory && hasItems && (
                     <div className="space-y-4">
                         <p className="text-xs text-gray-400 font-medium uppercase tracking-wide px-1">
                             {items.length} Report{items.length > 1 ? "s" : ""} · newest first
@@ -272,14 +268,15 @@ export default function RecommendationsPage() {
                             py-4 px-4 shadow-lg">
                 <Button
                     size="lg"
-                    disabled={!hasItems || isMarkingComplete || stageIsComplete || isGenerating}
+                    disabled={!hasItems || isMarkingComplete || stageIsComplete}
                     onClick={handleMarkComplete}
-                    className={`px-12 font-semibold text-base transition-all duration-300 ${stageIsComplete
+                    className={`px-12 font-semibold text-base transition-all duration-300 ${
+                        stageIsComplete
                             ? "bg-green-600 hover:bg-green-600 text-white cursor-default"
-                            : hasItems && !isGenerating
+                            : hasItems
                                 ? "bg-[#ffd95d] hover:bg-[#f0cc40] text-[#2c3e50] shadow-md"
                                 : "bg-gray-200 text-gray-400 cursor-not-allowed shadow-none"
-                        }`}
+                    }`}
                 >
                     {isMarkingComplete ? (
                         <><Loader2 className="mr-2 h-5 w-5 animate-spin" />Saving…</>

@@ -153,6 +153,11 @@ export interface AgentSessionView_01Props {
   audioVisualizerWaveLineWidth?: number;
   /** Optional class name merged onto the outer `<section>` container. */
   className?: string;
+  /**
+   * When false, hides the leave/disconnect button in the bottom control bar.
+   * @default true
+   */
+  showLeaveButton?: boolean;
 }
 
 export function AgentSessionView_01({
@@ -171,6 +176,7 @@ export function AgentSessionView_01({
   audioVisualizerRadialBarCount,
   audioVisualizerRadialRadius,
   audioVisualizerWaveLineWidth,
+  showLeaveButton = true,
   ref,
   className,
   ...props
@@ -182,7 +188,7 @@ export function AgentSessionView_01({
   const { state: agentState } = useAgent();
 
   const controls: AgentControlBarControls = {
-    leave: true,
+    leave: showLeaveButton,
     microphone: true,
     chat: supportsChatInput,
     camera: supportsVideoInput,

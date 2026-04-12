@@ -6,7 +6,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import {
     ArrowLeft, Mic, MicOff, PhoneOff, Clock, User, CheckCircle2,
     UserCircle2, Brain, TrendingUp, ShieldCheck, Zap, Target, Trophy,
-    AlertTriangle, ChevronRight, Loader2
+    AlertTriangle, ChevronRight, Loader2, FileText, XCircle, Star,
+    AlertCircle, CheckCircle, RefreshCw
 } from "lucide-react";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
@@ -17,7 +18,7 @@ import { Label } from "@/components/ui/label";
 import { App } from "@/components/livekit-app/app";
 import { APP_CONFIG_DEFAULTS } from "@/app-config";
 
-type SimulationPhase = "setup" | "preparing" | "meeting" | "evaluation";
+type SimulationPhase = "setup" | "preparing" | "meeting" | "ending" | "evaluation";
 
 interface Persona {
     id: string;
@@ -25,6 +26,25 @@ interface Persona {
     avatar: string;
     color: string;
     description: string;
+}
+
+// ── Report JSON shape from the Python backend ────────────────────────────────
+interface RubricEntry {
+    score: number;
+    notes: string;
+}
+
+interface SessionReport {
+    grade: string;
+    score: number;
+    max_score: number;
+    rubric: Record<string, RubricEntry>;
+    strengths: string[];
+    critical_weaknesses: string[];
+    essentials_checklist: { covered: string[]; missing: string[] };
+    investor_killer_moments: { timestamp_s: number; type: string; detail: string }[];
+    recommended_actions: string[];
+    final_verdict: string;
 }
 
 const PERSONAS: Persona[] = [
@@ -40,45 +60,60 @@ const STRATEGIC_FOCUS = [
     { id: "scalability", label: "Scalability", icon: Zap }
 ];
 
+const PYTHON_API_URL =
+    (typeof process !== "undefined" && process.env?.NEXT_PUBLIC_PYTHON_API_URL) ||
+    "https://spark2scale-ai-api-server.azurewebsites.net";
+
+// ── Grade → colour mapping ───────────────────────────────────────────────────
+function gradeColor(grade: string) {
+    if (["A+", "A", "A-"].includes(grade)) return "text-emerald-600";
+    if (["B+", "B", "B-"].includes(grade)) return "text-blue-600";
+    if (["C+", "C", "C-"].includes(grade)) return "text-amber-600";
+    return "text-red-600";
+}
+
+function gradeEmoji(grade: string) {
+    if (["A+", "A", "A-"].includes(grade)) return "🏆";
+    if (["B+", "B", "B-"].includes(grade)) return "👍";
+    if (["C+", "C", "C-"].includes(grade)) return "⚠️";
+    return "🚧";
+}
+
 export default function PitchSimulator() {
     const params = useParams();
     const rawId = params?.d || params?.id;
     const startupId = rawId ? (Array.isArray(rawId) ? rawId[0] : rawId).toString() : "";
 
-    // State Management
+    // ── Phase & UI state ─────────────────────────────────────────────────────
     const [phase, setPhase] = useState<SimulationPhase>("setup");
     const [duration, setDuration] = useState(10);
     const [selectedPersona, setSelectedPersona] = useState<Persona>(PERSONAS[0]);
     const [focusAreas, setFocusAreas] = useState<string[]>(["market-size", "business-model"]);
-    const [isAiSpeaking, setIsAiSpeaking] = useState(false);
-    const [isMuted, setIsMuted] = useState(false);
     const [timeLeft, setTimeLeft] = useState(10 * 60);
     const [prepProgress, setPrepProgress] = useState(0);
     const [isExtracting, setIsExtracting] = useState(true);
 
-    // Phase 1: Pre-flight Extraction (Trigger in background while they pick settings!)
+    // ── Report state ─────────────────────────────────────────────────────────
+    const [reportData, setReportData] = useState<SessionReport | null>(null);
+    const [reportError, setReportError] = useState<string | null>(null);
+
+    // ── Pre-flight Extraction (runs while user picks settings) ───────────────
     useEffect(() => {
         if (phase === "setup") {
             setIsExtracting(true);
-            // Kick off the 60-second extraction on the Python server while the user interacts with the UI
-            const pythonApiUrl = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'https://spark2scale-ai-api-server.azurewebsites.net';
-            fetch(`${pythonApiUrl}/api/v1/pitch-analyzer/extract`, { method: 'POST' })
-                .then(async (response) => {
-                    if (!response.ok) {
-                        const errText = await response.text();
-                        throw new Error(`Server returned ${response.status}: ${errText}`);
-                    }
-                    console.log('Background extraction completed successfully!');
+            fetch(`${PYTHON_API_URL}/api/v1/pitch-analyzer/extract`, { method: "POST" })
+                .then(async (res) => {
+                    if (!res.ok) throw new Error(`Server returned ${res.status}`);
                     setIsExtracting(false);
                 })
-                .catch(e => {
-                    console.error('Extraction trigger failed:', e);
-                    setIsExtracting(false); // Make sure to unblock the UI even if it fails
+                .catch((e) => {
+                    console.error("Extraction trigger failed:", e);
+                    setIsExtracting(false);
                 });
         }
     }, [phase]);
 
-    // Phase 2: Preparation Timer
+    // ── Preparation timer ────────────────────────────────────────────────────
     useEffect(() => {
         if (phase === "preparing") {
             const interval = setInterval(() => {
@@ -95,14 +130,15 @@ export default function PitchSimulator() {
         }
     }, [phase]);
 
-    // Phase 3: Meeting Timer (Optimized to prevent re-renders)
+    // ── Meeting countdown timer ──────────────────────────────────────────────
     useEffect(() => {
         if (phase === "meeting") {
             const timer = setInterval(() => {
                 setTimeLeft((prev) => {
                     if (prev <= 1) {
                         clearInterval(timer);
-                        setPhase("evaluation");
+                        // Timer hit zero — auto trigger "Get Report & End"
+                        handleGetReportAndEnd();
                         return 0;
                     }
                     return prev - 1;
@@ -110,6 +146,7 @@ export default function PitchSimulator() {
             }, 1000);
             return () => clearInterval(timer);
         }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [phase]);
 
     const formatTime = (seconds: number) => {
@@ -118,11 +155,75 @@ export default function PitchSimulator() {
         return `${mins}:${secs.toString().padStart(2, "0")}`;
     };
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // BUTTON 1: "End Call"
+    // Stops the agent worker but keeps the user in the meeting phase.
+    // They can restart the agent by clicking elsewhere / refreshing.
+    // ─────────────────────────────────────────────────────────────────────────
+    const handleEndCallOnly = async () => {
+        // Fire-and-forget — we stay in the meeting phase
+        fetch(`${PYTHON_API_URL}/api/v1/pitch-analyzer/stop`, { method: "POST" }).catch(() => {});
+    };
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // BUTTON 2: "Get Report & End"
+    // 1. POST /stop  → worker process exits, job process saves state.json first
+    // 2. POST /generate-report → FastAPI builds LLM report from saved state
+    //    (runs in the long-lived FastAPI process, not the killed job subprocess)
+    // 3. Transition to "evaluation" phase with the real data
+    // ─────────────────────────────────────────────────────────────────────────
+    const handleGetReportAndEnd = async () => {
+        if (phase === "ending") return; // prevent double-click
+        setPhase("ending");
+        setReportData(null);
+        setReportError(null);
+
+        const apiUrl = PYTHON_API_URL;
+
+        // 1. Stop the worker — this triggers on_participant_disconnected which
+        //    synchronously saves session_state.json before the job process is killed
+        try {
+            await fetch(`${apiUrl}/api/v1/pitch-analyzer/stop`, { method: "POST" });
+        } catch (e) {
+            console.warn("Stop call failed (worker may have already exited):", e);
+        }
+
+        // 2. Small buffer — let the state file be fully flushed before we read it
+        await new Promise(r => setTimeout(r, 2000));
+
+        // 3. POST /generate-report — runs the LLM in the FastAPI main process.
+        //    This is the reliable path: the job subprocess is dead by now, but
+        //    the FastAPI process is still alive and has the saved session_state.json
+        try {
+            const res = await fetch(`${apiUrl}/api/v1/pitch-analyzer/generate-report`, { method: "POST" });
+            if (res.ok) {
+                const report = await res.json();
+                setReportData(report);
+            } else {
+                const errText = await res.text();
+                if (res.status === 422) {
+                    // Session was too short — no speech captured
+                    setReportError(errText || "Session too short to generate a report.");
+                } else {
+                    setReportError(`Report generation failed (${res.status}). Please try again.`);
+                }
+            }
+        } catch (e) {
+            setReportError("Network error while generating report. Please check your connection.");
+        }
+
+        setPhase("evaluation");
+    };
+
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // RENDER
+    // ─────────────────────────────────────────────────────────────────────────
     return (
-        <div className={cn("min-h-screen transition-colors duration-500", phase === "meeting" ? "bg-neutral-900" : "bg-[#F0EADC]")}>
+        <div className={cn("min-h-screen transition-colors duration-500", phase === "meeting" || phase === "ending" ? "bg-neutral-900" : "bg-[#F0EADC]")}>
             <AnimatePresence mode="wait">
 
-                {/* PHASE 1: SETUP */}
+                {/* ── PHASE 1: SETUP ── */}
                 {phase === "setup" && (
                     <motion.div key="setup" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="container mx-auto px-4 py-8 max-w-5xl">
                         <div className="flex items-center gap-4 mb-8">
@@ -145,10 +246,7 @@ export default function PitchSimulator() {
                                                 key={d}
                                                 variant={duration === d ? "default" : "ghost"}
                                                 className={cn(duration === d ? "bg-[#576238] text-white" : "text-[#576238]")}
-                                                onClick={() => {
-                                                    setDuration(d);
-                                                    setTimeLeft(d * 60); // Fix: Set time directly on click instead of using useEffect
-                                                }}
+                                                onClick={() => { setDuration(d); setTimeLeft(d * 60); }}
                                             >
                                                 {d} Min
                                             </Button>
@@ -209,8 +307,8 @@ export default function PitchSimulator() {
                                             </div>
                                         ))}
                                     </div>
-                                    <Button 
-                                        className="w-full mt-8 bg-[#FFD95D] hover:bg-[#ffe89a] text-black font-bold h-14" 
+                                    <Button
+                                        className="w-full mt-8 bg-[#FFD95D] hover:bg-[#ffe89a] text-black font-bold h-14"
                                         onClick={() => setPhase("preparing")}
                                         disabled={isExtracting}
                                     >
@@ -226,7 +324,7 @@ export default function PitchSimulator() {
                     </motion.div>
                 )}
 
-                {/* PHASE 2: PREPARING */}
+                {/* ── PHASE 2: PREPARING ── */}
                 {phase === "preparing" && (
                     <motion.div key="preparing" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex flex-col items-center justify-center min-h-screen text-center">
                         <div className="w-64 h-2 bg-[#576238]/10 rounded-full overflow-hidden mb-4">
@@ -237,65 +335,254 @@ export default function PitchSimulator() {
                     </motion.div>
                 )}
 
-                {/* PHASE 3: MEETING */}
+                {/* ── PHASE 3: MEETING ── */}
                 {phase === "meeting" && (
                     <motion.div key="meeting" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex flex-col h-screen bg-[#050505]">
+                        {/* Top bar with timer + TWO action buttons */}
                         <div className="p-4 flex justify-between items-center bg-black/40 text-white backdrop-blur-md absolute top-0 left-0 right-0 z-50">
                             <div className="flex items-center gap-2">
                                 <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
                                 <span className="text-xs font-bold uppercase tracking-widest">Live Voice Session ({selectedPersona.name})</span>
                             </div>
-                            <div className="flex gap-4 items-center">
+                            <div className="flex gap-3 items-center">
                                 <div className="bg-neutral-800 px-4 py-1 rounded-full border border-neutral-700 font-mono">
                                     {formatTime(timeLeft)}
                                 </div>
-                                <Button variant="destructive" size="sm" className="rounded-full font-black italic uppercase text-xs" onClick={() => setPhase("evaluation")}>
-                                    <PhoneOff className="mr-2 h-4 w-4" /> End
+
+                                {/* BUTTON 1: End Call — stops worker, stays in meeting */}
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="rounded-full font-black italic uppercase text-xs border-neutral-600 text-white hover:bg-neutral-700 hover:text-white bg-transparent"
+                                    onClick={handleEndCallOnly}
+                                    title="Stop the AI agent but stay in this session"
+                                >
+                                    <PhoneOff className="mr-2 h-4 w-4" /> End Call
+                                </Button>
+
+                                {/* BUTTON 2: Get Report & End — stops + fetches report + transitions */}
+                                <Button
+                                    variant="destructive"
+                                    size="sm"
+                                    className="rounded-full font-black italic uppercase text-xs"
+                                    onClick={handleGetReportAndEnd}
+                                    title="End the session and generate your Investment Readiness Report"
+                                >
+                                    <FileText className="mr-2 h-4 w-4" /> Get Report &amp; End
                                 </Button>
                             </div>
                         </div>
+
+                        {/* LiveKit room */}
                         <div className="flex-grow w-full h-full relative" style={{ height: "100svh" }}>
                             <App appConfig={APP_CONFIG_DEFAULTS} />
                         </div>
                     </motion.div>
                 )}
 
-                {/* PHASE 4: EVALUATION */}
+                {/* ── PHASE 3.5: ENDING (report being generated) ── */}
+                {phase === "ending" && (
+                    <motion.div key="ending" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex flex-col items-center justify-center min-h-screen bg-neutral-900 text-white text-center px-4">
+                        <div className="relative mb-8">
+                            <div className="w-24 h-24 rounded-full border-4 border-[#FFD95D]/30 border-t-[#FFD95D] animate-spin" />
+                            <FileText className="absolute inset-0 m-auto h-10 w-10 text-[#FFD95D]" />
+                        </div>
+                        <h2 className="text-3xl font-black uppercase italic tracking-tighter text-[#FFD95D]">
+                            Generating Your Report...
+                        </h2>
+                        <p className="text-neutral-400 mt-3 text-sm max-w-sm">
+                            The AI is compiling your Investment Readiness Report. This usually takes 10–30 seconds.
+                        </p>
+                    </motion.div>
+                )}
+
+                {/* ── PHASE 4: EVALUATION (real report data) ── */}
                 {phase === "evaluation" && (
                     <motion.div key="evaluation" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="container mx-auto px-4 py-12 max-w-4xl">
-                        <div className="text-center mb-12">
-                            <div className="w-20 h-20 bg-green-500 rounded-full flex items-center justify-center mx-auto mb-6 shadow-lg shadow-green-500/20">
-                                <CheckCircle2 className="h-10 w-10 text-white" />
-                            </div>
-                            <h1 className="text-4xl font-black text-[#576238] italic uppercase">Simulation Complete</h1>
-                            <p className="text-muted-foreground mt-2">Comprehensive feedback from {selectedPersona.name}</p>
-                        </div>
 
-                        <div className="grid md:grid-cols-2 gap-8">
-                            <Card className="p-6 border-2 border-[#576238]/10 bg-white">
-                                <h3 className="font-bold text-lg mb-4 flex items-center gap-2 text-[#576238]">
-                                    <Trophy className="text-[#FFD95D]" /> Performance Score: 84
-                                </h3>
-                                <div className="space-y-4">
-                                    <div className="flex items-start gap-3">
-                                        <TrendingUp className="h-5 w-5 text-green-500 mt-1" />
-                                        <p className="text-sm font-medium">Strong articulation of the <span className="text-[#576238] font-bold">Problem Statement</span>.</p>
-                                    </div>
-                                    <div className="flex items-start gap-3">
-                                        <AlertTriangle className="h-5 w-5 text-amber-500 mt-1" />
-                                        <p className="text-sm font-medium">Projections in the <span className="text-[#576238] font-bold">Financials</span> section felt slightly optimistic.</p>
-                                    </div>
+                        {/* Error fallback */}
+                        {reportError && (
+                            <div className="mb-8 bg-red-50 border border-red-200 rounded-xl p-6 flex items-start gap-3">
+                                <AlertCircle className="h-5 w-5 text-red-500 mt-0.5 shrink-0" />
+                                <div>
+                                    <p className="font-bold text-red-800">Report Unavailable</p>
+                                    <p className="text-sm text-red-600 mt-1">{reportError}</p>
                                 </div>
-                            </Card>
+                            </div>
+                        )}
 
-                            <Card className="p-6 border-2 border-[#576238]/10 bg-[#FFD95D] text-[#576238]">
-                                <h3 className="font-black italic uppercase text-lg mb-4">New Block Unlocked!</h3>
-                                <p className="font-bold leading-tight">Great intensity! A new red LEGO block has been added to your workflow stack for completing this session.</p>
-                                <Link href={`/founder/startup/${startupId}/pitch-deck`}>
-                                    <Button className="w-full mt-6 bg-[#576238] text-white hover:bg-[#576238]/90">Return to Dashboard</Button>
-                                </Link>
-                            </Card>
+                        {/* Header */}
+                        <div className="text-center mb-10">
+                            {reportData ? (
+                                <>
+                                    <div className={cn("text-7xl font-black mb-2", gradeColor(reportData.grade))}>
+                                        {gradeEmoji(reportData.grade)} {reportData.grade}
+                                    </div>
+                                    <p className="text-2xl font-bold text-[#576238]">
+                                        Investment Readiness Score: {reportData.score}/{reportData.max_score}
+                                    </p>
+                                    <p className="text-muted-foreground mt-1">Comprehensive feedback from {selectedPersona.name}</p>
+                                </>
+                            ) : (
+                                <>
+                                    <div className="w-20 h-20 bg-green-500 rounded-full flex items-center justify-center mx-auto mb-6 shadow-lg shadow-green-500/20">
+                                        <CheckCircle2 className="h-10 w-10 text-white" />
+                                    </div>
+                                    <h1 className="text-4xl font-black text-[#576238] italic uppercase">Simulation Complete</h1>
+                                    <p className="text-muted-foreground mt-2">Session ended. Report data unavailable.</p>
+                                </>
+                            )}
                         </div>
+
+                        {reportData && (
+                            <div className="space-y-6">
+                                {/* Score bar */}
+                                <Card className="p-6 border-2 border-[#576238]/10 bg-white">
+                                    <h3 className="font-bold text-base mb-3 text-[#576238]">Overall Score</h3>
+                                    <div className="w-full bg-gray-100 rounded-full h-4 overflow-hidden">
+                                        <motion.div
+                                            initial={{ width: 0 }}
+                                            animate={{ width: `${(reportData.score / reportData.max_score) * 100}%` }}
+                                            transition={{ duration: 1.2, ease: "easeOut" }}
+                                            className={cn(
+                                                "h-full rounded-full",
+                                                reportData.score >= 70 ? "bg-emerald-500" :
+                                                reportData.score >= 50 ? "bg-amber-500" : "bg-red-500"
+                                            )}
+                                        />
+                                    </div>
+                                    <p className="text-right text-sm text-muted-foreground mt-1">{reportData.score} / {reportData.max_score}</p>
+                                </Card>
+
+                                {/* Rubric scores */}
+                                {Object.keys(reportData.rubric).length > 0 && (
+                                    <Card className="p-6 border-2 border-[#576238]/10 bg-white">
+                                        <h3 className="font-bold text-base mb-4 text-[#576238] flex items-center gap-2">
+                                            <Trophy className="h-5 w-5 text-[#FFD95D]" /> Detailed Rubric
+                                        </h3>
+                                        <div className="grid sm:grid-cols-2 gap-3">
+                                            {Object.entries(reportData.rubric).map(([key, val]) => (
+                                                <div key={key} className="flex flex-col gap-1">
+                                                    <div className="flex justify-between items-center">
+                                                        <span className="text-sm font-semibold capitalize text-[#576238]">{key}</span>
+                                                        <span className="text-sm font-bold">{val.score}/5</span>
+                                                    </div>
+                                                    <div className="w-full bg-gray-100 rounded-full h-1.5">
+                                                        <div
+                                                            className={cn("h-full rounded-full", val.score >= 4 ? "bg-emerald-500" : val.score >= 3 ? "bg-amber-400" : "bg-red-400")}
+                                                            style={{ width: `${(val.score / 5) * 100}%` }}
+                                                        />
+                                                    </div>
+                                                    <p className="text-xs text-muted-foreground">{val.notes}</p>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </Card>
+                                )}
+
+                                {/* Strengths & Weaknesses */}
+                                <div className="grid md:grid-cols-2 gap-6">
+                                    {reportData.strengths.length > 0 && (
+                                        <Card className="p-6 border-2 border-emerald-200 bg-emerald-50">
+                                            <h3 className="font-bold text-base mb-3 flex items-center gap-2 text-emerald-800">
+                                                <CheckCircle className="h-5 w-5" /> Strengths
+                                            </h3>
+                                            <ul className="space-y-2">
+                                                {reportData.strengths.map((s, i) => (
+                                                    <li key={i} className="text-sm text-emerald-900 font-medium capitalize flex items-start gap-2">
+                                                        <Star className="h-4 w-4 mt-0.5 shrink-0 text-emerald-600" />
+                                                        {s}
+                                                    </li>
+                                                ))}
+                                            </ul>
+                                        </Card>
+                                    )}
+
+                                    {reportData.critical_weaknesses.length > 0 && (
+                                        <Card className="p-6 border-2 border-red-200 bg-red-50">
+                                            <h3 className="font-bold text-base mb-3 flex items-center gap-2 text-red-800">
+                                                <XCircle className="h-5 w-5" /> Critical Weaknesses
+                                            </h3>
+                                            <ul className="space-y-2">
+                                                {reportData.critical_weaknesses.map((w, i) => (
+                                                    <li key={i} className="text-sm text-red-900 font-medium capitalize flex items-start gap-2">
+                                                        <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0 text-red-600" />
+                                                        {w}
+                                                    </li>
+                                                ))}
+                                            </ul>
+                                        </Card>
+                                    )}
+                                </div>
+
+                                {/* Investor Killer Moments */}
+                                {reportData.investor_killer_moments.length > 0 && (
+                                    <Card className="p-6 border-2 border-amber-200 bg-amber-50">
+                                        <h3 className="font-bold text-base mb-3 flex items-center gap-2 text-amber-800">
+                                            <AlertTriangle className="h-5 w-5" /> Investor Killer Moments
+                                        </h3>
+                                        <div className="space-y-2">
+                                            {reportData.investor_killer_moments.slice(0, 5).map((m, i) => (
+                                                <div key={i} className="flex items-start gap-3 text-sm">
+                                                    <span className="font-mono text-xs bg-amber-200 text-amber-900 rounded px-1.5 py-0.5 shrink-0 mt-0.5">
+                                                        {Math.floor(m.timestamp_s)}s
+                                                    </span>
+                                                    <div>
+                                                        <span className="font-bold text-amber-900">{m.type}: </span>
+                                                        <span className="text-amber-800">{m.detail}</span>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </Card>
+                                )}
+
+                                {/* Recommended Actions */}
+                                {reportData.recommended_actions.length > 0 && (
+                                    <Card className="p-6 border-2 border-blue-200 bg-blue-50">
+                                        <h3 className="font-bold text-base mb-3 flex items-center gap-2 text-blue-800">
+                                            <RefreshCw className="h-5 w-5" /> Recommended Actions
+                                        </h3>
+                                        <ol className="space-y-2 list-decimal list-inside">
+                                            {reportData.recommended_actions.map((a, i) => (
+                                                <li key={i} className="text-sm text-blue-900">{a}</li>
+                                            ))}
+                                        </ol>
+                                    </Card>
+                                )}
+
+                                {/* Final Verdict */}
+                                <Card className="p-6 border-2 border-[#576238]/20 bg-[#FFD95D]">
+                                    <h3 className="font-black italic uppercase text-lg mb-3 text-[#576238]">Final Verdict</h3>
+                                    <p className="font-semibold text-[#576238] leading-relaxed">{reportData.final_verdict}</p>
+                                    <Link href={`/founder/startup/${startupId}/pitch-deck`}>
+                                        <Button className="w-full mt-6 bg-[#576238] text-white hover:bg-[#576238]/90">
+                                            Return to Dashboard
+                                        </Button>
+                                    </Link>
+                                </Card>
+                            </div>
+                        )}
+
+                        {/* When there's no report and no error (very short session) */}
+                        {!reportData && !reportError && (
+                            <div className="grid md:grid-cols-2 gap-8">
+                                <Card className="p-6 border-2 border-[#576238]/10 bg-white">
+                                    <h3 className="font-bold text-lg mb-4 flex items-center gap-2 text-[#576238]">
+                                        <AlertCircle className="text-amber-500" /> No Report Data
+                                    </h3>
+                                    <p className="text-sm text-muted-foreground">
+                                        The session may have been too short to generate a report. Try running a full {duration}-minute session.
+                                    </p>
+                                </Card>
+                                <Card className="p-6 border-2 border-[#576238]/10 bg-[#FFD95D] text-[#576238]">
+                                    <h3 className="font-black italic uppercase text-lg mb-4">Session Complete</h3>
+                                    <Link href={`/founder/startup/${startupId}/pitch-deck`}>
+                                        <Button className="w-full mt-2 bg-[#576238] text-white hover:bg-[#576238]/90">Return to Dashboard</Button>
+                                    </Link>
+                                </Card>
+                            </div>
+                        )}
                     </motion.div>
                 )}
 

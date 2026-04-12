@@ -275,7 +275,7 @@ export interface RecommendationContent {
         strength_score: number;
         template: string;
     }[];
-    patterns_detected?: unknown[]; // Deprecated/Legacy
+    patterns_detected?: any[]; // Deprecated/Legacy
 
     // Legacy Fields for UI Compatibility
     final_report?: string;
@@ -314,17 +314,7 @@ export interface WorkflowState {
     pitchDeck: boolean;
 }
 
-// 3. Raw API response for workflow (may be camelCase or PascalCase)
-interface WorkflowApiResponse {
-    ideaCheck?: boolean;      IdeaCheck?: boolean;
-    marketResearch?: boolean; MarketResearch?: boolean;
-    evaluation?: boolean;     Evaluation?: boolean;
-    recommendation?: boolean; Recommendation?: boolean;
-    documents?: boolean;      Documents?: boolean;
-    pitchDeck?: boolean;      PitchDeck?: boolean;
-}
-
-// 4. Payload for Updating Workflow (Matches C# DTO PascalCase)
+// 3. Payload for Updating Workflow (Matches C# DTO PascalCase)
 export interface WorkflowUpdatePayload {
     StartupId: string;
     IdeaCheck: boolean;
@@ -339,7 +329,7 @@ export const recommendationService = {
     // 1. Fetch Recommendations for the specific Startup ID
     async getRecommendations(startupId: string): Promise<DBRecommendation[]> {
         try {
-            const response = await apiClient.get<DBRecommendation[]>(`/api/Recommendations/${startupId}/recommendation`);
+            const response = await apiClient.get<any>(`/api/Recommendations/${startupId}/recommendation`);
             return response.data;
         } catch (error) {
             console.error("Error in getRecommendations:", error);
@@ -355,7 +345,7 @@ export const recommendationService = {
         };
 
         try {
-            const response = await apiClient.get<WorkflowApiResponse>(`/api/StartupWorkflow/${startupId}`);
+            const response = await apiClient.get<any>(`/api/StartupWorkflow/${startupId}`);
             const json = response.data;
 
             // Normalize data (API might return PascalCase or camelCase)
@@ -391,12 +381,11 @@ export const recommendationService = {
             );
             console.debug("[completeStage] OK:", res.status, res.data);
             return true;
-        } catch (error: unknown) {
-            const e = error as { response?: { data?: { message?: string } }; message?: string };
+        } catch (error: any) {
             const serverMsg =
-                e?.response?.data?.message ??
-                JSON.stringify(e?.response?.data) ??
-                e?.message ??
+                error?.response?.data?.message ??
+                JSON.stringify(error?.response?.data) ??
+                error?.message ??
                 "unknown error";
             console.error(`[completeStage] 401/500 for startup ${startupId}:`, serverMsg);
             return false;
@@ -467,8 +456,8 @@ export const recommendationService = {
     // Sends MOCK_STARTUP_DATA + MOCK_EVALUATION_OUTPUT as the input payload.
     // Falls back to local mock data if the API is unavailable / over-quota.
     // ---------------------------------------------------------
-    async generateAIRecommendation(): Promise<RecommendationContent | null> {
-        const AI_AGENT_URL = "https://spark2scale-ai-api-server.azurewebsites.net/api/v1/recommend";
+    async generateAIRecommendation(_startupData?: any, _evaluationContent?: any): Promise<RecommendationContent | null> {
+        const AI_AGENT_URL = "https://spark2scale-ai-server.azurewebsites.net/api/v1/recommend";
         const requestId    = `req_${Date.now()}`;
 
         // ── Shared insight builder from mock inputs ──────────────────
@@ -485,7 +474,7 @@ export const recommendationService = {
                 stage:              snapshot.current_stage,
                 target_raise:       `${snapshot.current_round.target_amount}k`,
                 problem_statement:  problem.problem_statement,
-                founder_experience: founders.map(f => `${f.name} (${f.role}) — ${f.prior_experience}`).join("; "),
+                founder_experience: founders.map((f: any) => `${f.name} (${f.role}) — ${f.prior_experience}`).join("; "),
                 founder_market_fit: founders[0]?.founder_market_fit_statement ?? "",
                 customer_quotes:    problem.evidence.customer_quotes,
                 differentiation:    product.differentiation,
@@ -582,7 +571,7 @@ export const recommendationService = {
 
     // New: Persist the AI result to the Backend (Recommendations Table)
     // --- Document integration ---
-    async saveToDocuments(startupId: string, content: RecommendationContent): Promise<boolean> {
+    async saveToDocuments(startupId: string, content: any): Promise<boolean> {
         try {
             const payload = {
                 StartupId: startupId,
@@ -608,18 +597,13 @@ export const recommendationService = {
             };
 
             const payload = { StartupId: startupId, Type: "recommendation", Content: compatibleContent };
-            const res = await apiClient.post<unknown>(`/api/Recommendations/save`, payload);
+            const res = await apiClient.post<any>(`/api/Recommendations/save`, payload);
 
             // Backend now returns the inserted row(s) via "return=representation"
-            type RowWithRid = { rid?: string };
-            const rows: RowWithRid[] = Array.isArray(res.data)
-                ? (res.data as RowWithRid[])
-                : res.data
-                    ? [res.data as RowWithRid]
-                    : [];
-            const rid = rows[0]?.rid ?? null;
+            const rows = Array.isArray(res.data) ? res.data : (res.data ? [res.data] : []);
+            const rid  = rows[0]?.rid ?? null;
             return rid ?? "saved";  // fallback to truthy string if rid missing
-        } catch (error: unknown) {
+        } catch (error: any) {
             console.error("Error saving recommendation:", error);
             return null;
         }

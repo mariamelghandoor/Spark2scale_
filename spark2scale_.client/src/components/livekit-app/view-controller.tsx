@@ -61,6 +61,7 @@ export function ViewController({ appConfig }: ViewControllerProps) {
           supportsVideoInput={appConfig.supportsVideoInput}
           supportsScreenShare={appConfig.supportsScreenShare}
           isPreConnectBufferEnabled={appConfig.isPreConnectBufferEnabled}
+          showLeaveButton={appConfig.showLeaveButton ?? true}
           audioVisualizerType={appConfig.audioVisualizerType}
           audioVisualizerColor={
             resolvedTheme === 'dark'
