@@ -117,7 +117,8 @@ export default function PitchDeckPage() {
     const [report, setReport] = useState<AgentReport | null>(null);
     const [reportError, setReportError] = useState<string | null>(null);
     const [isFullView, setIsFullView] = useState(false);
-
+    // Block start without pitch deck + inline msg
+    const [pitchBlockMsg, setPitchBlockMsg] = useState<string | null>(null);
     // ── Fetch current pitchdeckid for this startup on mount ─────────────────
     // We need this to link the session report to the correct Supabase row.
     // The current pitch deck is the one with is_current=true (returned first by getPitches).
@@ -228,12 +229,15 @@ export default function PitchDeckPage() {
         }
     }, [phase, extractionDone, pitchDeckId, startupId]);
 
-    // File Handlers
+    // File Handlers — Video only
     const handleFiles = useCallback(async (files: FileList | File[]) => {
+        const videoTypes = ['video/mp4', 'video/webm', 'video/quicktime', 'video/x-msvideo', 'video/x-matroska'];
         const fileArray = Array.from(files).filter(f =>
-            f.type === 'application/pdf' || f.name.endsWith('.pptx') || f.name.endsWith('.ppt') || f.name.endsWith('.key')
+            videoTypes.includes(f.type) ||
+            f.name.endsWith('.mp4') || f.name.endsWith('.mov') ||
+            f.name.endsWith('.webm') || f.name.endsWith('.avi') || f.name.endsWith('.mkv')
         );
-        if (fileArray.length === 0) { alert('Please upload PDF, PPTX, PPT, or Keynote files only.'); return; }
+        if (fileArray.length === 0) { alert('Please upload a video file (MP4, MOV, WebM, AVI, MKV).'); return; }
         setIsUploading(true);
         await new Promise(res => setTimeout(res, 1200));
         setUploadedFiles(prev => [...prev, ...fileArray.map(f => ({
@@ -327,13 +331,37 @@ export default function PitchDeckPage() {
                                 <p className="text-white/90 mb-6 max-w-lg">
                                     Practice your pitch with an AI investor that listens, interrupts, and gives you comprehensive feedback — just like a real VC meeting.
                                 </p>
-                                <Button
-                                    onClick={() => setPhase("session")}
-                                    className="bg-[#FFD95D] hover:bg-[#ffe89a] text-[#576238] font-bold text-base px-6 h-12"
-                                >
-                                    <Mic className="mr-2 h-5 w-5" />
-                                    Start Live Pitch Analyzer Session
-                                </Button>
+                                {/* Block message */}
+                                {pitchBlockMsg && (
+                                    <div className="flex items-center gap-2 mt-3 px-4 py-2.5 rounded-xl bg-amber-500/20 border border-amber-400/40 text-amber-200 text-sm font-medium">
+                                        <AlertTriangle className="h-4 w-4 shrink-0" />
+                                        {pitchBlockMsg}
+                                    </div>
+                                )}
+                                <div className="flex flex-wrap gap-3 mt-6">
+                                    <Button
+                                        onClick={() => {
+                                            if (!pitchDeckId) {
+                                                setPitchBlockMsg("Please upload a video pitch first before starting the analyzer.");
+                                                return;
+                                            }
+                                            setPitchBlockMsg(null);
+                                            setPhase("session");
+                                        }}
+                                        className="bg-[#FFD95D] hover:bg-[#ffe89a] text-[#576238] font-bold text-base px-6 h-12"
+                                    >
+                                        <Mic className="mr-2 h-5 w-5" />
+                                        Start Live Pitch Analyzer Session
+                                    </Button>
+                                    <Button
+                                        variant="outline"
+                                        className="bg-white/10 border-white/30 text-white hover:bg-white/20 font-semibold h-12 px-5"
+                                        onClick={fetchCachedReport}
+                                    >
+                                        <Eye className="mr-2 h-4 w-4" />
+                                        View Last Report
+                                    </Button>
+                                </div>
                             </CardContent>
                         </Card>
                     </motion.div>
@@ -361,7 +389,7 @@ export default function PitchDeckPage() {
                                             : "border-gray-200 hover:border-[#576238]/50 hover:bg-[#F0EADC]/30"
                                     )}
                                 >
-                                    <input ref={fileInputRef} type="file" accept=".pdf,.pptx,.ppt,.key" multiple className="hidden"
+                                    <input ref={fileInputRef} type="file" accept="video/*,.mp4,.mov,.webm,.avi,.mkv" multiple className="hidden"
                                         onChange={e => e.target.files && handleFiles(e.target.files)} />
                                     {isUploading ? (
                                         <div className="flex flex-col items-center gap-3">
@@ -374,8 +402,8 @@ export default function PitchDeckPage() {
                                                 <Upload className="h-8 w-8 text-[#576238]" />
                                             </div>
                                             <div>
-                                                <p className="font-bold text-[#576238]">Drop your pitch deck here</p>
-                                                <p className="text-sm text-muted-foreground mt-1">PDF, PPTX, PPT, or Keynote · Click to browse</p>
+                                                <p className="font-bold text-[#576238]">Drop your pitch video here</p>
+                                                <p className="text-sm text-muted-foreground mt-1">MP4, MOV, WebM, AVI, MKV · Click to browse</p>
                                             </div>
                                         </div>
                                     )}
