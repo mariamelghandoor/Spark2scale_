@@ -94,7 +94,7 @@ export default function PitchDeckPage() {
 
     // Phase
     const [phase, setPhase] = useState<PagePhase>("management");
-    D
+    
     // ── Current pitch deck ID (fetched from backend on mount) ─────────────────
     // Used to link session_report to the correct Supabase row via /extract.
     const [pitchDeckId, setPitchDeckId] = useState<string | null>(null);
@@ -131,9 +131,17 @@ export default function PitchDeckPage() {
             if (current?.pitchdeckid) {
                 setPitchDeckId(current.pitchdeckid);
             }
+            // Add this — restore the uploaded file display from the saved row
+            if (current?.video_url) {
+                setUploadedFiles([{
+                    name: current.pitchname || "Uploaded video",
+                    size: 0,
+                    url: current.video_url,
+                    uploadedAt: new Date(current.created_at).toLocaleString(),
+                }]);
+            }
         }).catch(() => {
-            // Non-critical: session will still work, report just won't be persisted
-            console.warn("[PitchDeck] Could not fetch pitchdeckid — report won't be saved to Supabase.");
+            console.warn("[PitchDeck] Could not fetch pitchdeckid.");
         });
     }, [startupId]);
 
@@ -711,11 +719,11 @@ export default function PitchDeckPage() {
                                 {/* Strengths & Weaknesses */}
                                 <div className="grid md:grid-cols-2 gap-4">
                                     <div className="p-4 bg-green-50 rounded-xl border border-green-100">
-                                        <h4 className="font-bold text-green-700 text-sm mb-2">✅ Strengths</h4>
+                                        <h4 className="font-bold text-green-700 text-sm mb-2"> Strengths</h4>
                                         <ul className="space-y-1">{(report.strengths ?? []).map((s, i) => <li key={i} className="text-xs text-green-700 capitalize">{s.replace(/_/g, ' ')}</li>)}</ul>
                                     </div>
                                     <div className="p-4 bg-red-50 rounded-xl border border-red-100">
-                                        <h4 className="font-bold text-red-700 text-sm mb-2">⚠️ Critical Weaknesses</h4>
+                                        <h4 className="font-bold text-red-700 text-sm mb-2"> Critical Weaknesses</h4>
                                         <ul className="space-y-1">{(report.critical_weaknesses ?? []).map((w, i) => <li key={i} className="text-xs text-red-700 capitalize">{w.replace(/_/g, ' ')}</li>)}</ul>
                                     </div>
                                 </div>
