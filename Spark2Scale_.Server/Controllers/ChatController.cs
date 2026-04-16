@@ -73,42 +73,35 @@ namespace Spark2Scale_.Server.Controllers
             }
         }
 
-        // POST: api/Chat/start-new
-        // Creates "Idea Check X+1"
         [HttpPost("start-new")]
-        public async Task<IActionResult> StartNewSession([FromBody] SendMessageDto input)
+        public async Task<IActionResult> StartNewSession([FromBody] StartSessionRequest input)
         {
             try
             {
-                // 1. Find the highest existing number for this feature
                 var existing = await _supabase.From<ChatSession>()
                     .Where(x => x.StartupId == input.StartupId && x.FeatureType == input.FeatureType)
                     .Order("session_number", Supabase.Postgrest.Constants.Ordering.Descending)
                     .Limit(1)
                     .Get();
 
-                // 2. Calculate next number
-                int nextNum = 1;
-                if (existing.Models.Any())
-                {
-                    nextNum = existing.Models.First().SessionNumber + 1;
-                }
+                int nextNum = existing.Models.Any() ? existing.Models.First().SessionNumber + 1 : 1;
 
-                // 3. Create Name based on feature type
-                string prefix = input.FeatureType == "idea_check" ? "Idea Check" :
-                                input.FeatureType == "document_gen" ? "Document Gen" : "Session";
+                // 3. Use the frontend's requested name if provided, otherwise fallback
+                string prefix = !string.IsNullOrEmpty(input.SessionName)
+                    ? input.SessionName
+                    : input.FeatureType == "idea_check" ? "Idea Check"
+                    : input.FeatureType == "document_gen" ? "Document Gen" : "Session";
 
                 var newSession = new ChatSession
                 {
                     StartupId = input.StartupId,
                     FeatureType = input.FeatureType,
                     SessionNumber = nextNum,
-                    SessionName = $"{prefix} {nextNum}",
+                    SessionName = $"{prefix} {nextNum}", // Example: "SWOT Analysis 1"
                     CreatedAt = DateTime.UtcNow,
-                    Messages = new List<ChatMessage>() // Start empty
+                    Messages = new List<ChatMessage>()
                 };
 
-                // 4. Save to DB
                 var result = await _supabase.From<ChatSession>().Insert(newSession);
                 var created = result.Models.First();
 

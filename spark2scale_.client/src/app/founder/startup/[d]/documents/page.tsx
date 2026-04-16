@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import {
     Presentation, ArrowLeft, Upload, FileText, Plus, Eye, Send, Star, Users, Edit,
-    Loader2, Trash2, Sparkles, RefreshCw, Bot, History, X,
+    Loader2, Trash2, Sparkles, RefreshCw, Bot, History, X, User, Maximize2, Minimize2,
     TrendingUp, TrendingDown, Lightbulb, AlertTriangle, Download
 } from "lucide-react";
 import Link from "next/link";
@@ -367,6 +367,10 @@ export default function DocumentsPage() {
     const [showChatHistory, setShowChatHistory] = useState(false);
     const [isGeneratingDoc, setIsGeneratingDoc] = useState(false);
 
+    // NEW CHAT UI STATES
+    const [isTyping, setIsTyping] = useState(false);
+    const [isChatMaximized, setIsChatMaximized] = useState(false);
+
     const [manageAccessDialog, setManageAccessDialog] = useState(false);
     const [accessEmail, setAccessEmail] = useState("");
 
@@ -504,15 +508,56 @@ export default function DocumentsPage() {
         initChat();
     }, [cleanId]);
 
-    const startNewChatSession = async () => {
+    // NEW: Smart Context Switcher (Memory)
+    const handleContextSwitch = (newContextId: string) => {
+        setChatContext(newContextId);
+
+        const docConfig = REQUIRED_DOCS.find(d => d.id === newContextId);
+        const docName = docConfig ? docConfig.name : "Document";
+
+        // Look for an existing session that belongs to this document
+        const existingSession = sessions.find(s => s.sessionName.startsWith(docName));
+
+        if (existingSession) {
+            // If found, load the previous history
+            loadChatMessages(existingSession.sessionId);
+        } else {
+            // If not found, start a brand new one
+            startNewChatSession(newContextId);
+        }
+    };
+
+    // Accept an optional context to bypass state delays, and a flag if we know it was deleted
+    const startNewChatSession = async (contextOverride?: string, forceMissingMessage?: boolean) => {
         if (!cleanId) return;
-        const newSession = await documentsService.startNewSession(cleanId);
+
+        // Find the human-readable name of the document
+        const targetContextId = contextOverride || chatContext;
+        const docConfig = REQUIRED_DOCS.find(d => d.id === targetContextId);
+        const docName = docConfig ? docConfig.name : "Document";
+
+        setIsChatLoading(true);
+        const newSession = await documentsService.startNewSession(cleanId, docName);
+
         if (newSession) {
             setSessions(prev => [newSession, ...prev]);
             setChatSessionId(newSession.sessionId);
-            setMessages([{ role: "assistant", content: "Hello! I am your AI Assistant. Select a document context above to chat about it or generate a new one." }]);
+
+            // Check if this document is currently uploaded
+            const isDocUploaded = targetContextId === "pitch_deck"
+                ? !!pptUrl
+                : (docStates.find(d => d.configId === targetContextId)?.isUploaded || false);
+
+            // Personalize the greeting based on document existence
+            if (forceMissingMessage || !isDocUploaded) {
+                setMessages([{ role: "assistant", content: `Please generate or upload the ${docName} to start chatting about it.` }]);
+            } else {
+                setMessages([{ role: "assistant", content: `Hello! I am your AI Assistant. Let's talk about your ${docName}.` }]);
+            }
+
             setShowChatHistory(false);
         }
+        setIsChatLoading(false);
     };
 
     const loadChatMessages = async (sessionId: string) => {
@@ -536,16 +581,17 @@ export default function DocumentsPage() {
         // 1. Add User message to UI & DB
         setMessages(prev => [...prev, { role: "user", content: contentToSend }]);
 
-        // FIX for line 538: Added "user" as the 3rd argument
+        // 2. Save user message
         await documentsService.sendMessage(chatSessionId, contentToSend, "user");
 
-        setIsChatLoading(true);
+        // 3. Set the bubble typing indicator instead of full loading
+        setIsTyping(true);
 
         try {
-            // 2. Find the selected document data
+            // Find the selected document data
             const selectedDoc = docStates.find(d => d.configId === chatContext);
 
-            // 3. Extract the data (Prefer JSON if available, fallback to URL)
+            // Extract the data (Prefer JSON if available, fallback to URL)
             let fileData = "";
             if (selectedDoc?.jsonResponse) {
                 fileData = typeof selectedDoc.jsonResponse === 'string'
@@ -557,7 +603,7 @@ export default function DocumentsPage() {
                 throw new Error("No data found for this document.");
             }
 
-            // 4. Call Python FastAPI Endpoint
+            // Call Python FastAPI Endpoint
             const aiResponse = await fetch("https://spark2scale-ai-api-server.azurewebsites.net/api/v1/document-chat/test-document-qa", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
@@ -573,21 +619,20 @@ export default function DocumentsPage() {
             const aiData = await aiResponse.json();
             const finalAnswer = aiData.answer || "I couldn't find an answer in this document.";
 
-            // 5. Add AI message to UI & DB
+            // Add AI message to UI & DB
             setMessages(prev => [...prev, { role: "assistant", content: finalAnswer }]);
-
-            // FIX for line 578: Added "assistant" as the 3rd argument
             await documentsService.sendMessage(chatSessionId, finalAnswer, "assistant");
 
         } catch (error) {
             console.error(error);
             setMessages(prev => [...prev, { role: "assistant", content: "Error: Could not connect to the AI Assistant or document is empty." }]);
         } finally {
-            setIsChatLoading(false);
+            // Turn off typing indicator
+            setIsTyping(false);
         }
     };
 
-    // --- Add this helper variable right above your `return (` statement ---
+    // --- Helper variable for context state ---
     const isCurrentDocGenerated = chatContext === "pitch_deck"
         ? !!pptUrl
         : (docStates.find(d => d.configId === chatContext)?.isUploaded || false);
@@ -650,10 +695,24 @@ export default function DocumentsPage() {
 
     const handleDelete = async (dbId?: string) => {
         if (!dbId || !confirm("Delete this document?")) return;
+
+        // 1. Find which document type this dbId belongs to before it's gone
+        const docStateToDelete = docStates.find(d => d.dbId === dbId);
+        const deletedConfigId = docStateToDelete?.configId;
+
         setDeletingId(dbId);
         try {
             const success = await documentsService.deleteDocument(dbId);
-            if (success) await fetchData();
+            if (success) {
+                await fetchData(); // Refreshes the UI list
+
+                // 2. Instantly reset the chat for the deleted document
+                if (deletedConfigId) {
+                    setChatContext(deletedConfigId);
+                    // The 'true' flag forces the "Please generate..." message
+                    await startNewChatSession(deletedConfigId, true);
+                }
+            }
         } finally {
             setDeletingId(null);
         }
@@ -765,7 +824,7 @@ export default function DocumentsPage() {
                             </div>
                         </Card>
 
-                        {/* PPT specific Card Component inserted here */}
+                        {/* PPT specific Card Component */}
                         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
                             <Card className={`group border transition-all duration-200 ${pptUrl ? "bg-white border-green-100 shadow-sm" : "bg-white border-gray-200 shadow-sm"}`}>
                                 <div className="p-5 flex flex-col sm:flex-row gap-5">
@@ -831,8 +890,8 @@ export default function DocumentsPage() {
                             </div>
                         ) : (
                             <div className="space-y-4">
-                                    {REQUIRED_DOCS.filter(doc => doc.id !== "pitch_deck").map((config, index) => {
-                                        const state = docStates.find(d => d.configId === config.id);
+                                {REQUIRED_DOCS.filter(doc => doc.id !== "pitch_deck").map((config, index) => {
+                                    const state = docStates.find(d => d.configId === config.id);
                                     const isUploaded = state?.isUploaded || false;
                                     const isJsonOnly = isUploaded && (!state?.path || state.path.trim() === "") && !!state?.jsonResponse;
 
@@ -915,21 +974,36 @@ export default function DocumentsPage() {
                     {/* RIGHT COLUMN: Chat Assistant */}
                     <div className="lg:col-span-5">
                         <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.3 }} className="sticky top-24">
-                            <Card className="border border-gray-300 shadow-xl overflow-hidden flex flex-col h-[calc(100vh-120px)] bg-white">
+
+                            {/* MAXIMIZE TOGGLE WRAPPER */}
+                            <Card className={`border border-gray-300 shadow-2xl overflow-hidden flex flex-col bg-white transition-all duration-300 ${isChatMaximized
+                                    ? "fixed inset-4 md:inset-10 z-[100]"
+                                    : "h-[calc(100vh-120px)]"
+                                }`}>
                                 <div className="p-4 bg-[#576238] text-white flex-shrink-0">
                                     <div className="flex items-center justify-between mb-3">
                                         <div className="flex items-center gap-2">
                                             <Bot className="h-5 w-5" />
                                             <h2 className="font-bold text-sm">AI Assistant</h2>
                                         </div>
-                                        <Button variant="ghost" size="sm" onClick={() => setShowChatHistory(!showChatHistory)} className="text-white/80 hover:text-white hover:bg-white/10 h-7 px-2 text-xs">
-                                            {showChatHistory ? <X className="h-4 w-4 mr-1" /> : <History className="h-4 w-4 mr-1" />}
-                                            {showChatHistory ? "Close" : "History"}
-                                        </Button>
+
+                                        <div className="flex items-center gap-1">
+                                            <Button variant="ghost" size="sm" onClick={() => setShowChatHistory(!showChatHistory)} className="text-white/80 hover:text-white hover:bg-white/10 h-7 px-2 text-xs">
+                                                {showChatHistory ? <X className="h-4 w-4 mr-1" /> : <History className="h-4 w-4 mr-1" />}
+                                                {showChatHistory ? "Close" : "History"}
+                                            </Button>
+                                            <Button variant="ghost" size="sm" onClick={() => setIsChatMaximized(!isChatMaximized)} className="text-white/80 hover:text-white hover:bg-white/10 h-7 w-7 p-0">
+                                                {isChatMaximized ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+                                            </Button>
+                                        </div>
                                     </div>
+
                                     <div className="flex items-center gap-2 bg-black/20 p-1 rounded-md">
                                         <span className="text-[10px] uppercase tracking-wider opacity-70 pl-2">Context:</span>
-                                        <Select value={chatContext} onValueChange={setChatContext}>
+                                        <Select
+                                            value={chatContext}
+                                            onValueChange={handleContextSwitch}
+                                        >
                                             <SelectTrigger className="h-6 bg-transparent border-none text-white text-xs focus:ring-0 p-0 pl-1 gap-1 shadow-none">
                                                 <SelectValue />
                                             </SelectTrigger>
@@ -948,7 +1022,7 @@ export default function DocumentsPage() {
                                     <AnimatePresence>
                                         {showChatHistory && (
                                             <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="absolute inset-0 z-10 bg-white p-4 overflow-auto">
-                                                <Button className="w-full mb-4 bg-[#576238] hover:bg-[#464f2d]" size="sm" onClick={startNewChatSession}>
+                                                <Button className="w-full mb-4 bg-[#576238] hover:bg-[#464f2d]" size="sm" onClick={() => startNewChatSession()}>
                                                     <Plus className="h-4 w-4 mr-2" /> New Chat
                                                 </Button>
                                                 <div className="space-y-1">
@@ -970,22 +1044,47 @@ export default function DocumentsPage() {
                                                 <Loader2 className="h-6 w-6 animate-spin" />
                                             </div>
                                         ) : (
-                                            <div className="space-y-4">
+                                            <div className="space-y-6 pb-4">
                                                 {messages.map((m, i) => (
-                                                    <motion.div key={i} initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} className={`flex flex-col ${m.role === "user" ? "items-end" : "items-start"}`}>
-                                                        <div className={`px-4 py-3 text-sm rounded-2xl max-w-[85%] shadow-sm ${m.role === "user" ? "bg-[#576238] text-white rounded-br-none" : "bg-white border border-gray-200 text-gray-800 rounded-bl-none"}`}>
-                                                            <p className="whitespace-pre-wrap break-words">{m.content}</p>
+                                                    <motion.div key={i} initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} className={`flex gap-3 w-full ${m.role === "user" ? "flex-row-reverse" : "flex-row"}`}>
+
+                                                        {/* Avatar Icon */}
+                                                        <div className={`flex items-center justify-center flex-shrink-0 w-8 h-8 rounded-full ${m.role === "user" ? "bg-[#464f2d] text-white" : "bg-white border border-gray-200 text-[#576238] shadow-sm"}`}>
+                                                            {m.role === "user" ? <User className="h-4 w-4" /> : <Bot className="h-4 w-4" />}
                                                         </div>
-                                                        {m.role === "assistant" && i === messages.length - 1 && !isCurrentDocGenerated && (
-                                                            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.5 }}>
-                                                                <Button size="sm" variant="outline" disabled={isGeneratingDoc} className="mt-2 h-7 text-[10px] border-[#576238] text-[#576238] hover:bg-[#576238] hover:text-white transition-colors" onClick={() => handleSimulateGeneration(chatContext)}>
-                                                                    {isGeneratingDoc ? <Loader2 className="h-3 w-3 mr-1.5 animate-spin" /> : <Sparkles className="h-3 w-3 mr-1.5" />}
-                                                                    Generate {getCurrentContextName()}
-                                                                </Button>
-                                                            </motion.div>
-                                                        )}
+
+                                                        {/* Message Bubble */}
+                                                        <div className={`flex flex-col gap-2 ${m.role === "user" ? "items-end" : "items-start"} max-w-[75%]`}>
+                                                            <div className={`px-4 py-3 text-sm rounded-2xl shadow-sm ${m.role === "user" ? "bg-[#576238] text-white rounded-tr-sm" : "bg-white border border-gray-200 text-gray-800 rounded-tl-sm"}`}>
+                                                                <p className="whitespace-pre-wrap break-words">{m.content}</p>
+                                                            </div>
+
+                                                            {/* Generate Button (Only for assistant) */}
+                                                            {m.role === "assistant" && i === messages.length - 1 && !isCurrentDocGenerated && (
+                                                                <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.5 }}>
+                                                                    <Button size="sm" variant="outline" disabled={chatContext === "pitch_deck" ? isPptGenerating : isGeneratingDoc} className="h-7 text-[10px] border-[#576238] text-[#576238] hover:bg-[#576238] hover:text-white transition-colors" onClick={() => chatContext === "pitch_deck" ? handleGeneratePPT() : handleSimulateGeneration(chatContext)}>
+                                                                        {(chatContext === "pitch_deck" ? isPptGenerating : isGeneratingDoc) ? <Loader2 className="h-3 w-3 mr-1.5 animate-spin" /> : <Sparkles className="h-3 w-3 mr-1.5" />}
+                                                                        Generate {getCurrentContextName()}
+                                                                    </Button>
+                                                                </motion.div>
+                                                            )}
+                                                        </div>
                                                     </motion.div>
                                                 ))}
+
+                                                {/* The Typing Indicator Bubble */}
+                                                {isTyping && (
+                                                    <motion.div initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} className="flex gap-3 w-full flex-row">
+                                                        <div className="flex items-center justify-center flex-shrink-0 w-8 h-8 rounded-full bg-white border border-gray-200 text-[#576238] shadow-sm">
+                                                            <Bot className="h-4 w-4" />
+                                                        </div>
+                                                        <div className="px-4 py-4 bg-white border border-gray-200 rounded-2xl rounded-tl-sm shadow-sm flex items-center gap-1.5 h-[44px]">
+                                                            <span className="h-1.5 w-1.5 bg-gray-400 rounded-full animate-bounce"></span>
+                                                            <span className="h-1.5 w-1.5 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: "150ms" }}></span>
+                                                            <span className="h-1.5 w-1.5 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: "300ms" }}></span>
+                                                        </div>
+                                                    </motion.div>
+                                                )}
                                             </div>
                                         )}
                                     </ScrollArea>
@@ -998,13 +1097,13 @@ export default function DocumentsPage() {
                                             value={newMessage}
                                             onChange={e => setNewMessage(e.target.value)}
                                             className="pr-10 py-5 text-sm bg-gray-50 focus-visible:ring-[#576238]"
-                                            disabled={!chatSessionId || isChatLoading || !isCurrentDocGenerated}
+                                            disabled={!chatSessionId || isChatLoading || !isCurrentDocGenerated || isTyping}
                                         />
                                         <Button
                                             type="submit"
                                             size="icon"
                                             className="absolute right-1 h-8 w-8 bg-[#576238] hover:bg-[#464f2d] rounded-full"
-                                            disabled={!chatSessionId || isChatLoading || !newMessage.trim() || !isCurrentDocGenerated}
+                                            disabled={!chatSessionId || isChatLoading || !newMessage.trim() || !isCurrentDocGenerated || isTyping}
                                         >
                                             <Send className="h-4 w-4" />
                                         </Button>

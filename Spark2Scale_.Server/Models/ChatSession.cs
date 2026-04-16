@@ -75,4 +75,11 @@ namespace Spark2Scale_.Server.Models
         [JsonPropertyName("Content")]
         public string Content { get; set; }
     }
+
+    public class StartSessionRequest
+    {
+        public Guid StartupId { get; set; }
+        public string FeatureType { get; set; }
+        public string? SessionName { get; set; } // Let the frontend suggest a name
+    }
 }

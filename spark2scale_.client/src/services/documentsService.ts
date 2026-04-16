@@ -299,11 +299,13 @@ export const documentsService = {
         }
     },
 
-    async startNewSession(startupId: string): Promise<SessionSummary | null> {
+    // Add sessionName as an optional parameter
+    async startNewSession(startupId: string, sessionName?: string): Promise<SessionSummary | null> {
         try {
             const res = await apiClient.post<ChatSessionResponse>(`/api/Chat/start-new`, {
                 StartupId: startupId,
-                FeatureType: "document_gen"
+                FeatureType: "document_gen",
+                SessionName: sessionName // Send the requested name to C#
             });
             const data = res.data;
             return {
@@ -315,7 +317,7 @@ export const documentsService = {
             console.error("Error starting session:", error);
             return null;
         }
-    },
+    }, 
 
     async getMessages(sessionId: string): Promise<ChatMessage[]> {
         try {
