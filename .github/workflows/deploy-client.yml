@@ -1,7 +1,7 @@
 name: Deploy React Client to Azure
 on:
   push:
-    branches: [ "Sarah" ]
+    branches: [ "merged_mariam_all" ]
 
 jobs:
   build-and-deploy:
