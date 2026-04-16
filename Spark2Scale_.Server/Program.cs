@@ -106,4 +106,7 @@ if (app.Environment.IsDevelopment() || app.Environment.IsProduction())
 app.UseAuthorization();
 app.MapControllers();
 
+// Handle the root path so it doesn't return a 404
+app.MapGet("/", () => "Spark2Scale Server is running! Visit /swagger for API documentation.");
+
 app.Run();

@@ -46,6 +46,9 @@ jobs:
           cp -r .next/static/. ../deploy_out/.next/static/
           cp -r public/. ../deploy_out/public/ || true
 
+          # --- FIX: Ensure Azure App Service correctly starts the standalone server ---
+          sed -i 's/"start": "next start"/"start": "node server.js"/g' ../deploy_out/package.json
+
       - name: Deploy to Azure Web App
         uses: azure/webapps-deploy@v2
         with:
