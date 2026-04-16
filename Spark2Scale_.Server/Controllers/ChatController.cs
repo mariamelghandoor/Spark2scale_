@@ -1,4 +1,4 @@
-﻿using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc;
 using Supabase;
 using Spark2Scale_.Server.Models;
 using System;

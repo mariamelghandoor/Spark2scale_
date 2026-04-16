@@ -1,7 +1,8 @@
-﻿using Supabase.Postgrest.Attributes;
+using Supabase.Postgrest.Attributes;
 using Supabase.Postgrest.Models;
 using System;
 using System.Collections.Generic;
+using System.Text.Json.Serialization;
 
 namespace Spark2Scale_.Server.Models
 {
@@ -56,15 +57,22 @@ namespace Spark2Scale_.Server.Models
     // Input: For creating a NEW session
     public class SendMessageDto
     {
+        [JsonPropertyName("StartupId")]
         public Guid StartupId { get; set; }
+
+        [JsonPropertyName("FeatureType")]
         public string FeatureType { get; set; }
     }
 
-    // Input: For sending a message to an EXISTING session
     public class MessageInputDto
     {
+        [JsonPropertyName("SessionId")]
         public Guid SessionId { get; set; }
+
+        [JsonPropertyName("Role")]
         public string Role { get; set; }
+
+        [JsonPropertyName("Content")]
         public string Content { get; set; }
     }
 }

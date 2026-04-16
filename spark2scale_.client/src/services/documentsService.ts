@@ -5,6 +5,14 @@ import apiClient from "@/lib/apiClient";
 
 export const REQUIRED_DOCS = [
     {
+        id: "pitch_deck",
+        name: "Pitch Deck (PPT)",
+        icon: Presentation,
+        desc: "AI-generated PPTX or upload your own.",
+        accept: ".pptx,.ppt",
+        aiPrompt: "Help me evaluate my pitch deck."
+    },
+    {
         id: "swot",
         name: "SWOT Analysis",
         icon: FileText,
@@ -21,7 +29,6 @@ export const REQUIRED_DOCS = [
         aiPrompt: "Help me generate a competitor matrix analysis based on my startup idea."
     }
 ];
-
 export interface DBDocument {
     did: string;
     master_id: string;
@@ -323,9 +330,14 @@ export const documentsService = {
         }
     },
 
-    async sendMessage(sessionId: string, content: string): Promise<void> {
+    async sendMessage(sessionId: string, content: string, role: string = "user"): Promise<void> {
         try {
-            await apiClient.post(`/api/Chat/send`, { SessionId: sessionId, Role: "user", Content: content });
+            // Now it passes the dynamic 'role' instead of hardcoding "user"
+            await apiClient.post(`/api/Chat/send`, {
+                SessionId: sessionId,
+                Role: role,
+                Content: content
+            });
         } catch (error) {
             console.error("Error sending message:", error);
         }

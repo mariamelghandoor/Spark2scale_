@@ -510,7 +510,7 @@ export default function DocumentsPage() {
         if (newSession) {
             setSessions(prev => [newSession, ...prev]);
             setChatSessionId(newSession.sessionId);
-            setMessages([{ role: "assistant", content: "Hello! Select a document above and I can help you generate it." }]);
+            setMessages([{ role: "assistant", content: "Hello! I am your AI Assistant. Select a document context above to chat about it or generate a new one." }]);
             setShowChatHistory(false);
         }
     };
@@ -521,7 +521,7 @@ export default function DocumentsPage() {
         setShowChatHistory(false);
         try {
             const history = await documentsService.getMessages(sessionId);
-            setMessages(history.length ? history : [{ role: "assistant", content: "Hello! Select a document above and I can help you generate it." }]);
+            setMessages(history.length ? history : [{ role: "assistant", content: "Hello! I am your AI Assistant. Select a document context above to chat about it or generate a new one." }]);
         } finally {
             setIsChatLoading(false);
         }
@@ -530,10 +530,67 @@ export default function DocumentsPage() {
     const handleSendMessage = async (textOverride?: string) => {
         const contentToSend = textOverride || newMessage;
         if (!contentToSend.trim() || !chatSessionId) return;
+
         if (!textOverride) setNewMessage("");
+
+        // 1. Add User message to UI & DB
         setMessages(prev => [...prev, { role: "user", content: contentToSend }]);
-        await documentsService.sendMessage(chatSessionId, contentToSend);
+
+        // FIX for line 538: Added "user" as the 3rd argument
+        await documentsService.sendMessage(chatSessionId, contentToSend, "user");
+
+        setIsChatLoading(true);
+
+        try {
+            // 2. Find the selected document data
+            const selectedDoc = docStates.find(d => d.configId === chatContext);
+
+            // 3. Extract the data (Prefer JSON if available, fallback to URL)
+            let fileData = "";
+            if (selectedDoc?.jsonResponse) {
+                fileData = typeof selectedDoc.jsonResponse === 'string'
+                    ? selectedDoc.jsonResponse
+                    : JSON.stringify(selectedDoc.jsonResponse);
+            } else if (selectedDoc?.path) {
+                fileData = selectedDoc.path;
+            } else {
+                throw new Error("No data found for this document.");
+            }
+
+            // 4. Call Python FastAPI Endpoint
+            const aiResponse = await fetch("https://spark2scale-ai-api-server.azurewebsites.net/api/v1/document-chat/test-document-qa", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    file_path: fileData, // Sends the JSON string or URL
+                    query: contentToSend,
+                    provider: "gemini"
+                })
+            });
+
+            if (!aiResponse.ok) throw new Error("AI Server Error");
+
+            const aiData = await aiResponse.json();
+            const finalAnswer = aiData.answer || "I couldn't find an answer in this document.";
+
+            // 5. Add AI message to UI & DB
+            setMessages(prev => [...prev, { role: "assistant", content: finalAnswer }]);
+
+            // FIX for line 578: Added "assistant" as the 3rd argument
+            await documentsService.sendMessage(chatSessionId, finalAnswer, "assistant");
+
+        } catch (error) {
+            console.error(error);
+            setMessages(prev => [...prev, { role: "assistant", content: "Error: Could not connect to the AI Assistant or document is empty." }]);
+        } finally {
+            setIsChatLoading(false);
+        }
     };
+
+    // --- Add this helper variable right above your `return (` statement ---
+    const isCurrentDocGenerated = chatContext === "pitch_deck"
+        ? !!pptUrl
+        : (docStates.find(d => d.configId === chatContext)?.isUploaded || false);
 
     // -----------------------------------------------------------------------
     // Generate Generic Document (SWOT / Others)
@@ -774,8 +831,8 @@ export default function DocumentsPage() {
                             </div>
                         ) : (
                             <div className="space-y-4">
-                                {REQUIRED_DOCS.map((config, index) => {
-                                    const state = docStates.find(d => d.configId === config.id);
+                                    {REQUIRED_DOCS.filter(doc => doc.id !== "pitch_deck").map((config, index) => {
+                                        const state = docStates.find(d => d.configId === config.id);
                                     const isUploaded = state?.isUploaded || false;
                                     const isJsonOnly = isUploaded && (!state?.path || state.path.trim() === "") && !!state?.jsonResponse;
 
@@ -919,7 +976,7 @@ export default function DocumentsPage() {
                                                         <div className={`px-4 py-3 text-sm rounded-2xl max-w-[85%] shadow-sm ${m.role === "user" ? "bg-[#576238] text-white rounded-br-none" : "bg-white border border-gray-200 text-gray-800 rounded-bl-none"}`}>
                                                             <p className="whitespace-pre-wrap break-words">{m.content}</p>
                                                         </div>
-                                                        {m.role === "assistant" && i === messages.length - 1 && (
+                                                        {m.role === "assistant" && i === messages.length - 1 && !isCurrentDocGenerated && (
                                                             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.5 }}>
                                                                 <Button size="sm" variant="outline" disabled={isGeneratingDoc} className="mt-2 h-7 text-[10px] border-[#576238] text-[#576238] hover:bg-[#576238] hover:text-white transition-colors" onClick={() => handleSimulateGeneration(chatContext)}>
                                                                     {isGeneratingDoc ? <Loader2 className="h-3 w-3 mr-1.5 animate-spin" /> : <Sparkles className="h-3 w-3 mr-1.5" />}
@@ -937,13 +994,18 @@ export default function DocumentsPage() {
                                 <div className="p-3 bg-white border-t flex-shrink-0">
                                     <form onSubmit={e => { e.preventDefault(); handleSendMessage(); }} className="relative flex items-center">
                                         <Input
-                                            placeholder={`Ask about ${getCurrentContextName()}...`}
+                                            placeholder={isCurrentDocGenerated ? `Ask about ${getCurrentContextName()}...` : `Please generate ${getCurrentContextName()} first...`}
                                             value={newMessage}
                                             onChange={e => setNewMessage(e.target.value)}
                                             className="pr-10 py-5 text-sm bg-gray-50 focus-visible:ring-[#576238]"
-                                            disabled={!chatSessionId || isChatLoading}
+                                            disabled={!chatSessionId || isChatLoading || !isCurrentDocGenerated}
                                         />
-                                        <Button type="submit" size="icon" className="absolute right-1 h-8 w-8 bg-[#576238] hover:bg-[#464f2d] rounded-full" disabled={!chatSessionId || isChatLoading || !newMessage.trim()}>
+                                        <Button
+                                            type="submit"
+                                            size="icon"
+                                            className="absolute right-1 h-8 w-8 bg-[#576238] hover:bg-[#464f2d] rounded-full"
+                                            disabled={!chatSessionId || isChatLoading || !newMessage.trim() || !isCurrentDocGenerated}
+                                        >
                                             <Send className="h-4 w-4" />
                                         </Button>
                                     </form>
