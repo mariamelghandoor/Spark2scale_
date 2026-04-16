@@ -608,9 +608,11 @@ export default function DocumentsPage() {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
-                    file_path: fileData, // Sends the JSON string or URL
+                    file_path: fileData,
                     query: contentToSend,
-                    provider: "gemini"
+                    provider: "gemini",
+                    // ADD THIS LINE: Pass the last few messages so the AI remembers context
+                    chat_history: messages.slice(-5)
                 })
             });
 
@@ -630,6 +632,11 @@ export default function DocumentsPage() {
             // Turn off typing indicator
             setIsTyping(false);
         }
+    };
+
+    // --- NEW: Handle Enhance Message ---
+    const handleEnhanceMessage = (messageContent: string) => {
+        // Doing nothing for now as requested.
     };
 
     // --- Helper variable for context state ---
@@ -977,8 +984,8 @@ export default function DocumentsPage() {
 
                             {/* MAXIMIZE TOGGLE WRAPPER */}
                             <Card className={`border border-gray-300 shadow-2xl overflow-hidden flex flex-col bg-white transition-all duration-300 ${isChatMaximized
-                                    ? "fixed inset-4 md:inset-10 z-[100]"
-                                    : "h-[calc(100vh-120px)]"
+                                ? "fixed inset-4 md:inset-10 z-[100]"
+                                : "h-[calc(100vh-120px)]"
                                 }`}>
                                 <div className="p-4 bg-[#576238] text-white flex-shrink-0">
                                     <div className="flex items-center justify-between mb-3">
@@ -1053,21 +1060,46 @@ export default function DocumentsPage() {
                                                             {m.role === "user" ? <User className="h-4 w-4" /> : <Bot className="h-4 w-4" />}
                                                         </div>
 
-                                                        {/* Message Bubble */}
+                                                        {/* Message Bubble & Actions Container */}
                                                         <div className={`flex flex-col gap-2 ${m.role === "user" ? "items-end" : "items-start"} max-w-[75%]`}>
                                                             <div className={`px-4 py-3 text-sm rounded-2xl shadow-sm ${m.role === "user" ? "bg-[#576238] text-white rounded-tr-sm" : "bg-white border border-gray-200 text-gray-800 rounded-tl-sm"}`}>
                                                                 <p className="whitespace-pre-wrap break-words">{m.content}</p>
                                                             </div>
 
-                                                            {/* Generate Button (Only for assistant) */}
-                                                            {m.role === "assistant" && i === messages.length - 1 && !isCurrentDocGenerated && (
-                                                                <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.5 }}>
-                                                                    <Button size="sm" variant="outline" disabled={chatContext === "pitch_deck" ? isPptGenerating : isGeneratingDoc} className="h-7 text-[10px] border-[#576238] text-[#576238] hover:bg-[#576238] hover:text-white transition-colors" onClick={() => chatContext === "pitch_deck" ? handleGeneratePPT() : handleSimulateGeneration(chatContext)}>
-                                                                        {(chatContext === "pitch_deck" ? isPptGenerating : isGeneratingDoc) ? <Loader2 className="h-3 w-3 mr-1.5 animate-spin" /> : <Sparkles className="h-3 w-3 mr-1.5" />}
-                                                                        Generate {getCurrentContextName()}
-                                                                    </Button>
-                                                                </motion.div>
-                                                            )}
+                                                            {/* Action Buttons Container */}
+                                                            <div className="flex flex-wrap items-center gap-2 mt-1">
+                                                                {/* Existing Generate Button (Only on the last message if doc isn't generated) */}
+                                                                {m.role === "assistant" && i === messages.length - 1 && !isCurrentDocGenerated && (
+                                                                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.5 }}>
+                                                                        <Button
+                                                                            size="sm"
+                                                                            variant="outline"
+                                                                            disabled={chatContext === "pitch_deck" ? isPptGenerating : isGeneratingDoc}
+                                                                            className="h-7 text-[10px] border-[#576238] text-[#576238] hover:bg-[#576238] hover:text-white transition-colors"
+                                                                            onClick={() => chatContext === "pitch_deck" ? handleGeneratePPT() : handleSimulateGeneration(chatContext)}
+                                                                        >
+                                                                            {(chatContext === "pitch_deck" ? isPptGenerating : isGeneratingDoc) ? <Loader2 className="h-3 w-3 mr-1.5 animate-spin" /> : <Sparkles className="h-3 w-3 mr-1.5" />}
+                                                                            Generate {getCurrentContextName()}
+                                                                        </Button>
+                                                                    </motion.div>
+                                                                )}
+
+                                                                {/* NEW: Enhance Button (Available on all AI messages) */}
+                                                                {m.role === "assistant" && (
+                                                                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.6 }}>
+                                                                        <Button
+                                                                            size="sm"
+                                                                            variant="outline"
+                                                                            disabled={isChatLoading || isTyping}
+                                                                            className="h-7 text-[10px] border-[#576238] text-[#576238] hover:bg-[#576238] hover:text-white transition-colors"
+                                                                            onClick={() => handleEnhanceMessage(m.content)}
+                                                                        >
+                                                                            <Sparkles className="h-3 w-3 mr-1.5" />
+                                                                            Enhance
+                                                                        </Button>
+                                                                    </motion.div>
+                                                                )}
+                                                            </div>
                                                         </div>
                                                     </motion.div>
                                                 ))}
