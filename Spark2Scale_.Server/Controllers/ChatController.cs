@@ -1,10 +1,14 @@
-﻿using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc;
 using Supabase;
 using Spark2Scale_.Server.Models;
 using System;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Collections.Generic;
+using System.Net.Http;
+using System.Net.Http.Json;
+using System.Text.Json;
+using System.Text;
 
 namespace Spark2Scale_.Server.Controllers
 {

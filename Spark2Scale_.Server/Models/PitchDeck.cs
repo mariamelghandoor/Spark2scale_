@@ -43,7 +43,7 @@ namespace Spark2Scale_.Server.Models
     [Table("pitchdecks")]
     public class PitchDeck : BaseModel
     {
-        [PrimaryKey("pitchdeckid", false)]
+        [PrimaryKey("pitchdeckid", true)]
         public Guid pitchdeckid { get; set; }
 
         [Column("startup_id")]

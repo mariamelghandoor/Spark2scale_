@@ -1,4 +1,4 @@
-﻿using Supabase.Postgrest.Attributes;
+using Supabase.Postgrest.Attributes;
 using Supabase.Postgrest.Models;
 using System;
 using System.Collections.Generic;
@@ -41,6 +41,12 @@ namespace Spark2Scale_.Server.Models
 
         [Column("is_current")]
         public bool IsCurrent { get; set; }
+
+        [Column("summarized_chat")]
+        public string? SummarizedChat { get; set; } // stored as JSON string (JSONB in Supabase)
+
+        [Column("last_enhanced_at")]
+        public DateTime? LastEnhancedAt { get; set; }
     }
 
     // --- 3. DTOs (Data Transfer Objects) for API Input/Output ---
