@@ -15,6 +15,7 @@ namespace Spark2Scale_.Server.Controllers
     {
         private readonly Supabase.Client _supabase;
         private static readonly HttpClient _httpClient = new HttpClient();
+        private const string AI_SERVER_BASE = "https://spark2scale-ai-api-server.azurewebsites.net";
 
         public PitchDeckLikesController(Supabase.Client supabase)
         {
@@ -88,6 +89,26 @@ namespace Spark2Scale_.Server.Controllers
             catch { /* Ignore update errors to keep response fast */ }
         }
 
+        // GET: api/pitchdecklikes/check/{investorId}/{pitchDeckId}
+        [HttpGet("check/{investorId}/{pitchDeckId}")]
+        public async Task<IActionResult> CheckLiked(Guid investorId, Guid pitchDeckId)
+        {
+            try
+            {
+                var result = await _supabase
+                    .From<PitchDeckLike>()
+                    .Where(x => x.InvestorId == investorId && x.PitchDeckId == pitchDeckId)
+                    .Get();
+
+                var record = result.Models.FirstOrDefault();
+                return Ok(new { isLiked = record?.Liked ?? false });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { error = ex.Message });
+            }
+        }
+
         private async Task NotifyPythonAIEngine(PitchDeckInteractionDto input)
         {
             try
@@ -100,9 +121,13 @@ namespace Spark2Scale_.Server.Controllers
                     contacted = input.contacted
                 };
 
-                var content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
-                // TODO: Update the endpoint URL if necessary
-                await _httpClient.PostAsync("http://127.0.0.1:8000/api/ai/interaction", content);
+                var content = new StringContent(
+                    JsonSerializer.Serialize(payload),
+                    Encoding.UTF8,
+                    "application/json"
+                );
+
+                await _httpClient.PostAsync($"{AI_SERVER_BASE}/api/v1/feed/interactions", content);
             }
             catch { /* Ignore errors */ }
         }

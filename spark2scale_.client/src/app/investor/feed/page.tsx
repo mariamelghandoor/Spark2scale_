@@ -2,12 +2,25 @@
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Calendar, X, Heart, Eye, Video, Sparkles, Trophy, Loader2, MessageCircle } from "lucide-react";
+import { Calendar, X, Heart, Eye, Video, Sparkles, Trophy, Loader2 } from "lucide-react";
 import Link from "next/link";
 import { motion, useMotionValue, useTransform } from "framer-motion";
 import NotificationsDropdown from "@/components/shared/NotificationsDropdown";
 import apiClient from "@/lib/apiClient"; // Using your shared client
 import LegoLoader from "@/components/lego/LegoLoader";
+
+// AI recommendation server
+const AI_BASE_URL = process.env.NEXT_PUBLIC_AI_BASE_URL || "http://127.0.0.1:8000";
+
+const callAI = async (method: "get" | "post", path: string, body?: object) => {
+    const res = await fetch(`${AI_BASE_URL}${path}`, {
+        method: method.toUpperCase(),
+        headers: { "Content-Type": "application/json" },
+        body: body ? JSON.stringify(body) : undefined,
+    });
+    if (!res.ok) throw new Error(`AI API ${res.status}`);
+    return res.json();
+};
 
 // --- Interfaces ---
 interface FeedbackItem {
@@ -107,23 +120,19 @@ export default function InvestorFeed() {
                     console.warn("Could not fetch investor tags:", err);
                 }
 
-                // 2. Fetch pitch decks (Using apiClient handles the Base URL automatically)
-                // Note: Added ?onlyPublic=true as per your request
+                // 2. Fetch full pitch data from C# API
                 const response = await apiClient.get<any[]>('/api/pitchdecks/with-startups?onlyPublic=true');
                 const rawData = response.data;
 
-                console.log("✅ API Response Sample:", rawData[0]);
-
-                // FIX: Normalize Data Casing
                 const normalizedPitches: PitchDeck[] = rawData.map((item) => ({
                     ...item,
-                    pitchdeckid: item.pitchdeckid || item.pitchDeckId || item.PitchDeckId,
-                    startup_id: item.startup_id || item.startupId || item.StartupId,
-                    video_url: item.video_url || item.videoUrl || item.VideoUrl,
-                    pitchname: item.pitchname || item.pitchName || item.PitchName,
-                    is_current: item.is_current ?? item.isCurrent ?? item.IsCurrent ?? true,
-                    countlikes: item.countlikes ?? item.countLikes ?? item.CountLikes ?? 0,
-                    created_at: item.created_at || item.createdAt || item.CreatedAt,
+                    pitchdeckid: item.pitchdeckid || item.pitchDeckId,
+                    startup_id: item.startup_id || item.startupId,
+                    video_url: item.video_url || item.videoUrl,
+                    pitchname: item.pitchname || item.pitchName,
+                    is_current: item.is_current ?? item.isCurrent ?? true,
+                    countlikes: item.countlikes ?? item.countLikes ?? 0,
+                    created_at: item.created_at || item.createdAt,
                     tags: item.tags || [],
                     startup: item.startup ? {
                         sid: item.startup.sid || item.startup.sId || item.startup.Sid,
@@ -133,22 +142,32 @@ export default function InvestorFeed() {
                     } : undefined
                 }));
 
-                // Removed filter to show all fetched decks
-                const activePitches = normalizedPitches;
+                // 3. Get AI-ordered recommendations, fall back to tag-sort if unavailable
+                let sortedPitches: PitchDeck[] = [];
+                try {
+                    const rec = await callAI("get", `/api/v1/feed/recommend/${investorId}?k=50`);
+                    const orderedIds: string[] = (rec.results || []).map((r: any) => r.pitchdeck_id);
+                    const pitchMap = new Map(normalizedPitches.map(p => [p.pitchdeckid, p]));
 
-                // 3. Sort by tag matches
-                const sortedPitches = activePitches.sort((a, b) => {
-                    const aMatches = getTagMatchCount(a.tags);
-                    const bMatches = getTagMatchCount(b.tags);
+                    // AI-ordered first, then any remaining pitches not in recommendations
+                    const aiOrdered = orderedIds.map(id => pitchMap.get(id)).filter(Boolean) as PitchDeck[];
+                    const aiIds = new Set(orderedIds);
+                    const remaining = normalizedPitches
+                        .filter(p => !aiIds.has(p.pitchdeckid))
+                        .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 
-                    if (aMatches !== bMatches) return bMatches - aMatches;
-                    return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
-                });
+                    sortedPitches = [...aiOrdered, ...remaining];
+                    console.log(`✅ AI feed: ${aiOrdered.length} recommended + ${remaining.length} remaining`);
+                } catch (aiErr) {
+                    console.warn("AI recommend unavailable, falling back to tag-sort:", aiErr);
+                    sortedPitches = normalizedPitches.sort((a, b) => {
+                        const diff = getTagMatchCount(b.tags) - getTagMatchCount(a.tags);
+                        return diff !== 0 ? diff : new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+                    });
+                }
 
                 setPitchDecks(sortedPitches);
                 setError(null);
-
-                // 4. Check Likes
                 await checkLikedPitches(sortedPitches);
 
             } catch (err) {
@@ -191,6 +210,20 @@ export default function InvestorFeed() {
     const rotate = useTransform(x, [-200, 200], [-25, 25]);
     const opacity = useTransform(x, [-200, -100, 0, 100, 200], [0, 1, 1, 1, 0]);
 
+    const notifyAI = async (pitchId: string, liked: boolean, contacted: boolean) => {
+        if (!investorId) return;
+        try {
+            await callAI("post", "/api/v1/feed/interactions", {
+                user_id: investorId,
+                pitch_id: pitchId,
+                liked,
+                contacted,
+            });
+        } catch (e) {
+            console.warn("AI interaction notify failed:", e);
+        }
+    };
+
     const handleLike = async (pitchId: string) => {
         if (actionLoading) return;
         setActionLoading(true);
@@ -211,44 +244,12 @@ export default function InvestorFeed() {
                     ? { ...pitch, countlikes: data.newLikeCount || pitch.countlikes + 1 }
                     : pitch
             ));
+
+            notifyAI(pitchId, true, false);
         } catch (err) {
             console.error("Error liking pitch:", err);
         } finally {
             setActionLoading(false);
-        }
-    };
-
-    const handleContactFounder = async (pitchId: string) => {
-        if (actionLoading) return;
-        setActionLoading(true);
-
-        try {
-            const response = await apiClient.post('/api/pitchdecklikes/interact', {
-                investor_id: investorId,
-                pitchdeck_id: pitchId,
-                liked: true,
-                contacted: true
-            });
-
-            const data = response.data as any;
-            setLikedPitches(prev => new Set([...prev, pitchId]));
-
-            setPitchDecks(prev => prev.map(pitch =>
-                pitch.pitchdeckid === pitchId
-                    ? { ...pitch, countlikes: data.newLikeCount || pitch.countlikes + 1 }
-                    : pitch
-            ));
-            
-            // Optionally provide some feedback or move to next
-        } catch (err) {
-            console.error("Error contacting founder:", err);
-        } finally {
-            setActionLoading(false);
-            if (currentIndex < pitchDecks.length - 1) {
-                setCurrentIndex(currentIndex + 1);
-            } else {
-                setCurrentIndex(pitchDecks.length);
-            }
         }
     };
 
@@ -265,7 +266,8 @@ export default function InvestorFeed() {
             });
 
             const data = response.data as any;
-            
+            notifyAI(pitchId, false, false);
+
             if (likedPitches.has(pitchId)) {
                 setLikedPitches(prev => {
                     const newSet = new Set(prev);
@@ -290,6 +292,7 @@ export default function InvestorFeed() {
             }
         }
     };
+
     const handleSwipe = async (direction: "left" | "right") => {
         if (actionLoading || currentIndex >= pitchDecks.length) return;
 
@@ -440,7 +443,21 @@ export default function InvestorFeed() {
                                                     <div><p className="text-xs text-muted-foreground">Likes</p><p className="font-semibold text-[#576238] flex items-center gap-1"><Heart className="h-4 w-4 fill-red-500 text-red-500" />{pitch.countlikes}</p></div>
                                                 </div>
                                                 {pitch.tags && pitch.tags.length > 0 && <div className="flex flex-wrap gap-2">{pitch.tags.map((tag, i) => { const isMatched = investorTags.some(invTag => invTag.toLowerCase() === tag.toLowerCase()); return (<span key={i} className={`px-3 py-1 text-xs rounded-full font-medium ${isMatched ? 'bg-[#FFD95D] text-[#576238] ring-2 ring-[#576238]' : 'bg-[#FFD95D]/20 text-[#576238]'}`}>{tag}{isMatched && ' ✓'}</span>); })}</div>}
-                                                <div className="pt-2 border-t mt-auto"><div className="flex items-center justify-between"><span className="text-sm text-muted-foreground">Posted: {new Date(pitch.created_at).toLocaleDateString()}</span><Link href={`/investor/startup/${pitch.startup_id}`}><Button variant="outline" size="sm" className="border-[#576238] text-[#576238] hover:bg-[#576238] hover:text-white"><Eye className="mr-2 h-4 w-4" />View Profile</Button></Link></div></div>
+                                                <div className="pt-2 border-t mt-auto">
+                                                    <div className="flex items-center justify-between">
+                                                        <span className="text-sm text-muted-foreground">Posted: {new Date(pitch.created_at).toLocaleDateString()}</span>
+                                                        <Link href={`/investor/startup/${pitch.startup_id}`}>
+                                                            <Button
+                                                                variant="outline"
+                                                                size="sm"
+                                                                className="border-[#576238] text-[#576238] hover:bg-[#576238] hover:text-white"
+                                                                onClick={() => notifyAI(pitch.pitchdeckid, true, false)}
+                                                            >
+                                                                <Eye className="mr-2 h-4 w-4" />View Profile
+                                                            </Button>
+                                                        </Link>
+                                                    </div>
+                                                </div>
                                             </CardContent>
                                         </Card>
                                     </motion.div>
@@ -461,14 +478,13 @@ export default function InvestorFeed() {
 
                     {currentIndex < pitchDecks.length && pitchDecks.length > 0 && (
                         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }} className="flex justify-center items-center gap-4 mt-8">
-                            <Button onClick={() => handleSwipe("left")} disabled={actionLoading} size="lg" variant="outline" className="rounded-full w-14 h-14 border-2 border-red-500 text-red-500 hover:bg-red-50 disabled:opacity-50">{actionLoading ? <Loader2 className="h-6 w-6 animate-spin" /> : <X className="h-6 w-6" />}</Button>
-                            
-                            <Button onClick={() => handleContactFounder(currentPitch.pitchdeckid)} disabled={actionLoading} size="lg" className="rounded-full px-6 py-6 border-2 border-[#576238] bg-white text-[#576238] hover:bg-[#576238] hover:text-white disabled:opacity-50 font-bold transition-colors">
-                                {actionLoading ? <Loader2 className="h-6 w-6 animate-spin mr-2" /> : <MessageCircle className="h-6 w-6 mr-2" />}
-                                Contact Founder
+                            <Button onClick={() => handleSwipe("left")} disabled={actionLoading} size="lg" variant="outline" className="rounded-full w-14 h-14 border-2 border-red-500 text-red-500 hover:bg-red-50 disabled:opacity-50">
+                                {actionLoading ? <Loader2 className="h-6 w-6 animate-spin" /> : <X className="h-6 w-6" />}
                             </Button>
 
-                            <Button onClick={() => handleSwipe("right")} disabled={actionLoading} size="lg" className={`rounded-full w-14 h-14 disabled:opacity-50 ${isCurrentLiked ? 'bg-red-500 hover:bg-red-600' : 'bg-[#576238] hover:bg-[#6b7c3f]'}`}>{actionLoading ? <Loader2 className="h-6 w-6 animate-spin" /> : <Heart className={`h-6 w-6 ${isCurrentLiked ? 'fill-white' : ''}`} />}</Button>
+                            <Button onClick={() => handleSwipe("right")} disabled={actionLoading} size="lg" className={`rounded-full w-14 h-14 disabled:opacity-50 ${isCurrentLiked ? 'bg-red-500 hover:bg-red-600' : 'bg-[#576238] hover:bg-[#6b7c3f]'}`}>
+                                {actionLoading ? <Loader2 className="h-6 w-6 animate-spin" /> : <Heart className={`h-6 w-6 ${isCurrentLiked ? 'fill-white' : ''}`} />}
+                            </Button>
                         </motion.div>
                     )}
                 </div>
