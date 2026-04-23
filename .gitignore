@@ -127,3 +127,4 @@ appsettings.json
 appsettings.Development.json
 
 .env
+/Spark2Scale_.Server/Spark2Scale_.Server.csproj
