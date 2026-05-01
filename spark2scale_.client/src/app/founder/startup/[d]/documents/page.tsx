@@ -635,8 +635,95 @@ export default function DocumentsPage() {
     };
 
     // --- NEW: Handle Enhance Message ---
-    const handleEnhanceMessage = (messageContent: string) => {
-        // Doing nothing for now as requested.
+    const handleEnhanceMessage = async (messageContent: string) => {
+        if (!cleanId) return;
+
+        if (chatContext !== "swot" && chatContext !== "competitor_matrix") {
+            alert("Enhancement is only supported for SWOT Analysis and Competitor Matrix.");
+            return;
+        }
+
+        const docName = getCurrentContextName();
+        setIsGeneratingDoc(true);
+        setIsTyping(true);
+
+        // Add user message indicating enhancement request
+        const enhanceRequestMsg = `Please enhance the ${docName} based on our discussion.`;
+        setMessages(prev => [...prev, { role: "user", content: enhanceRequestMsg }]);
+        if (chatSessionId) {
+            await documentsService.sendMessage(chatSessionId, enhanceRequestMsg, "user");
+        }
+
+        try {
+            // Start with raw chat info
+            let summaryComment = messages.map(m => `${m.role.toUpperCase()}: ${m.content}`).join("\n");
+            
+            // Trigger summarization model to get all chat info
+            try {
+                const selectedDoc = docStates.find(d => d.configId === chatContext);
+                let fileData = "";
+                if (selectedDoc?.jsonResponse) {
+                    fileData = typeof selectedDoc.jsonResponse === 'string'
+                        ? selectedDoc.jsonResponse
+                        : JSON.stringify(selectedDoc.jsonResponse);
+                } else if (selectedDoc?.path) {
+                    fileData = selectedDoc.path;
+                }
+
+                if (fileData) {
+                    const aiResponse = await fetch("https://spark2scale-ai-api-server.azurewebsites.net/api/v1/document-chat/test-document-qa", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                            file_path: fileData,
+                            query: "Please provide a concise summary of the key feedback, ideas, and changes discussed in our chat history. This summary will be used to enhance and regenerate the document.",
+                            provider: "gemini",
+                            chat_history: messages.slice(-10) // Send recent chat history
+                        })
+                    });
+
+                    if (aiResponse.ok) {
+                        const aiData = await aiResponse.json();
+                        if (aiData.answer) {
+                            summaryComment = aiData.answer;
+                        }
+                    }
+                }
+            } catch (error) {
+                console.error("Could not summarize chat, falling back to raw chat history:", error);
+            }
+
+            // Send comment with the data the SWOT or Competitor Analysis takes
+            let success = false;
+            if (chatContext === "swot") {
+                success = await documentsService.generateSwot(cleanId, summaryComment);
+            } else if (chatContext === "competitor_matrix") {
+                success = await documentsService.generateCompetitorMatrix(cleanId, summaryComment);
+            }
+
+            // Wait and receive the new document
+            if (success) {
+                await fetchData(); // Fetches the newly saved document from database
+                const successMsg = `Successfully enhanced the ${docName} using your feedback! The updated document is now available.`;
+                setMessages(prev => [...prev, { role: "assistant", content: successMsg }]);
+                if (chatSessionId) {
+                    await documentsService.sendMessage(chatSessionId, successMsg, "assistant");
+                }
+            } else {
+                const failMsg = `Error: Could not enhance ${docName}.`;
+                setMessages(prev => [...prev, { role: "assistant", content: failMsg }]);
+                if (chatSessionId) {
+                    await documentsService.sendMessage(chatSessionId, failMsg, "assistant");
+                }
+            }
+
+        } catch (error) {
+            console.error(error);
+            setMessages(prev => [...prev, { role: "assistant", content: "Connection error during enhancement." }]);
+        } finally {
+            setIsGeneratingDoc(false);
+            setIsTyping(false);
+        }
     };
 
     // --- Helper variable for context state ---

@@ -152,9 +152,9 @@ export const documentsService = {
         }
     },
 
-    async generateSwot(startupId: string): Promise<boolean> {
+    async generateSwot(startupId: string, comment?: string): Promise<boolean> {
         try {
-            const res = await apiClient.post(`/api/documents/${startupId}/generate-swot`);
+            const res = await apiClient.post(`/api/documents/${startupId}/generate-swot`, { comment });
             console.log("[generateSwot] Response:", res.data);
             return true;
         } catch (error) {
@@ -163,9 +163,9 @@ export const documentsService = {
         }
     },
 
-    async generateCompetitorMatrix(startupId: string): Promise<boolean> {
+    async generateCompetitorMatrix(startupId: string, comment?: string): Promise<boolean> {
         try {
-            const res = await apiClient.post(`/api/documents/${startupId}/generate-competitor-matrix`);
+            const res = await apiClient.post(`/api/documents/${startupId}/generate-competitor-matrix`, { comment });
             console.log("[generateCompetitorMatrix] Response:", res.data);
             return true;
         } catch (error) {
