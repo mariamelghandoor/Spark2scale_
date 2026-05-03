@@ -209,13 +209,33 @@ namespace Spark2Scale_.Server.Controllers
                     {
                         var errorBody = await response.Content.ReadAsStringAsync();
                         Console.WriteLine($"[SignUp] Admin.CreateUser failed: {response.StatusCode} - {errorBody}");
+                        
                         // Fallback to standard SignUp if Admin fails (e.g. if key is wrong, though it shouldn't be)
                         // Or return error if user already exists
                         if (errorBody.Contains("generic") || response.StatusCode == System.Net.HttpStatusCode.BadRequest) 
                         {
                              return BadRequest(new { message = "Signup failed. User might already exist." });
                         }
-                        throw new Exception($"Admin Create Failed: {errorBody}");
+                        
+                        Console.WriteLine("[SignUp] Falling back to standard SignUp because Admin API failed.");
+                        try 
+                        {
+                            var authSession = await _supabase.Auth.SignUp(email, request.Password, options);
+                            if (authSession?.User != null)
+                            {
+                                authUserId = authSession.User.Id;
+                                accessToken = authSession.AccessToken;
+                                Console.WriteLine($"[SignUp] Fallback standard SignUp success. User ID: {authUserId}");
+                            }
+                            else
+                            {
+                                throw new Exception($"Admin Create Failed: {errorBody}");
+                            }
+                        } 
+                        catch (Exception fallbackEx) 
+                        {
+                            throw new Exception($"Standard SignUp Fallback Failed: {fallbackEx.Message}. Original Admin Error: {errorBody}");
+                        }
                     }
                 }
                 
