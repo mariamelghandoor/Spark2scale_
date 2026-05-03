@@ -1,10 +1,10 @@
-﻿"use client";
+"use client";
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Calendar, Plus, User, ArrowLeft, ArrowRight, Info, Sparkles, FileUp, CheckCircle2 } from "lucide-react";
+import { Calendar, Plus, User, ArrowLeft, ArrowRight, Info, Sparkles, FileUp, CheckCircle2, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -265,6 +265,8 @@ export default function FounderDashboard() {
     const [extractionSuccess, setExtractionSuccess] = useState(false);
     const [open, setOpen] = useState(false);
     const [isBlockDropped, setIsBlockDropped] = useState(false);
+    const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+    const [isDeleting, setIsDeleting] = useState(false);
     const router = useRouter();
 
     const [newStartup, setNewStartup] = useState({
@@ -552,6 +554,25 @@ export default function FounderDashboard() {
         finally { setIsCreating(false); }
     };
 
+    const handleDeleteStartup = async (e: React.MouseEvent, id: string) => {
+        e.preventDefault();
+        e.stopPropagation();
+
+        setIsDeleting(true);
+        try {
+            await startupService.delete(id);
+            const updatedList = startups.filter(s => s.id !== id);
+            setStartups(updatedList);
+            if (user?.id) localStorage.setItem(`dashboard_data_${user.id}`, JSON.stringify(updatedList));
+            setConfirmDeleteId(null);
+        } catch (error) {
+            console.error("Error deleting startup:", error);
+            alert("Failed to delete startup. Please try again.");
+        } finally {
+            setIsDeleting(false);
+        }
+    };
+
     if (authLoading) return <div className="h-screen w-full flex items-center justify-center bg-[#F0EADC]"><LegoLoader /></div>;
 
     return (
@@ -659,11 +680,11 @@ export default function FounderDashboard() {
                         </>
                     ) : (
                         startups.map((startup, index) => (
-                            <motion.div key={startup.id || index} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.1 }}>
-                                <Link href={`/founder/startup/${startup.id}`}>
-                                    <Card className="hover:shadow-xl transition-all cursor-pointer border-2 hover:border-[#FFD95D]">
+                            <motion.div key={startup.id || index} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.1 }} className="relative group">
+                                <Link href={`/founder/startup/${startup.id}`} className="block h-full">
+                                    <Card className="hover:shadow-xl transition-all cursor-pointer border-2 hover:border-[#FFD95D] h-full">
                                         <CardHeader>
-                                            <CardTitle className="text-[#576238]">{startup.name}</CardTitle>
+                                            <CardTitle className="text-[#576238] pr-8">{startup.name}</CardTitle>
                                             <CardDescription>{startup.field} • {startup.region}</CardDescription>
                                         </CardHeader>
                                         <CardContent>
@@ -685,6 +706,31 @@ export default function FounderDashboard() {
                                         </CardContent>
                                     </Card>
                                 </Link>
+                                <AnimatePresence mode="wait">
+                                    {confirmDeleteId === startup.id ? (
+                                        <motion.div 
+                                            key="confirm" 
+                                            initial={{ opacity: 0, scale: 0.95 }} 
+                                            animate={{ opacity: 1, scale: 1 }} 
+                                            exit={{ opacity: 0, scale: 0.95 }} 
+                                            className="absolute top-4 right-4 bg-red-50 p-3 rounded-xl border-2 border-red-200 shadow-lg z-20 flex flex-col items-end gap-2"
+                                        >
+                                            <p className="text-xs text-red-700 font-bold mb-1">Delete startup?</p>
+                                            <div className="flex gap-2">
+                                                <Button size="sm" variant="outline" className="h-7 text-xs bg-white hover:bg-gray-100 border-red-200" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setConfirmDeleteId(null); }}>No</Button>
+                                                <Button size="sm" className="h-7 text-xs bg-red-600 hover:bg-red-700 text-white" onClick={(e) => handleDeleteStartup(e, startup.id)} disabled={isDeleting}>{isDeleting ? "..." : "Yes"}</Button>
+                                            </div>
+                                        </motion.div>
+                                    ) : (
+                                        <button 
+                                            onClick={(e) => { e.preventDefault(); e.stopPropagation(); setConfirmDeleteId(startup.id); }}
+                                            className="absolute top-4 right-4 p-2 bg-white/90 hover:bg-red-100 text-gray-400 hover:text-red-600 rounded-full opacity-0 group-hover:opacity-100 transition-all z-10 shadow-sm border border-gray-200"
+                                            title="Delete Startup"
+                                        >
+                                            <Trash2 className="h-4 w-4" />
+                                        </button>
+                                    )}
+                                </AnimatePresence>
                             </motion.div>
                         ))
                     )}  

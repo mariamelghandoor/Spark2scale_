@@ -1,4 +1,4 @@
-﻿import apiClient from '@/lib/apiClient';
+import apiClient from '@/lib/apiClient';
 
 export interface CreateStartupDto {
     startupname: string;
@@ -41,6 +41,11 @@ export const startupService = {
 
     getById: async (id: string) => {
         const response = await apiClient.get<StartupResponse>(`/api/Startups/${id}`);
+        return response.data;
+    },
+
+    delete: async (id: string) => {
+        const response = await apiClient.delete(`/api/Startups/${id}`);
         return response.data;
     }
 };

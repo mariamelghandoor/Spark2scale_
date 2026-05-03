@@ -539,5 +539,41 @@ namespace Spark2Scale_.Server.Controllers
                 return StatusCode(500, $"Error updating JSON data: {ex.Message}");
             }
         }
+
+        [HttpDelete("{id}")]
+        public async Task<IActionResult> DeleteStartup(string id)
+        {
+            if (!Guid.TryParse(id, out Guid sId)) return BadRequest("Invalid ID format");
+            try
+            {
+                var token = Request.Headers["Authorization"].FirstOrDefault()?.Replace("Bearer ", "");
+                if (string.IsNullOrEmpty(token)) return Unauthorized("Missing authorization token.");
+                if (!await _access.IsFounderOrOwner(token, sId)) return StatusCode(403, "Only the Founder can delete this startup.");
+
+                // Manually cascade delete dependent records to avoid foreign key constraints
+                try { await _supabase.From<ChatSession>().Where(x => x.StartupId == sId).Delete(); } catch { }
+                try { await _supabase.From<StartupWorkflow>().Where(x => x.StartupId == sId).Delete(); } catch { }
+                try { await _supabase.From<DocumentVersion>().Where(x => x.StartupId == sId).Delete(); } catch { }
+                try { await _supabase.From<Document>().Where(x => x.StartupId == sId).Delete(); } catch { }
+                try { await _supabase.From<StartupContributor>().Where(x => x.StartupId == sId).Delete(); } catch { }
+                try { await _supabase.From<Invitation>().Where(x => x.StartupId == sId).Delete(); } catch { }
+                try { await _supabase.From<Recommendation>().Where(x => x.StartupId == sId).Delete(); } catch { }
+                
+                try {
+                    var decks = await _supabase.From<PitchDeck>().Where(x => x.startup_id == sId).Get();
+                    if (decks != null && decks.Models != null) {
+                        foreach (var d in decks.Models) {
+                            try { await _supabase.From<PitchDeckLike>().Where(x => x.PitchDeckId == d.pitchdeckid).Delete(); } catch { }
+                            try { await _supabase.From<PitchDeck>().Where(x => x.pitchdeckid == d.pitchdeckid).Delete(); } catch { }
+                        }
+                    }
+                } catch { }
+
+                await _supabase.From<Startup>().Where(s => s.Sid == sId).Delete();
+
+                return Ok(new { message = "Startup deleted successfully." });
+            }
+            catch (Exception ex) { return StatusCode(500, $"Error deleting startup: {ex.Message}"); }
+        }
     }
 }
