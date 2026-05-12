@@ -1,12 +1,13 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import {
     Presentation, ArrowLeft, Upload, FileText, Plus, Eye, Send, Star, Users, Edit,
     Loader2, Trash2, Sparkles, RefreshCw, Bot, History, X, User, Maximize2, Minimize2,
-    TrendingUp, TrendingDown, Lightbulb, AlertTriangle, Download
+    TrendingUp, TrendingDown, Lightbulb, AlertTriangle, Download,
+    CheckCircle2, XCircle, Info,
 } from "lucide-react";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
@@ -23,8 +24,185 @@ import {
     REQUIRED_DOCS,
     DocState,
     SessionSummary,
-    ChatMessage
+    ChatMessage,
 } from "@/services/documentsService";
+
+// ---------------------------------------------------------------------------
+// Toast System
+// ---------------------------------------------------------------------------
+
+type ToastType = "success" | "error" | "warning" | "info";
+
+interface ToastItem {
+    id: string;
+    type: ToastType;
+    title: string;
+    message: string;
+}
+
+const TOAST_CONFIG: Record<ToastType, {
+    border: string;
+    iconBg: string;
+    iconColor: string;
+    titleColor: string;
+}> = {
+    success: {
+        border: "border-l-[#639922]",
+        iconBg: "bg-[#EAF3DE]",
+        iconColor: "text-[#3B6D11]",
+        titleColor: "text-[#27500A]",
+    },
+    error: {
+        border: "border-l-[#E24B4A]",
+        iconBg: "bg-[#FCEBEB]",
+        iconColor: "text-[#A32D2D]",
+        titleColor: "text-[#791F1F]",
+    },
+    warning: {
+        border: "border-l-[#BA7517]",
+        iconBg: "bg-[#FAEEDA]",
+        iconColor: "text-[#854F0B]",
+        titleColor: "text-[#633806]",
+    },
+    info: {
+        border: "border-l-[#576238]",
+        iconBg: "bg-[#F0EADC]",
+        iconColor: "text-[#576238]",
+        titleColor: "text-[#576238]",
+    },
+};
+
+// Standalone component — defined OUTSIDE any hook or page component
+function ToastContainer({
+    toasts,
+    onDismiss,
+}: {
+    toasts: ToastItem[];
+    onDismiss: (id: string) => void;
+}) {
+    return (
+        <div className="fixed top-5 right-5 z-[9999] flex flex-col gap-2.5 pointer-events-none">
+            <AnimatePresence>
+                {toasts.map((t) => {
+                    const cfg = TOAST_CONFIG[t.type];
+                    const iconMap: Record<ToastType, React.ReactNode> = {
+                        error: <XCircle className={`h-4 w-4 ${cfg.iconColor}`} />,
+                        success: <CheckCircle2 className={`h-4 w-4 ${cfg.iconColor}`} />,
+                        warning: <AlertTriangle className={`h-4 w-4 ${cfg.iconColor}`} />,
+                        info: <Info className={`h-4 w-4 ${cfg.iconColor}`} />,
+                    };
+                    return (
+                        <motion.div
+                            key={t.id}
+                            initial={{ x: 120, opacity: 0 }}
+                            animate={{ x: 0, opacity: 1 }}
+                            exit={{ x: 120, opacity: 0 }}
+                            transition={{ type: "spring", stiffness: 300, damping: 25 }}
+                            className={`pointer-events-auto flex items-start gap-3 bg-white rounded-xl px-4 py-3.5 min-w-[300px] max-w-[380px] shadow-xl border border-gray-100 border-l-4 ${cfg.border}`}
+                        >
+                            <div className={`flex-shrink-0 w-8 h-8 rounded-lg flex items-center justify-center ${cfg.iconBg}`}>
+                                {iconMap[t.type]}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                                <p className={`text-[13px] font-semibold ${cfg.titleColor}`}>{t.title}</p>
+                                <p className="text-[12px] text-gray-500 leading-relaxed mt-0.5">{t.message}</p>
+                            </div>
+                            <button
+                                onClick={() => onDismiss(t.id)}
+                                className="text-gray-400 hover:text-gray-600 flex-shrink-0 mt-0.5"
+                            >
+                                <X className="h-3.5 w-3.5" />
+                            </button>
+                        </motion.div>
+                    );
+                })}
+            </AnimatePresence>
+        </div>
+    );
+}
+
+// Pure state hook — NO JSX inside
+function useToast() {
+    const [toasts, setToasts] = useState<ToastItem[]>([]);
+
+    const toast = useCallback(
+        (type: ToastType, title: string, message: string, duration = 5000) => {
+            const id = Math.random().toString(36).slice(2);
+            setToasts((prev) => [...prev, { id, type, title, message }]);
+            setTimeout(() => {
+                setToasts((prev) => prev.filter((t) => t.id !== id));
+            }, duration);
+        },
+        []
+    );
+
+    const dismissToast = useCallback((id: string) => {
+        setToasts((prev) => prev.filter((t) => t.id !== id));
+    }, []);
+
+    return { toast, toasts, dismissToast };
+}
+
+// ---------------------------------------------------------------------------
+// Missing Docs Dialog
+// ---------------------------------------------------------------------------
+
+function MissingDocsDialog({
+    open,
+    missingDocs,
+    onClose,
+}: {
+    open: boolean;
+    missingDocs: string[];
+    onClose: () => void;
+}) {
+    return (
+        <Dialog open={open} onOpenChange={onClose}>
+            <DialogContent
+                className="p-0 max-w-sm overflow-hidden border-0 shadow-2xl"
+                aria-describedby={undefined}
+            >
+                <DialogHeader className="sr-only">
+                    <DialogTitle>Cannot Complete Stage</DialogTitle>
+                </DialogHeader>
+                <div className="bg-[#576238] px-6 py-5 flex items-start gap-3">
+                    <div className="w-9 h-9 rounded-lg bg-[#FFD95D]/25 flex items-center justify-center flex-shrink-0">
+                        <AlertTriangle className="h-5 w-5 text-[#FFD95D]" />
+                    </div>
+                    <div>
+                        <h2 className="text-sm font-bold text-white">Cannot Complete Stage</h2>
+                        <p className="text-xs text-white/65 mt-0.5">Some required documents are missing</p>
+                    </div>
+                </div>
+                <div className="h-[3px] bg-[#FFD95D]" />
+                <div className="px-6 py-5">
+                    <p className="text-sm text-gray-600 mb-4 leading-relaxed">
+                        Please upload or generate the following documents before marking this stage as complete:
+                    </p>
+                    <div className="bg-[#FCEBEB] border border-[#F7C1C1] rounded-lg px-4 py-3 mb-5">
+                        <p className="text-[11px] font-semibold text-[#791F1F] uppercase tracking-wide mb-2">
+                            Missing Documents
+                        </p>
+                        {missingDocs.map((doc, i) => (
+                            <div key={i} className="flex items-center gap-2 py-1">
+                                <span className="w-1.5 h-1.5 rounded-full bg-[#E24B4A] flex-shrink-0" />
+                                <span className="text-[13px] text-[#A32D2D]">{doc}</span>
+                            </div>
+                        ))}
+                    </div>
+                    <div className="flex justify-end">
+                        <Button
+                            onClick={onClose}
+                            className="bg-[#576238] hover:bg-[#464f2d] text-white text-sm h-9 px-5"
+                        >
+                            Got it
+                        </Button>
+                    </div>
+                </div>
+            </DialogContent>
+        </Dialog>
+    );
+}
 
 // ---------------------------------------------------------------------------
 // Document Viewer Modal
@@ -54,7 +232,7 @@ function parseSwot(raw: unknown): SwotData | null {
             s.replace(/\*\*[^*]+\*\*:?\s*/g, "").replace(/\*\*/g, "").trim();
 
         const toArray = (v: unknown): string[] => {
-            if (Array.isArray(v)) return v.map(i => cleanItem(String(i))).filter(Boolean);
+            if (Array.isArray(v)) return v.map((i) => cleanItem(String(i))).filter(Boolean);
             if (typeof v === "string") return v.split("\n").map(cleanItem).filter(Boolean);
             return [];
         };
@@ -140,9 +318,7 @@ function parseCompetitorMatrix(raw: unknown): CompetitorData[] | null {
             obj = JSON.parse(obj);
         }
         const out = obj?.competitor_analysis_document?.json_data || obj?.json_data || obj;
-        if (Array.isArray(out)) {
-            return out as CompetitorData[];
-        }
+        if (Array.isArray(out)) return out as CompetitorData[];
         return null;
     } catch {
         return null;
@@ -164,42 +340,62 @@ function DocumentViewerModal({
     onClose: () => void;
 }) {
     const swot = payload.type === "swot" ? parseSwot(payload.data) : null;
-    const competitors = payload.type === "competitor_matrix" ? parseCompetitorMatrix(payload.data) : null;
+    const competitors =
+        payload.type === "competitor_matrix" ? parseCompetitorMatrix(payload.data) : null;
 
     return (
         <Dialog open onOpenChange={onClose}>
             <DialogContent
                 aria-describedby={undefined}
-                style={(payload.type === "competitor_matrix" || payload.type === "swot") ? { width: "95vw", maxWidth: "95vw", height: "94vh" } : undefined}
-                className={(payload.type === "competitor_matrix" || payload.type === "swot") ? "p-0 bg-[#F4F1EA] overflow-hidden flex flex-col" : "max-w-[90vw] w-[90vw] h-[90vh] p-0 overflow-hidden flex flex-col"}
+                style={
+                    payload.type === "competitor_matrix" || payload.type === "swot"
+                        ? { width: "95vw", maxWidth: "95vw", height: "94vh" }
+                        : undefined
+                }
+                className={
+                    payload.type === "competitor_matrix" || payload.type === "swot"
+                        ? "p-0 bg-[#F4F1EA] overflow-hidden flex flex-col"
+                        : "max-w-[90vw] w-[90vw] h-[90vh] p-0 overflow-hidden flex flex-col"
+                }
             >
-                {(payload.type === "competitor_matrix" || payload.type === "swot") && (competitors || swot) ? (
+                {(payload.type === "competitor_matrix" || payload.type === "swot") &&
+                    (competitors || swot) ? (
                     <>
                         <DialogHeader className="sr-only">
                             <DialogTitle>{payload.name}</DialogTitle>
                         </DialogHeader>
                         <div className="flex-1 overflow-y-auto p-4 md:p-8 relative">
-                            <Button variant="ghost" size="icon" onClick={onClose} className="absolute top-6 right-6 md:top-10 md:right-10 bg-black/5 hover:bg-black/10 rounded-full h-8 w-8 z-10 text-[#576238]">
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={onClose}
+                                className="absolute top-6 right-6 md:top-10 md:right-10 bg-black/5 hover:bg-black/10 rounded-full h-8 w-8 z-10 text-[#576238]"
+                            >
                                 <X className="h-4 w-4" />
                             </Button>
                             <div className="bg-white text-black w-full max-w-5xl mx-auto shadow-2xl rounded overflow-hidden relative">
-                                {/* Olive header band */}
                                 <div className="bg-[#576238] text-white px-10 py-6">
-                                    <p className="text-xs uppercase tracking-widest opacity-70 mb-1 font-sans">Spark2Scale</p>
+                                    <p className="text-xs uppercase tracking-widest opacity-70 mb-1 font-sans">
+                                        Spark2Scale
+                                    </p>
                                     <h1 className="text-xl font-bold font-sans">
-                                        {payload.type === "swot" ? "SWOT Analysis" : "Competitor Matrix Analysis"}
+                                        {payload.type === "swot"
+                                            ? "SWOT Analysis"
+                                            : "Competitor Matrix Analysis"}
                                     </h1>
                                     <p className="text-sm opacity-75 mt-1">{payload.name}</p>
                                 </div>
-                                {/* Mustard accent stripe */}
                                 <div className="h-1.5 bg-[#ffd95d]" />
-
                                 <div className="px-6 md:px-10 py-8 space-y-10">
                                     <p className="text-xs text-gray-400 mb-6">
-                                        Generated: {new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })}
+                                        Generated:{" "}
+                                        {new Date().toLocaleDateString("en-GB", {
+                                            day: "numeric",
+                                            month: "long",
+                                            year: "numeric",
+                                        })}
                                     </p>
 
-                                    {/* Competitor Matrix Content */}
                                     {payload.type === "competitor_matrix" && competitors && (
                                         <div className="space-y-10">
                                             {competitors.map((comp, idx) => (
@@ -207,13 +403,23 @@ function DocumentViewerModal({
                                                     <div className="bg-[#576238] text-white px-4 py-2 font-bold text-xs uppercase tracking-widest font-sans rounded-sm flex items-center justify-between mb-2">
                                                         <span>{comp.name}</span>
                                                         {comp.competitor_type && (
-                                                            <span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded-full tracking-wider ${comp.competitor_type.toLowerCase() === 'direct' ? 'bg-red-500/20 text-red-100' : 'bg-white/20 text-white'}`}>
+                                                            <span
+                                                                className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded-full tracking-wider ${comp.competitor_type.toLowerCase() === "direct"
+                                                                        ? "bg-red-500/20 text-red-100"
+                                                                        : "bg-white/20 text-white"
+                                                                    }`}
+                                                            >
                                                                 {comp.competitor_type}
                                                             </span>
                                                         )}
                                                     </div>
                                                     {comp.company_website && (
-                                                        <a href={comp.company_website} target="_blank" rel="noreferrer" className="text-xs text-blue-500 hover:underline mb-2 block ml-1">
+                                                        <a
+                                                            href={comp.company_website}
+                                                            target="_blank"
+                                                            rel="noreferrer"
+                                                            className="text-xs text-blue-500 hover:underline mb-2 block ml-1"
+                                                        >
                                                             {comp.company_website}
                                                         </a>
                                                     )}
@@ -226,56 +432,92 @@ function DocumentViewerModal({
                                                                 ["Core Features", comp.core_features],
                                                                 ["Strengths", comp.strengths],
                                                                 ["Weaknesses", comp.weaknesses],
-                                                            ].filter(row => row[1]).map(([label, val], i) => (
-                                                                <tr key={JSON.stringify(label)} className={i % 2 === 0 ? "bg-[#F4F1EA]" : "bg-white"}>
-                                                                    <td className="font-bold text-[#576238] px-4 py-2.5 w-40 border border-gray-200 align-top">
-                                                                        {label}
-                                                                    </td>
-                                                                    <td className="px-4 py-2.5 text-gray-700 border border-gray-200">
-                                                                        {val}
-                                                                    </td>
-                                                                </tr>
-                                                            ))}
+                                                            ]
+                                                                .filter((row) => row[1])
+                                                                .map(([label, val], i) => (
+                                                                    <tr
+                                                                        key={JSON.stringify(label)}
+                                                                        className={i % 2 === 0 ? "bg-[#F4F1EA]" : "bg-white"}
+                                                                    >
+                                                                        <td className="font-bold text-[#576238] px-4 py-2.5 w-40 border border-gray-200 align-top">
+                                                                            {label}
+                                                                        </td>
+                                                                        <td className="px-4 py-2.5 text-gray-700 border border-gray-200">
+                                                                            {val}
+                                                                        </td>
+                                                                    </tr>
+                                                                ))}
                                                         </tbody>
                                                     </table>
                                                 </section>
                                             ))}
                                             {competitors.length === 0 && (
-                                                <div className="py-12 text-center text-gray-500 italic">No competitors found.</div>
+                                                <div className="py-12 text-center text-gray-500 italic">
+                                                    No competitors found.
+                                                </div>
                                             )}
                                         </div>
                                     )}
 
-                                    {/* SWOT Analysis Content */}
                                     {payload.type === "swot" && swot && (
                                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pb-6">
-                                            {SWOT_QUADRANTS.map(({ key, label, icon: Icon, border, bg, headerBg, iconColor, countClass, bullet }) => {
-                                                const items = swot[key] ?? [];
-                                                return (
-                                                    <div key={key} className={`rounded-xl border-2 ${border} ${bg} overflow-hidden shadow-sm`}>
-                                                        <div className={`${headerBg} px-4 py-3 flex items-center gap-2 border-b ${border}`}>
-                                                            <Icon className={`h-4 w-4 ${iconColor}`} />
-                                                            <span className="font-semibold text-sm text-gray-800">{label}</span>
-                                                            <span className={`ml-auto text-[11px] font-semibold px-2 py-0.5 rounded-full ${countClass}`}>{items.length}</span>
+                                            {SWOT_QUADRANTS.map(
+                                                ({
+                                                    key,
+                                                    label,
+                                                    icon: Icon,
+                                                    border,
+                                                    bg,
+                                                    headerBg,
+                                                    iconColor,
+                                                    countClass,
+                                                    bullet,
+                                                }) => {
+                                                    const items = swot[key] ?? [];
+                                                    return (
+                                                        <div
+                                                            key={key}
+                                                            className={`rounded-xl border-2 ${border} ${bg} overflow-hidden shadow-sm`}
+                                                        >
+                                                            <div
+                                                                className={`${headerBg} px-4 py-3 flex items-center gap-2 border-b ${border}`}
+                                                            >
+                                                                <Icon className={`h-4 w-4 ${iconColor}`} />
+                                                                <span className="font-semibold text-sm text-gray-800">
+                                                                    {label}
+                                                                </span>
+                                                                <span
+                                                                    className={`ml-auto text-[11px] font-semibold px-2 py-0.5 rounded-full ${countClass}`}
+                                                                >
+                                                                    {items.length}
+                                                                </span>
+                                                            </div>
+                                                            <ul className="p-4 space-y-3">
+                                                                {items.length === 0 ? (
+                                                                    <li className="text-xs text-muted-foreground italic">
+                                                                        No items found.
+                                                                    </li>
+                                                                ) : (
+                                                                    items.map((item, i) => (
+                                                                        <li
+                                                                            key={i}
+                                                                            className="flex items-start gap-2.5 text-sm text-gray-700 leading-relaxed font-sans"
+                                                                        >
+                                                                            <span
+                                                                                className={`mt-2 flex-shrink-0 w-1.5 h-1.5 rounded-full ${bullet}`}
+                                                                            />
+                                                                            {item}
+                                                                        </li>
+                                                                    ))
+                                                                )}
+                                                            </ul>
                                                         </div>
-                                                        <ul className="p-4 space-y-3">
-                                                            {items.length === 0 ? (
-                                                                <li className="text-xs text-muted-foreground italic">No items found.</li>
-                                                            ) : items.map((item, i) => (
-                                                                <li key={i} className="flex items-start gap-2.5 text-sm text-gray-700 leading-relaxed font-sans">
-                                                                    <span className={`mt-2 flex-shrink-0 w-1.5 h-1.5 rounded-full ${bullet}`} />
-                                                                    {item}
-                                                                </li>
-                                                            ))}
-                                                        </ul>
-                                                    </div>
-                                                );
-                                            })}
+                                                    );
+                                                }
+                                            )}
                                         </div>
                                     )}
                                 </div>
-
-                                {/* Mustard footer */}
                                 <div className="bg-[#ffd95d] px-10 py-3 text-center text-xs font-medium text-[#2c3e50]">
                                     Generated by Spark2Scale AI
                                 </div>
@@ -284,7 +526,6 @@ function DocumentViewerModal({
                     </>
                 ) : (
                     <>
-                        {/* Header fallback for PDF / unknown */}
                         <DialogHeader className="flex-shrink-0 px-6 py-4 bg-[#576238] text-white flex flex-row items-center justify-between">
                             <div>
                                 <DialogTitle className="text-base font-bold text-white leading-tight">
@@ -303,8 +544,6 @@ function DocumentViewerModal({
                                 <X className="h-4 w-4" />
                             </Button>
                         </DialogHeader>
-
-                        {/* Body fallback */}
                         <div className="flex-1 overflow-hidden">
                             {payload.type === "pdf" && payload.url ? (
                                 <iframe
@@ -343,6 +582,13 @@ export default function DocumentsPage() {
     const fileInputRefs = useRef<{ [key: string]: HTMLInputElement | null }>({});
     const editPptInputRef = useRef<HTMLInputElement | null>(null);
 
+    // Toast & branded error dialog
+    const { toast, toasts, dismissToast } = useToast();
+    const [missingDocsDialog, setMissingDocsDialog] = useState<{
+        open: boolean;
+        docs: string[];
+    }>({ open: false, docs: [] });
+
     const [docStates, setDocStates] = useState<DocState[]>([]);
     const [isLoadingData, setIsLoadingData] = useState(true);
     const [uploadingId, setUploadingId] = useState<string | null>(null);
@@ -366,8 +612,6 @@ export default function DocumentsPage() {
     const [isChatLoading, setIsChatLoading] = useState(false);
     const [showChatHistory, setShowChatHistory] = useState(false);
     const [isGeneratingDoc, setIsGeneratingDoc] = useState(false);
-
-    // NEW CHAT UI STATES
     const [isTyping, setIsTyping] = useState(false);
     const [isChatMaximized, setIsChatMaximized] = useState(false);
 
@@ -383,9 +627,9 @@ export default function DocumentsPage() {
     const cleanId = getCleanId();
     const isFounder = userRole === "Founder";
 
-    // Standard Styles
     const primaryBtn = "bg-[#576238] hover:bg-[#464f2d] text-white shadow-sm";
-    const outlineBtn = "border-gray-200 hover:bg-[#576238]/5 hover:border-[#576238]/40 hover:text-[#576238]";
+    const outlineBtn =
+        "border-gray-200 hover:bg-[#576238]/5 hover:border-[#576238]/40 hover:text-[#576238]";
 
     // -----------------------------------------------------------------------
     // Fetch
@@ -399,11 +643,11 @@ export default function DocumentsPage() {
                 documentsService.getWorkflow(cleanId),
             ]);
 
-            const pptDoc = dbDocs.find(d => d.type.toLowerCase() === "pitch deck (ppt)");
+            const pptDoc = dbDocs.find((d) => d.type.toLowerCase() === "pitch deck (ppt)");
             if (pptDoc?.current_path) setPptUrl(pptDoc.current_path);
 
-            const mergedState: DocState[] = REQUIRED_DOCS.map(req => {
-                const match = dbDocs.find(d => d.type.toLowerCase() === req.name.toLowerCase());
+            const mergedState: DocState[] = REQUIRED_DOCS.map((req) => {
+                const match = dbDocs.find((d) => d.type.toLowerCase() === req.name.toLowerCase());
                 if (match) {
                     return {
                         configId: req.id,
@@ -431,7 +675,9 @@ export default function DocumentsPage() {
         }
     };
 
-    useEffect(() => { fetchData(); }, [cleanId]);
+    useEffect(() => {
+        fetchData();
+    }, [cleanId]);
 
     // -----------------------------------------------------------------------
     // PPT Handlers
@@ -440,26 +686,31 @@ export default function DocumentsPage() {
         if (!cleanId) return;
         setIsPptGenerating(true);
         try {
-            const token = typeof window !== "undefined" ? localStorage.getItem("auth_token") : null;
+            const token =
+                typeof window !== "undefined" ? localStorage.getItem("auth_token") : null;
             const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:5231";
-            const response = await fetch(`${API_BASE}/api/PptGeneration/generate/${cleanId}`, {
-                method: "POST",
-                headers: {
-                    "Authorization": `Bearer ${token}`,
-                    "Content-Type": "application/json"
+            const response = await fetch(
+                `${API_BASE}/api/PptGeneration/generate/${cleanId}`,
+                {
+                    method: "POST",
+                    headers: {
+                        Authorization: `Bearer ${token}`,
+                        "Content-Type": "application/json",
+                    },
                 }
-            });
+            );
 
             if (response.ok) {
                 const data = await response.json();
                 setPptUrl(data.url || data.ppt_url || null);
                 await fetchData();
+                toast("success", "Pitch Deck Generated", "Your PPT has been generated successfully.");
             } else {
                 const errText = await response.text();
-                alert(`Generation failed: ${errText}`);
+                toast("error", "Generation Failed", errText || "Something went wrong. Please try again.");
             }
         } catch {
-            alert("Connection error. Please try again.");
+            toast("error", "Connection Error", "Could not reach the server. Please try again.");
         } finally {
             setIsPptGenerating(false);
         }
@@ -474,21 +725,22 @@ export default function DocumentsPage() {
             formData.append("ppt_file", file);
             formData.append("use_default_colors", "true");
 
-            const response = await fetch("https://spark2scale-ai-api-server.azurewebsites.net/api/v1/ppt/edit", {
-                method: "POST",
-                body: formData,
-            });
+            const response = await fetch(
+                "https://spark2scale-ai-api-server.azurewebsites.net/api/v1/ppt/edit",
+                { method: "POST", body: formData }
+            );
 
             if (response.ok) {
                 const data = await response.json();
                 setPptUrl(data.ppt_path ?? data.ppt_url ?? null);
                 await fetchData();
+                toast("success", "Pitch Deck Enhanced", "Your PPT has been enhanced with AI styles.");
             } else {
                 const errText = await response.text();
-                alert(`Enhancement failed: ${errText}`);
+                toast("error", "Enhancement Failed", errText || "Could not enhance the file. Please try again.");
             }
         } catch {
-            alert("Connection error. Please try again.");
+            toast("error", "Connection Error", "Could not reach the server. Please try again.");
         } finally {
             setIsPptEditing(false);
         }
@@ -508,51 +760,50 @@ export default function DocumentsPage() {
         initChat();
     }, [cleanId]);
 
-    // NEW: Smart Context Switcher (Memory)
     const handleContextSwitch = (newContextId: string) => {
         setChatContext(newContextId);
-
-        const docConfig = REQUIRED_DOCS.find(d => d.id === newContextId);
+        const docConfig = REQUIRED_DOCS.find((d) => d.id === newContextId);
         const docName = docConfig ? docConfig.name : "Document";
-
-        // Look for an existing session that belongs to this document
-        const existingSession = sessions.find(s => s.sessionName.startsWith(docName));
-
+        const existingSession = sessions.find((s) => s.sessionName.startsWith(docName));
         if (existingSession) {
-            // If found, load the previous history
             loadChatMessages(existingSession.sessionId);
         } else {
-            // If not found, start a brand new one
             startNewChatSession(newContextId);
         }
     };
 
-    // Accept an optional context to bypass state delays, and a flag if we know it was deleted
     const startNewChatSession = async (contextOverride?: string, forceMissingMessage?: boolean) => {
         if (!cleanId) return;
-
-        // Find the human-readable name of the document
         const targetContextId = contextOverride || chatContext;
-        const docConfig = REQUIRED_DOCS.find(d => d.id === targetContextId);
+        const docConfig = REQUIRED_DOCS.find((d) => d.id === targetContextId);
         const docName = docConfig ? docConfig.name : "Document";
 
         setIsChatLoading(true);
         const newSession = await documentsService.startNewSession(cleanId, docName);
 
         if (newSession) {
-            setSessions(prev => [newSession, ...prev]);
+            setSessions((prev) => [newSession, ...prev]);
             setChatSessionId(newSession.sessionId);
 
-            // Check if this document is currently uploaded
-            const isDocUploaded = targetContextId === "pitch_deck"
-                ? !!pptUrl
-                : (docStates.find(d => d.configId === targetContextId)?.isUploaded || false);
+            const isDocUploaded =
+                targetContextId === "pitch_deck"
+                    ? !!pptUrl
+                    : docStates.find((d) => d.configId === targetContextId)?.isUploaded || false;
 
-            // Personalize the greeting based on document existence
             if (forceMissingMessage || !isDocUploaded) {
-                setMessages([{ role: "assistant", content: `Please generate or upload the ${docName} to start chatting about it.` }]);
+                setMessages([
+                    {
+                        role: "assistant",
+                        content: `Please generate or upload the ${docName} to start chatting about it.`,
+                    },
+                ]);
             } else {
-                setMessages([{ role: "assistant", content: `Hello! I am your AI Assistant. Let's talk about your ${docName}.` }]);
+                setMessages([
+                    {
+                        role: "assistant",
+                        content: `Hello! I am your AI Assistant. Let's talk about your ${docName}.`,
+                    },
+                ]);
             }
 
             setShowChatHistory(false);
@@ -566,7 +817,17 @@ export default function DocumentsPage() {
         setShowChatHistory(false);
         try {
             const history = await documentsService.getMessages(sessionId);
-            setMessages(history.length ? history : [{ role: "assistant", content: "Hello! I am your AI Assistant. Select a document context above to chat about it or generate a new one." }]);
+            setMessages(
+                history.length
+                    ? history
+                    : [
+                        {
+                            role: "assistant",
+                            content:
+                                "Hello! I am your AI Assistant. Select a document context above to chat about it or generate a new one.",
+                        },
+                    ]
+            );
         } finally {
             setIsChatLoading(false);
         }
@@ -578,68 +839,65 @@ export default function DocumentsPage() {
 
         if (!textOverride) setNewMessage("");
 
-        // 1. Add User message to UI & DB
-        setMessages(prev => [...prev, { role: "user", content: contentToSend }]);
-
-        // 2. Save user message
+        setMessages((prev) => [...prev, { role: "user", content: contentToSend }]);
         await documentsService.sendMessage(chatSessionId, contentToSend, "user");
-
-        // 3. Set the bubble typing indicator instead of full loading
         setIsTyping(true);
 
         try {
-            // Find the selected document data
-            const selectedDoc = docStates.find(d => d.configId === chatContext);
+            const selectedDoc = docStates.find((d) => d.configId === chatContext);
 
-            // Extract the data (Prefer JSON if available, fallback to URL)
             let fileData = "";
             if (selectedDoc?.jsonResponse) {
-                fileData = typeof selectedDoc.jsonResponse === 'string'
-                    ? selectedDoc.jsonResponse
-                    : JSON.stringify(selectedDoc.jsonResponse);
+                fileData =
+                    typeof selectedDoc.jsonResponse === "string"
+                        ? selectedDoc.jsonResponse
+                        : JSON.stringify(selectedDoc.jsonResponse);
             } else if (selectedDoc?.path) {
                 fileData = selectedDoc.path;
             } else {
                 throw new Error("No data found for this document.");
             }
 
-            // Call Python FastAPI Endpoint
-            const aiResponse = await fetch("https://spark2scale-ai-api-server.azurewebsites.net/api/v1/document-chat/test-document-qa", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    file_path: fileData,
-                    query: contentToSend,
-                    provider: "gemini",
-                    // ADD THIS LINE: Pass the last few messages so the AI remembers context
-                    chat_history: messages.slice(-5)
-                })
-            });
+            const aiResponse = await fetch(
+                "https://spark2scale-ai-api-server.azurewebsites.net/api/v1/document-chat/test-document-qa",
+                {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        file_path: fileData,
+                        query: contentToSend,
+                        provider: "gemini",
+                        chat_history: messages.slice(-5),
+                    }),
+                }
+            );
 
             if (!aiResponse.ok) throw new Error("AI Server Error");
 
             const aiData = await aiResponse.json();
             const finalAnswer = aiData.answer || "I couldn't find an answer in this document.";
 
-            // Add AI message to UI & DB
-            setMessages(prev => [...prev, { role: "assistant", content: finalAnswer }]);
+            setMessages((prev) => [...prev, { role: "assistant", content: finalAnswer }]);
             await documentsService.sendMessage(chatSessionId, finalAnswer, "assistant");
-
         } catch (error) {
             console.error(error);
-            setMessages(prev => [...prev, { role: "assistant", content: "Error: Could not connect to the AI Assistant or document is empty." }]);
+            setMessages((prev) => [
+                ...prev,
+                {
+                    role: "assistant",
+                    content: "Error: Could not connect to the AI Assistant or document is empty.",
+                },
+            ]);
         } finally {
-            // Turn off typing indicator
             setIsTyping(false);
         }
     };
 
-    // --- NEW: Handle Enhance Message ---
     const handleEnhanceMessage = async (messageContent: string) => {
         if (!cleanId) return;
 
         if (chatContext !== "swot" && chatContext !== "competitor_matrix") {
-            alert("Enhancement is only supported for SWOT Analysis and Competitor Matrix.");
+            toast("warning", "Not Supported", "Enhancement is only available for SWOT Analysis and Competitor Matrix.");
             return;
         }
 
@@ -647,53 +905,53 @@ export default function DocumentsPage() {
         setIsGeneratingDoc(true);
         setIsTyping(true);
 
-        // Add user message indicating enhancement request
         const enhanceRequestMsg = `Please enhance the ${docName} based on our discussion.`;
-        setMessages(prev => [...prev, { role: "user", content: enhanceRequestMsg }]);
+        setMessages((prev) => [...prev, { role: "user", content: enhanceRequestMsg }]);
         if (chatSessionId) {
             await documentsService.sendMessage(chatSessionId, enhanceRequestMsg, "user");
         }
 
         try {
-            // Start with raw chat info
-            let summaryComment = messages.map(m => `${m.role.toUpperCase()}: ${m.content}`).join("\n");
-            
-            // Trigger summarization model to get all chat info
+            let summaryComment = messages
+                .map((m) => `${m.role.toUpperCase()}: ${m.content}`)
+                .join("\n");
+
             try {
-                const selectedDoc = docStates.find(d => d.configId === chatContext);
+                const selectedDoc = docStates.find((d) => d.configId === chatContext);
                 let fileData = "";
                 if (selectedDoc?.jsonResponse) {
-                    fileData = typeof selectedDoc.jsonResponse === 'string'
-                        ? selectedDoc.jsonResponse
-                        : JSON.stringify(selectedDoc.jsonResponse);
+                    fileData =
+                        typeof selectedDoc.jsonResponse === "string"
+                            ? selectedDoc.jsonResponse
+                            : JSON.stringify(selectedDoc.jsonResponse);
                 } else if (selectedDoc?.path) {
                     fileData = selectedDoc.path;
                 }
 
                 if (fileData) {
-                    const aiResponse = await fetch("https://spark2scale-ai-api-server.azurewebsites.net/api/v1/document-chat/test-document-qa", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({
-                            file_path: fileData,
-                            query: "Please provide a concise summary of the key feedback, ideas, and changes discussed in our chat history. This summary will be used to enhance and regenerate the document.",
-                            provider: "gemini",
-                            chat_history: messages.slice(-10) // Send recent chat history
-                        })
-                    });
+                    const aiResponse = await fetch(
+                        "https://spark2scale-ai-api-server.azurewebsites.net/api/v1/document-chat/test-document-qa",
+                        {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({
+                                file_path: fileData,
+                                query: "Please provide a concise summary of the key feedback, ideas, and changes discussed in our chat history. This summary will be used to enhance and regenerate the document.",
+                                provider: "gemini",
+                                chat_history: messages.slice(-10),
+                            }),
+                        }
+                    );
 
                     if (aiResponse.ok) {
                         const aiData = await aiResponse.json();
-                        if (aiData.answer) {
-                            summaryComment = aiData.answer;
-                        }
+                        if (aiData.answer) summaryComment = aiData.answer;
                     }
                 }
             } catch (error) {
                 console.error("Could not summarize chat, falling back to raw chat history:", error);
             }
 
-            // Send comment with the data the SWOT or Competitor Analysis takes
             let success = false;
             if (chatContext === "swot") {
                 success = await documentsService.generateSwot(cleanId, summaryComment);
@@ -701,46 +959,53 @@ export default function DocumentsPage() {
                 success = await documentsService.generateCompetitorMatrix(cleanId, summaryComment);
             }
 
-            // Wait and receive the new document
             if (success) {
-                await fetchData(); // Fetches the newly saved document from database
+                await fetchData();
                 const successMsg = `Successfully enhanced the ${docName} using your feedback! The updated document is now available.`;
-                setMessages(prev => [...prev, { role: "assistant", content: successMsg }]);
+                setMessages((prev) => [...prev, { role: "assistant", content: successMsg }]);
                 if (chatSessionId) {
                     await documentsService.sendMessage(chatSessionId, successMsg, "assistant");
                 }
+                toast("success", "Document Enhanced", `Your ${docName} has been updated with the latest feedback.`);
             } else {
                 const failMsg = `Error: Could not enhance ${docName}.`;
-                setMessages(prev => [...prev, { role: "assistant", content: failMsg }]);
+                setMessages((prev) => [...prev, { role: "assistant", content: failMsg }]);
                 if (chatSessionId) {
                     await documentsService.sendMessage(chatSessionId, failMsg, "assistant");
                 }
+                toast("error", "Enhancement Failed", `Could not enhance ${docName}. Please try again.`);
             }
-
         } catch (error) {
             console.error(error);
-            setMessages(prev => [...prev, { role: "assistant", content: "Connection error during enhancement." }]);
+            setMessages((prev) => [
+                ...prev,
+                { role: "assistant", content: "Connection error during enhancement." },
+            ]);
+            toast("error", "Connection Error", "Could not reach the server. Please try again.");
         } finally {
             setIsGeneratingDoc(false);
             setIsTyping(false);
         }
     };
 
-    // --- Helper variable for context state ---
-    const isCurrentDocGenerated = chatContext === "pitch_deck"
-        ? !!pptUrl
-        : (docStates.find(d => d.configId === chatContext)?.isUploaded || false);
+    const isCurrentDocGenerated =
+        chatContext === "pitch_deck"
+            ? !!pptUrl
+            : docStates.find((d) => d.configId === chatContext)?.isUploaded || false;
 
     // -----------------------------------------------------------------------
     // Generate Generic Document (SWOT / Others)
     // -----------------------------------------------------------------------
     const handleSimulateGeneration = async (docId: string) => {
         if (!cleanId) return;
-        const docConfig = REQUIRED_DOCS.find(d => d.id === docId);
+        const docConfig = REQUIRED_DOCS.find((d) => d.id === docId);
         if (!docConfig) return;
 
         setIsGeneratingDoc(true);
-        setMessages(prev => [...prev, { role: "user", content: `Generate the ${docConfig.name} for me.` }]);
+        setMessages((prev) => [
+            ...prev,
+            { role: "user", content: `Generate the ${docConfig.name} for me.` },
+        ]);
 
         try {
             let success = false;
@@ -754,12 +1019,27 @@ export default function DocumentsPage() {
 
             if (success) {
                 await fetchData();
-                setMessages(prev => [...prev, { role: "assistant", content: `Successfully generated the ${docConfig.name}. It is now available in your documents list.` }]);
+                setMessages((prev) => [
+                    ...prev,
+                    {
+                        role: "assistant",
+                        content: `Successfully generated the ${docConfig.name}. It is now available in your documents list.`,
+                    },
+                ]);
+                toast("success", "Document Generated", `${docConfig.name} has been generated successfully.`);
             } else {
-                setMessages(prev => [...prev, { role: "assistant", content: "Error: Could not generate document." }]);
+                setMessages((prev) => [
+                    ...prev,
+                    { role: "assistant", content: "Error: Could not generate document." },
+                ]);
+                toast("error", "Generation Failed", "Could not generate document. Please try again.");
             }
         } catch {
-            setMessages(prev => [...prev, { role: "assistant", content: "Connection error." }]);
+            setMessages((prev) => [
+                ...prev,
+                { role: "assistant", content: "Connection error." },
+            ]);
+            toast("error", "Connection Error", "Could not reach the server. Please try again.");
         } finally {
             setIsGeneratingDoc(false);
         }
@@ -772,40 +1052,51 @@ export default function DocumentsPage() {
         fileInputRefs.current[configId]?.click();
     };
 
-    const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>, config: typeof REQUIRED_DOCS[0]) => {
+    const handleFileChange = async (
+        e: React.ChangeEvent<HTMLInputElement>,
+        config: (typeof REQUIRED_DOCS)[0]
+    ) => {
         if (!e.target.files || e.target.files.length === 0 || !cleanId) return;
         const file = e.target.files[0];
         setUploadingId(config.id);
-        const currentState = docStates.find(d => d.configId === config.id);
-        const existingDbId = currentState?.isUploaded && currentState.dbId ? currentState.dbId : undefined;
+        const currentState = docStates.find((d) => d.configId === config.id);
+        const existingDbId =
+            currentState?.isUploaded && currentState.dbId ? currentState.dbId : undefined;
         try {
-            const success = await documentsService.uploadDocument(cleanId, config.name, file, existingDbId);
-            if (success) await fetchData();
-            else alert("Upload failed");
+            const success = await documentsService.uploadDocument(
+                cleanId,
+                config.name,
+                file,
+                existingDbId
+            );
+            if (success) {
+                await fetchData();
+                toast("success", "Upload Successful", `${config.name} has been uploaded successfully.`);
+            } else {
+                toast("error", "Upload Failed", "The file could not be uploaded. Please try again.");
+            }
         } finally {
             setUploadingId(null);
         }
     };
 
     const handleDelete = async (dbId?: string) => {
-        if (!dbId || !confirm("Delete this document?")) return;
-
-        // 1. Find which document type this dbId belongs to before it's gone
-        const docStateToDelete = docStates.find(d => d.dbId === dbId);
+        if (!dbId) return;
+        const docStateToDelete = docStates.find((d) => d.dbId === dbId);
         const deletedConfigId = docStateToDelete?.configId;
 
         setDeletingId(dbId);
         try {
             const success = await documentsService.deleteDocument(dbId);
             if (success) {
-                await fetchData(); // Refreshes the UI list
-
-                // 2. Instantly reset the chat for the deleted document
+                await fetchData();
+                toast("info", "Document Deleted", "The document has been removed.");
                 if (deletedConfigId) {
                     setChatContext(deletedConfigId);
-                    // The 'true' flag forces the "Please generate..." message
                     await startNewChatSession(deletedConfigId, true);
                 }
+            } else {
+                toast("error", "Delete Failed", "Could not delete the document. Please try again.");
             }
         } finally {
             setDeletingId(null);
@@ -819,17 +1110,25 @@ export default function DocumentsPage() {
         }
         if (state.jsonResponse) {
             if (state.configId === "competitor_matrix") {
-                setViewerPayload({ type: "competitor_matrix", data: state.jsonResponse, name: state.name });
+                setViewerPayload({
+                    type: "competitor_matrix",
+                    data: state.jsonResponse,
+                    name: state.name,
+                });
                 return;
             }
             setViewerPayload({ type: "swot", data: state.jsonResponse, name: state.name });
             return;
         }
-        alert("This document has no file or data to view.");
+        toast("warning", "Nothing to Preview", "This document has no file or data to view yet.");
     };
 
-    const handleEvaluate = (dbId?: string) => { if (dbId) router.push(`/founder/startup/${cleanId}/documents/${dbId}/evaluate`); };
-    const handleRecommend = (dbId?: string) => { if (dbId) router.push(`/founder/startup/${cleanId}/documents/${dbId}/recommend`); };
+    const handleEvaluate = (dbId?: string) => {
+        if (dbId) router.push(`/founder/startup/${cleanId}/documents/${dbId}/evaluate`);
+    };
+    const handleRecommend = (dbId?: string) => {
+        if (dbId) router.push(`/founder/startup/${cleanId}/documents/${dbId}/recommend`);
+    };
 
     // -----------------------------------------------------------------------
     // Complete Stage
@@ -840,8 +1139,8 @@ export default function DocumentsPage() {
         try {
             const checkData = await documentsService.checkCompletion(cleanId);
             if (!checkData || !checkData.isComplete) {
-                const missingList = checkData?.missingDocs?.join(", ") || "documents";
-                alert(`Cannot Complete Stage.\n\nYou are missing: ${missingList}`);
+                const missingList: string[] = checkData?.missingDocs || ["documents"];
+                setMissingDocsDialog({ open: true, docs: missingList });
                 setIsCompleting(false);
                 return;
             }
@@ -857,20 +1156,34 @@ export default function DocumentsPage() {
             });
             if (success) {
                 setIsWorkflowComplete(true);
+                toast("success", "Stage Complete!", "All documents submitted. Moving to the next stage.");
                 router.push(`/founder/startup/${cleanId}`);
+            } else {
+                toast("error", "Update Failed", "Could not mark the stage as complete. Please try again.");
             }
         } finally {
             setIsCompleting(false);
         }
     };
 
-    const getCurrentContextName = () => REQUIRED_DOCS.find(d => d.id === chatContext)?.name || "Document";
+    const getCurrentContextName = () =>
+        REQUIRED_DOCS.find((d) => d.id === chatContext)?.name || "Document";
 
     // -----------------------------------------------------------------------
     // Render
     // -----------------------------------------------------------------------
     return (
         <div className="min-h-screen bg-[#F5F7F2]">
+            {/* Branded Toast Notifications */}
+            <ToastContainer toasts={toasts} onDismiss={dismissToast} />
+
+            {/* Missing Docs Branded Dialog */}
+            <MissingDocsDialog
+                open={missingDocsDialog.open}
+                missingDocs={missingDocsDialog.docs}
+                onClose={() => setMissingDocsDialog({ open: false, docs: [] })}
+            />
+
             {viewerPayload && (
                 <DocumentViewerModal
                     payload={viewerPayload}
@@ -883,13 +1196,21 @@ export default function DocumentsPage() {
                 <div className="flex w-full items-center justify-between px-6 md:px-12 py-4">
                     <div className="flex items-center gap-4">
                         <Link href={`/founder/startup/${cleanId}`}>
-                            <Button variant="ghost" size="icon" className="hover:bg-[#576238]/10 hover:text-[#576238]">
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                className="hover:bg-[#576238]/10 hover:text-[#576238]"
+                            >
                                 <ArrowLeft className="h-5 w-5" />
                             </Button>
                         </Link>
                         <div>
-                            <h1 className="text-xl font-bold text-[#576238] leading-tight">Documents</h1>
-                            <p className="text-sm text-muted-foreground">Manage and generate your startup files</p>
+                            <h1 className="text-xl font-bold text-[#576238] leading-tight">
+                                Documents
+                            </h1>
+                            <p className="text-sm text-muted-foreground">
+                                Manage and generate your startup files
+                            </p>
                         </div>
                     </div>
                     {isWorkflowComplete && (
@@ -910,65 +1231,187 @@ export default function DocumentsPage() {
                                     <FileText className="h-6 w-6 text-[#576238]" />
                                 </div>
                                 <div>
-                                    <h3 className="font-bold text-[#576238] mb-1">Required Documentation</h3>
+                                    <h3 className="font-bold text-[#576238] mb-1">
+                                        Required Documentation
+                                    </h3>
                                     <p className="text-sm text-muted-foreground">
-                                        Investors require these documents. Use the AI Assistant to generate drafts or upload your existing files.
+                                        Investors require these documents. Use the AI Assistant to
+                                        generate drafts or upload your existing files.
                                     </p>
                                 </div>
                             </div>
                         </Card>
 
-                        {/* PPT specific Card Component */}
+                        {/* PPT Card */}
                         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
-                            <Card className={`group border transition-all duration-200 ${pptUrl ? "bg-white border-green-100 shadow-sm" : "bg-white border-gray-200 shadow-sm"}`}>
+                            <Card
+                                className={`group border transition-all duration-200 ${pptUrl
+                                        ? "bg-white border-green-100 shadow-sm"
+                                        : "bg-white border-gray-200 shadow-sm"
+                                    }`}
+                            >
                                 <div className="p-5 flex flex-col sm:flex-row gap-5">
-                                    <div className={`flex-shrink-0 w-12 h-12 rounded-xl flex items-center justify-center ${pptUrl ? "bg-green-50 text-green-700" : "bg-gray-100 text-gray-400"}`}>
+                                    <div
+                                        className={`flex-shrink-0 w-12 h-12 rounded-xl flex items-center justify-center ${pptUrl
+                                                ? "bg-green-50 text-green-700"
+                                                : "bg-gray-100 text-gray-400"
+                                            }`}
+                                    >
                                         <Presentation className="h-6 w-6" />
                                     </div>
                                     <div className="flex-1 min-w-0">
                                         <div className="flex items-center justify-between mb-1">
-                                            <h3 className="font-bold text-[#576238] truncate">Pitch Deck (PPT)</h3>
-                                            {pptUrl && <span className="text-[10px] bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium">Generated</span>}
+                                            <h3 className="font-bold text-[#576238] truncate">
+                                                Pitch Deck (PPT)
+                                            </h3>
+                                            {pptUrl && (
+                                                <span className="text-[10px] bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium">
+                                                    Generated
+                                                </span>
+                                            )}
                                         </div>
-                                        <p className="text-xs text-muted-foreground mb-4">AI-generated PPTX or upload your own to enhance with AI styles.</p>
+                                        <p className="text-xs text-muted-foreground mb-4">
+                                            AI-generated PPTX or upload your own to enhance with AI
+                                            styles.
+                                        </p>
 
-                                        <input type="file" accept=".pptx,.ppt,.pdf" className="hidden" ref={(el) => { fileInputRefs.current["ppt_generation"] = el; }}
+                                        <input
+                                            type="file"
+                                            accept=".pptx,.ppt,.pdf"
+                                            className="hidden"
+                                            ref={(el) => {
+                                                fileInputRefs.current["ppt_generation"] = el;
+                                            }}
                                             onChange={async (e) => {
                                                 if (!e.target.files?.[0] || !cleanId) return;
                                                 setUploadingId("ppt_generation");
-                                                await documentsService.uploadDocument(cleanId, "Pitch Deck (PPT)", e.target.files[0]);
+                                                const success = await documentsService.uploadDocument(
+                                                    cleanId,
+                                                    "Pitch Deck (PPT)",
+                                                    e.target.files[0]
+                                                );
                                                 setUploadingId(null);
-                                                fetchData();
+                                                if (success) {
+                                                    fetchData();
+                                                    toast("success", "Upload Successful", "Pitch Deck has been uploaded.");
+                                                } else {
+                                                    toast("error", "Upload Failed", "Could not upload the Pitch Deck. Please try again.");
+                                                }
                                             }}
                                         />
-                                        <input type="file" accept=".pptx,.ppt" className="hidden" ref={editPptInputRef}
-                                            onChange={(e) => { if (e.target.files?.[0]) handleEditPPT(e.target.files[0]); }}
+                                        <input
+                                            type="file"
+                                            accept=".pptx,.ppt"
+                                            className="hidden"
+                                            ref={editPptInputRef}
+                                            onChange={(e) => {
+                                                if (e.target.files?.[0]) handleEditPPT(e.target.files[0]);
+                                            }}
                                         />
 
                                         <div className="flex flex-wrap items-center gap-2">
                                             {pptUrl ? (
                                                 <>
-                                                    <Button variant="outline" size="sm" className={`h-8 text-xs ${outlineBtn}`} onClick={() => window.open(pptUrl, "_blank")}><Eye className="h-3 w-3 mr-1.5" /> View</Button>
-                                                    <a href={pptUrl} download><Button variant="outline" size="sm" className={`h-8 text-xs ${outlineBtn}`}><Download className="h-3 w-3 mr-1.5" /> Download</Button></a>
-                                                    <Button variant="outline" size="sm" className={`h-8 text-xs ${outlineBtn}`} onClick={() => editPptInputRef.current?.click()} disabled={isPptEditing}>
-                                                        {isPptEditing ? <><Loader2 className="h-3 w-3 mr-1.5 animate-spin" /> Enhancing…</> : <><Sparkles className="h-3 w-3 mr-1.5" /> Enhance</>}
+                                                    <Button
+                                                        variant="outline"
+                                                        size="sm"
+                                                        className={`h-8 text-xs ${outlineBtn}`}
+                                                        onClick={() => window.open(pptUrl, "_blank")}
+                                                    >
+                                                        <Eye className="h-3 w-3 mr-1.5" /> View
+                                                    </Button>
+                                                    <a href={pptUrl} download>
+                                                        <Button
+                                                            variant="outline"
+                                                            size="sm"
+                                                            className={`h-8 text-xs ${outlineBtn}`}
+                                                        >
+                                                            <Download className="h-3 w-3 mr-1.5" /> Download
+                                                        </Button>
+                                                    </a>
+                                                    <Button
+                                                        variant="outline"
+                                                        size="sm"
+                                                        className={`h-8 text-xs ${outlineBtn}`}
+                                                        onClick={() => editPptInputRef.current?.click()}
+                                                        disabled={isPptEditing}
+                                                    >
+                                                        {isPptEditing ? (
+                                                            <>
+                                                                <Loader2 className="h-3 w-3 mr-1.5 animate-spin" />{" "}
+                                                                Enhancing…
+                                                            </>
+                                                        ) : (
+                                                            <>
+                                                                <Sparkles className="h-3 w-3 mr-1.5" /> Enhance
+                                                            </>
+                                                        )}
                                                     </Button>
                                                     {isFounder && (
-                                                        <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-400 hover:text-[#576238] ml-auto" onClick={handleGeneratePPT} disabled={isPptGenerating}>
-                                                            {isPptGenerating ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="icon"
+                                                            className="h-8 w-8 text-gray-400 hover:text-[#576238] ml-auto"
+                                                            onClick={handleGeneratePPT}
+                                                            disabled={isPptGenerating}
+                                                        >
+                                                            {isPptGenerating ? (
+                                                                <Loader2 className="h-3 w-3 animate-spin" />
+                                                            ) : (
+                                                                <RefreshCw className="h-3 w-3" />
+                                                            )}
                                                         </Button>
                                                     )}
                                                 </>
                                             ) : (
                                                 <>
-                                                    <Button variant="outline" size="sm" className={`h-8 text-xs ${outlineBtn}`} onClick={() => fileInputRefs.current["ppt_generation"]?.click()} disabled={uploadingId === "ppt_generation"}>
-                                                        {uploadingId === "ppt_generation" ? <Loader2 className="h-3 w-3 animate-spin mr-1.5" /> : <Upload className="h-3 w-3 mr-1.5" />} Upload
+                                                    <Button
+                                                        variant="outline"
+                                                        size="sm"
+                                                        className={`h-8 text-xs ${outlineBtn}`}
+                                                        onClick={() =>
+                                                            fileInputRefs.current[
+                                                                "ppt_generation"
+                                                            ]?.click()
+                                                        }
+                                                        disabled={uploadingId === "ppt_generation"}
+                                                    >
+                                                        {uploadingId === "ppt_generation" ? (
+                                                            <Loader2 className="h-3 w-3 animate-spin mr-1.5" />
+                                                        ) : (
+                                                            <Upload className="h-3 w-3 mr-1.5" />
+                                                        )}{" "}
+                                                        Upload
                                                     </Button>
-                                                    <Button size="sm" className={`h-8 text-xs ${primaryBtn}`} onClick={handleGeneratePPT} disabled={isPptGenerating}>
-                                                        {isPptGenerating ? <Loader2 className="h-3 w-3 animate-spin mr-1.5" /> : <><Sparkles className="h-3 w-3 mr-1.5" /> AI Generate</>}
+                                                    <Button
+                                                        size="sm"
+                                                        className={`h-8 text-xs ${primaryBtn}`}
+                                                        onClick={handleGeneratePPT}
+                                                        disabled={isPptGenerating}
+                                                    >
+                                                        {isPptGenerating ? (
+                                                            <Loader2 className="h-3 w-3 animate-spin mr-1.5" />
+                                                        ) : (
+                                                            <>
+                                                                <Sparkles className="h-3 w-3 mr-1.5" /> AI
+                                                                Generate
+                                                            </>
+                                                        )}
                                                     </Button>
-                                                    <Button variant="outline" size="sm" className={`h-8 text-xs ${outlineBtn}`} onClick={() => editPptInputRef.current?.click()} disabled={isPptEditing}>
-                                                        {isPptEditing ? <Loader2 className="h-3 w-3 animate-spin mr-1.5" /> : <><Sparkles className="h-3 w-3 mr-1.5" /> Enhance</>}
+                                                    <Button
+                                                        variant="outline"
+                                                        size="sm"
+                                                        className={`h-8 text-xs ${outlineBtn}`}
+                                                        onClick={() => editPptInputRef.current?.click()}
+                                                        disabled={isPptEditing}
+                                                    >
+                                                        {isPptEditing ? (
+                                                            <Loader2 className="h-3 w-3 animate-spin mr-1.5" />
+                                                        ) : (
+                                                            <>
+                                                                <Sparkles className="h-3 w-3 mr-1.5" /> Enhance
+                                                            </>
+                                                        )}
                                                     </Button>
                                                 </>
                                             )}
@@ -984,127 +1427,280 @@ export default function DocumentsPage() {
                             </div>
                         ) : (
                             <div className="space-y-4">
-                                {REQUIRED_DOCS.filter(doc => doc.id !== "pitch_deck").map((config, index) => {
-                                    const state = docStates.find(d => d.configId === config.id);
-                                    const isUploaded = state?.isUploaded || false;
-                                    const isJsonOnly = isUploaded && (!state?.path || state.path.trim() === "") && !!state?.jsonResponse;
+                                {REQUIRED_DOCS.filter((doc) => doc.id !== "pitch_deck").map(
+                                    (config, index) => {
+                                        const state = docStates.find(
+                                            (d) => d.configId === config.id
+                                        );
+                                        const isUploaded = state?.isUploaded || false;
+                                        const isJsonOnly =
+                                            isUploaded &&
+                                            (!state?.path || state.path.trim() === "") &&
+                                            !!state?.jsonResponse;
 
-                                    return (
-                                        <motion.div key={config.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.1 }}>
-                                            <Card className={`group overflow-hidden border transition-all duration-200 ${isUploaded ? "bg-white border-green-100 shadow-sm" : "bg-white border-gray-200 hover:border-[#576238]/50 hover:shadow-md"}`}>
-                                                <div className="p-5 flex flex-col sm:flex-row gap-5">
-                                                    <div className={`flex-shrink-0 w-12 h-12 rounded-xl flex items-center justify-center ${isUploaded ? "bg-green-50 text-green-700" : "bg-gray-100 text-gray-400"}`}>
-                                                        <config.icon className="h-6 w-6" />
-                                                    </div>
-                                                    <div className="flex-1 min-w-0">
-                                                        <div className="flex items-center justify-between mb-1">
-                                                            <h3 className="font-bold text-[#576238] truncate">{config.name}</h3>
-                                                            {isUploaded
-                                                                ? <span className="text-[10px] bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium flex items-center gap-1"><Users className="h-3 w-3" /> V{state?.version}</span>
-                                                                : <span className="text-[10px] bg-red-50 text-red-600 px-2 py-0.5 rounded-full font-medium">Required</span>}
+                                        return (
+                                            <motion.div
+                                                key={config.id}
+                                                initial={{ opacity: 0, y: 10 }}
+                                                animate={{ opacity: 1, y: 0 }}
+                                                transition={{ delay: index * 0.1 }}
+                                            >
+                                                <Card
+                                                    className={`group overflow-hidden border transition-all duration-200 ${isUploaded
+                                                            ? "bg-white border-green-100 shadow-sm"
+                                                            : "bg-white border-gray-200 hover:border-[#576238]/50 hover:shadow-md"
+                                                        }`}
+                                                >
+                                                    <div className="p-5 flex flex-col sm:flex-row gap-5">
+                                                        <div
+                                                            className={`flex-shrink-0 w-12 h-12 rounded-xl flex items-center justify-center ${isUploaded
+                                                                    ? "bg-green-50 text-green-700"
+                                                                    : "bg-gray-100 text-gray-400"
+                                                                }`}
+                                                        >
+                                                            <config.icon className="h-6 w-6" />
                                                         </div>
-                                                        <p className="text-xs text-muted-foreground mb-4 line-clamp-2">{config.desc}</p>
-                                                        <div className="flex flex-wrap items-center gap-2">
-                                                            <input
-                                                                type="file"
-                                                                ref={el => { fileInputRefs.current[config.id] = el; }}
-                                                                className="hidden"
-                                                                accept={config.accept}
-                                                                onChange={e => handleFileChange(e, config)}
-                                                            />
-                                                            {isUploaded ? (
-                                                                <>
-                                                                    <Button variant="outline" size="sm" className={`h-8 text-xs ${outlineBtn}`} onClick={() => state && handleView(state)}>
-                                                                        <Eye className="h-3 w-3 mr-1.5" />
-                                                                        {isJsonOnly ? "View Analysis" : "View"}
-                                                                    </Button>
-                                                                    <Button variant="outline" size="sm" className={`h-8 text-xs ${outlineBtn}`} onClick={() => handleEvaluate(state?.dbId)}>
-                                                                        <Star className="h-3 w-3 mr-1.5" /> Evaluate
-                                                                    </Button>
-                                                                    <Button variant="outline" size="sm" className={`h-8 text-xs ${outlineBtn}`} onClick={() => handleRecommend(state?.dbId)}>
-                                                                        <Edit className="h-3 w-3 mr-1.5" /> Recommend
-                                                                    </Button>
-                                                                    <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-400 hover:text-red-500 hover:bg-red-50 ml-auto" onClick={() => handleDelete(state?.dbId)}>
-                                                                        {deletingId === state?.dbId ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
-                                                                    </Button>
-                                                                    <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-400 hover:text-[#576238]" onClick={() => triggerUpload(config.id)}>
-                                                                        <RefreshCw className="h-3 w-3" />
-                                                                    </Button>
-                                                                </>
-                                                            ) : (
-                                                                <>
-                                                                    <Button variant="outline" size="sm" className={`h-8 text-xs ${outlineBtn}`} onClick={() => triggerUpload(config.id)} disabled={uploadingId === config.id}>
-                                                                        {uploadingId === config.id ? <Loader2 className="h-3 w-3 mr-1.5 animate-spin" /> : <Upload className="h-3 w-3 mr-1.5" />} Upload
-                                                                    </Button>
-                                                                    <Button size="sm" className={`h-8 text-xs ${primaryBtn}`} onClick={() => handleSimulateGeneration(config.id)} disabled={isGeneratingDoc}>
-                                                                        {isGeneratingDoc ? <Loader2 className="h-3 w-3 mr-1.5 animate-spin" /> : <Sparkles className="h-3 w-3 mr-1.5" />} Generate
-                                                                    </Button>
-                                                                </>
-                                                            )}
+                                                        <div className="flex-1 min-w-0">
+                                                            <div className="flex items-center justify-between mb-1">
+                                                                <h3 className="font-bold text-[#576238] truncate">
+                                                                    {config.name}
+                                                                </h3>
+                                                                {isUploaded ? (
+                                                                    <span className="text-[10px] bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium flex items-center gap-1">
+                                                                        <Users className="h-3 w-3" /> V
+                                                                        {state?.version}
+                                                                    </span>
+                                                                ) : (
+                                                                    <span className="text-[10px] bg-red-50 text-red-600 px-2 py-0.5 rounded-full font-medium">
+                                                                        Required
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                            <p className="text-xs text-muted-foreground mb-4 line-clamp-2">
+                                                                {config.desc}
+                                                            </p>
+                                                            <div className="flex flex-wrap items-center gap-2">
+                                                                <input
+                                                                    type="file"
+                                                                    ref={(el) => {
+                                                                        fileInputRefs.current[
+                                                                            config.id
+                                                                        ] = el;
+                                                                    }}
+                                                                    className="hidden"
+                                                                    accept={config.accept}
+                                                                    onChange={(e) =>
+                                                                        handleFileChange(e, config)
+                                                                    }
+                                                                />
+                                                                {isUploaded ? (
+                                                                    <>
+                                                                        <Button
+                                                                            variant="outline"
+                                                                            size="sm"
+                                                                            className={`h-8 text-xs ${outlineBtn}`}
+                                                                            onClick={() =>
+                                                                                state && handleView(state)
+                                                                            }
+                                                                        >
+                                                                            <Eye className="h-3 w-3 mr-1.5" />
+                                                                            {isJsonOnly
+                                                                                ? "View Analysis"
+                                                                                : "View"}
+                                                                        </Button>
+                                                                        <Button
+                                                                            variant="outline"
+                                                                            size="sm"
+                                                                            className={`h-8 text-xs ${outlineBtn}`}
+                                                                            onClick={() =>
+                                                                                handleEvaluate(state?.dbId)
+                                                                            }
+                                                                        >
+                                                                            <Star className="h-3 w-3 mr-1.5" />{" "}
+                                                                            Evaluate
+                                                                        </Button>
+                                                                        <Button
+                                                                            variant="outline"
+                                                                            size="sm"
+                                                                            className={`h-8 text-xs ${outlineBtn}`}
+                                                                            onClick={() =>
+                                                                                handleRecommend(state?.dbId)
+                                                                            }
+                                                                        >
+                                                                            <Edit className="h-3 w-3 mr-1.5" />{" "}
+                                                                            Recommend
+                                                                        </Button>
+                                                                        <Button
+                                                                            variant="ghost"
+                                                                            size="icon"
+                                                                            className="h-8 w-8 text-gray-400 hover:text-red-500 hover:bg-red-50 ml-auto"
+                                                                            onClick={() =>
+                                                                                handleDelete(state?.dbId)
+                                                                            }
+                                                                        >
+                                                                            {deletingId === state?.dbId ? (
+                                                                                <Loader2 className="h-3 w-3 animate-spin" />
+                                                                            ) : (
+                                                                                <Trash2 className="h-3 w-3" />
+                                                                            )}
+                                                                        </Button>
+                                                                        <Button
+                                                                            variant="ghost"
+                                                                            size="icon"
+                                                                            className="h-8 w-8 text-gray-400 hover:text-[#576238]"
+                                                                            onClick={() =>
+                                                                                triggerUpload(config.id)
+                                                                            }
+                                                                        >
+                                                                            <RefreshCw className="h-3 w-3" />
+                                                                        </Button>
+                                                                    </>
+                                                                ) : (
+                                                                    <>
+                                                                        <Button
+                                                                            variant="outline"
+                                                                            size="sm"
+                                                                            className={`h-8 text-xs ${outlineBtn}`}
+                                                                            onClick={() =>
+                                                                                triggerUpload(config.id)
+                                                                            }
+                                                                            disabled={
+                                                                                uploadingId === config.id
+                                                                            }
+                                                                        >
+                                                                            {uploadingId === config.id ? (
+                                                                                <Loader2 className="h-3 w-3 mr-1.5 animate-spin" />
+                                                                            ) : (
+                                                                                <Upload className="h-3 w-3 mr-1.5" />
+                                                                            )}{" "}
+                                                                            Upload
+                                                                        </Button>
+                                                                        <Button
+                                                                            size="sm"
+                                                                            className={`h-8 text-xs ${primaryBtn}`}
+                                                                            onClick={() =>
+                                                                                handleSimulateGeneration(
+                                                                                    config.id
+                                                                                )
+                                                                            }
+                                                                            disabled={isGeneratingDoc}
+                                                                        >
+                                                                            {isGeneratingDoc ? (
+                                                                                <Loader2 className="h-3 w-3 mr-1.5 animate-spin" />
+                                                                            ) : (
+                                                                                <Sparkles className="h-3 w-3 mr-1.5" />
+                                                                            )}{" "}
+                                                                            Generate
+                                                                        </Button>
+                                                                    </>
+                                                                )}
+                                                            </div>
                                                         </div>
                                                     </div>
-                                                </div>
-                                            </Card>
-                                        </motion.div>
-                                    );
-                                })}
+                                                </Card>
+                                            </motion.div>
+                                        );
+                                    }
+                                )}
                             </div>
                         )}
 
                         <div className="pt-8 text-center">
                             {isWorkflowComplete ? (
                                 <Button size="lg" variant="outline" className="font-semibold" asChild>
-                                    <Link href={`/founder/startup/${cleanId}`}>Continue to Dashboard</Link>
+                                    <Link href={`/founder/startup/${cleanId}`}>
+                                        Continue to Dashboard
+                                    </Link>
                                 </Button>
                             ) : (
-                                <Button size="lg" className="w-full sm:w-auto bg-[#FFD95D] hover:bg-[#ffe89a] text-black font-semibold px-8" onClick={handleCompleteStage} disabled={isCompleting}>
-                                    {isCompleting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : "Mark as Complete & Continue"}
+                                <Button
+                                    size="lg"
+                                    className="w-full sm:w-auto bg-[#FFD95D] hover:bg-[#ffe89a] text-black font-semibold px-8"
+                                    onClick={handleCompleteStage}
+                                    disabled={isCompleting}
+                                >
+                                    {isCompleting ? (
+                                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                    ) : (
+                                        "Mark as Complete & Continue"
+                                    )}
                                 </Button>
                             )}
-                            {isWorkflowComplete && <p className="text-xs text-muted-foreground mt-2">Stage previously marked as complete.</p>}
+                            {isWorkflowComplete && (
+                                <p className="text-xs text-muted-foreground mt-2">
+                                    Stage previously marked as complete.
+                                </p>
+                            )}
                         </div>
                     </div>
 
                     {/* RIGHT COLUMN: Chat Assistant */}
                     <div className="lg:col-span-5">
-                        <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.3 }} className="sticky top-24">
-
-                            {/* MAXIMIZE TOGGLE WRAPPER */}
-                            <Card className={`border border-gray-300 shadow-2xl overflow-hidden flex flex-col bg-white transition-all duration-300 ${isChatMaximized
-                                ? "fixed inset-4 md:inset-10 z-[100]"
-                                : "h-[calc(100vh-120px)]"
-                                }`}>
+                        <motion.div
+                            initial={{ opacity: 0, x: 20 }}
+                            animate={{ opacity: 1, x: 0 }}
+                            transition={{ delay: 0.3 }}
+                            className="sticky top-24"
+                        >
+                            <Card
+                                className={`border border-gray-300 shadow-2xl overflow-hidden flex flex-col bg-white transition-all duration-300 ${isChatMaximized
+                                        ? "fixed inset-4 md:inset-10 z-[100]"
+                                        : "h-[calc(100vh-120px)]"
+                                    }`}
+                            >
                                 <div className="p-4 bg-[#576238] text-white flex-shrink-0">
                                     <div className="flex items-center justify-between mb-3">
                                         <div className="flex items-center gap-2">
                                             <Bot className="h-5 w-5" />
                                             <h2 className="font-bold text-sm">AI Assistant</h2>
                                         </div>
-
                                         <div className="flex items-center gap-1">
-                                            <Button variant="ghost" size="sm" onClick={() => setShowChatHistory(!showChatHistory)} className="text-white/80 hover:text-white hover:bg-white/10 h-7 px-2 text-xs">
-                                                {showChatHistory ? <X className="h-4 w-4 mr-1" /> : <History className="h-4 w-4 mr-1" />}
+                                            <Button
+                                                variant="ghost"
+                                                size="sm"
+                                                onClick={() => setShowChatHistory(!showChatHistory)}
+                                                className="text-white/80 hover:text-white hover:bg-white/10 h-7 px-2 text-xs"
+                                            >
+                                                {showChatHistory ? (
+                                                    <X className="h-4 w-4 mr-1" />
+                                                ) : (
+                                                    <History className="h-4 w-4 mr-1" />
+                                                )}
                                                 {showChatHistory ? "Close" : "History"}
                                             </Button>
-                                            <Button variant="ghost" size="sm" onClick={() => setIsChatMaximized(!isChatMaximized)} className="text-white/80 hover:text-white hover:bg-white/10 h-7 w-7 p-0">
-                                                {isChatMaximized ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+                                            <Button
+                                                variant="ghost"
+                                                size="sm"
+                                                onClick={() => setIsChatMaximized(!isChatMaximized)}
+                                                className="text-white/80 hover:text-white hover:bg-white/10 h-7 w-7 p-0"
+                                            >
+                                                {isChatMaximized ? (
+                                                    <Minimize2 className="h-4 w-4" />
+                                                ) : (
+                                                    <Maximize2 className="h-4 w-4" />
+                                                )}
                                             </Button>
                                         </div>
                                     </div>
 
                                     <div className="flex items-center gap-2 bg-black/20 p-1 rounded-md">
-                                        <span className="text-[10px] uppercase tracking-wider opacity-70 pl-2">Context:</span>
-                                        <Select
-                                            value={chatContext}
-                                            onValueChange={handleContextSwitch}
-                                        >
+                                        <span className="text-[10px] uppercase tracking-wider opacity-70 pl-2">
+                                            Context:
+                                        </span>
+                                        <Select value={chatContext} onValueChange={handleContextSwitch}>
                                             <SelectTrigger className="h-6 bg-transparent border-none text-white text-xs focus:ring-0 p-0 pl-1 gap-1 shadow-none">
                                                 <SelectValue />
                                             </SelectTrigger>
                                             <SelectContent>
-                                                {REQUIRED_DOCS.map(doc => (
-                                                    <SelectItem key={doc.id} value={doc.id} className="text-xs">
-                                                        <div className="flex items-center gap-2"><doc.icon className="h-3 w-3" /> {doc.name}</div>
+                                                {REQUIRED_DOCS.map((doc) => (
+                                                    <SelectItem
+                                                        key={doc.id}
+                                                        value={doc.id}
+                                                        className="text-xs"
+                                                    >
+                                                        <div className="flex items-center gap-2">
+                                                            <doc.icon className="h-3 w-3" /> {doc.name}
+                                                        </div>
                                                     </SelectItem>
                                                 ))}
                                             </SelectContent>
@@ -1115,16 +1711,36 @@ export default function DocumentsPage() {
                                 <div className="flex-1 relative overflow-hidden bg-gray-50">
                                     <AnimatePresence>
                                         {showChatHistory && (
-                                            <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="absolute inset-0 z-10 bg-white p-4 overflow-auto">
-                                                <Button className="w-full mb-4 bg-[#576238] hover:bg-[#464f2d]" size="sm" onClick={() => startNewChatSession()}>
+                                            <motion.div
+                                                initial={{ opacity: 0, y: -10 }}
+                                                animate={{ opacity: 1, y: 0 }}
+                                                exit={{ opacity: 0, y: -10 }}
+                                                className="absolute inset-0 z-10 bg-white p-4 overflow-auto"
+                                            >
+                                                <Button
+                                                    className="w-full mb-4 bg-[#576238] hover:bg-[#464f2d]"
+                                                    size="sm"
+                                                    onClick={() => startNewChatSession()}
+                                                >
                                                     <Plus className="h-4 w-4 mr-2" /> New Chat
                                                 </Button>
                                                 <div className="space-y-1">
-                                                    <Label className="text-xs text-muted-foreground uppercase tracking-wider mb-2 block">Recent Sessions</Label>
-                                                    {sessions.map(s => (
-                                                        <button key={s.sessionId} onClick={() => loadChatMessages(s.sessionId)} className={`w-full text-left p-3 rounded-lg text-xs border transition-colors ${chatSessionId === s.sessionId ? "border-[#576238] bg-[#576238]/5 text-[#576238] font-medium" : "border-transparent hover:bg-gray-100"}`}>
+                                                    <Label className="text-xs text-muted-foreground uppercase tracking-wider mb-2 block">
+                                                        Recent Sessions
+                                                    </Label>
+                                                    {sessions.map((s) => (
+                                                        <button
+                                                            key={s.sessionId}
+                                                            onClick={() => loadChatMessages(s.sessionId)}
+                                                            className={`w-full text-left p-3 rounded-lg text-xs border transition-colors ${chatSessionId === s.sessionId
+                                                                    ? "border-[#576238] bg-[#576238]/5 text-[#576238] font-medium"
+                                                                    : "border-transparent hover:bg-gray-100"
+                                                                }`}
+                                                        >
                                                             <div className="truncate">{s.sessionName}</div>
-                                                            <div className="text-[10px] text-muted-foreground mt-1">{new Date(s.createdAt).toLocaleString()}</div>
+                                                            <div className="text-[10px] text-muted-foreground mt-1">
+                                                                {new Date(s.createdAt).toLocaleString()}
+                                                            </div>
                                                         </button>
                                                     ))}
                                                 </div>
@@ -1140,46 +1756,98 @@ export default function DocumentsPage() {
                                         ) : (
                                             <div className="space-y-6 pb-4">
                                                 {messages.map((m, i) => (
-                                                    <motion.div key={i} initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} className={`flex gap-3 w-full ${m.role === "user" ? "flex-row-reverse" : "flex-row"}`}>
-
-                                                        {/* Avatar Icon */}
-                                                        <div className={`flex items-center justify-center flex-shrink-0 w-8 h-8 rounded-full ${m.role === "user" ? "bg-[#464f2d] text-white" : "bg-white border border-gray-200 text-[#576238] shadow-sm"}`}>
-                                                            {m.role === "user" ? <User className="h-4 w-4" /> : <Bot className="h-4 w-4" />}
+                                                    <motion.div
+                                                        key={i}
+                                                        initial={{ opacity: 0, y: 5 }}
+                                                        animate={{ opacity: 1, y: 0 }}
+                                                        className={`flex gap-3 w-full ${m.role === "user"
+                                                                ? "flex-row-reverse"
+                                                                : "flex-row"
+                                                            }`}
+                                                    >
+                                                        <div
+                                                            className={`flex items-center justify-center flex-shrink-0 w-8 h-8 rounded-full ${m.role === "user"
+                                                                    ? "bg-[#464f2d] text-white"
+                                                                    : "bg-white border border-gray-200 text-[#576238] shadow-sm"
+                                                                }`}
+                                                        >
+                                                            {m.role === "user" ? (
+                                                                <User className="h-4 w-4" />
+                                                            ) : (
+                                                                <Bot className="h-4 w-4" />
+                                                            )}
                                                         </div>
 
-                                                        {/* Message Bubble & Actions Container */}
-                                                        <div className={`flex flex-col gap-2 ${m.role === "user" ? "items-end" : "items-start"} max-w-[75%]`}>
-                                                            <div className={`px-4 py-3 text-sm rounded-2xl shadow-sm ${m.role === "user" ? "bg-[#576238] text-white rounded-tr-sm" : "bg-white border border-gray-200 text-gray-800 rounded-tl-sm"}`}>
-                                                                <p className="whitespace-pre-wrap break-words">{m.content}</p>
+                                                        <div
+                                                            className={`flex flex-col gap-2 ${m.role === "user"
+                                                                    ? "items-end"
+                                                                    : "items-start"
+                                                                } max-w-[75%]`}
+                                                        >
+                                                            <div
+                                                                className={`px-4 py-3 text-sm rounded-2xl shadow-sm ${m.role === "user"
+                                                                        ? "bg-[#576238] text-white rounded-tr-sm"
+                                                                        : "bg-white border border-gray-200 text-gray-800 rounded-tl-sm"
+                                                                    }`}
+                                                            >
+                                                                <p className="whitespace-pre-wrap break-words">
+                                                                    {m.content}
+                                                                </p>
                                                             </div>
 
-                                                            {/* Action Buttons Container */}
                                                             <div className="flex flex-wrap items-center gap-2 mt-1">
-                                                                {/* Existing Generate Button (Only on the last message if doc isn't generated) */}
-                                                                {m.role === "assistant" && i === messages.length - 1 && !isCurrentDocGenerated && (
-                                                                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.5 }}>
-                                                                        <Button
-                                                                            size="sm"
-                                                                            variant="outline"
-                                                                            disabled={chatContext === "pitch_deck" ? isPptGenerating : isGeneratingDoc}
-                                                                            className="h-7 text-[10px] border-[#576238] text-[#576238] hover:bg-[#576238] hover:text-white transition-colors"
-                                                                            onClick={() => chatContext === "pitch_deck" ? handleGeneratePPT() : handleSimulateGeneration(chatContext)}
+                                                                {m.role === "assistant" &&
+                                                                    i === messages.length - 1 &&
+                                                                    !isCurrentDocGenerated && (
+                                                                        <motion.div
+                                                                            initial={{ opacity: 0 }}
+                                                                            animate={{ opacity: 1 }}
+                                                                            transition={{ delay: 0.5 }}
                                                                         >
-                                                                            {(chatContext === "pitch_deck" ? isPptGenerating : isGeneratingDoc) ? <Loader2 className="h-3 w-3 mr-1.5 animate-spin" /> : <Sparkles className="h-3 w-3 mr-1.5" />}
-                                                                            Generate {getCurrentContextName()}
-                                                                        </Button>
-                                                                    </motion.div>
-                                                                )}
+                                                                            <Button
+                                                                                size="sm"
+                                                                                variant="outline"
+                                                                                disabled={
+                                                                                    chatContext === "pitch_deck"
+                                                                                        ? isPptGenerating
+                                                                                        : isGeneratingDoc
+                                                                                }
+                                                                                className="h-7 text-[10px] border-[#576238] text-[#576238] hover:bg-[#576238] hover:text-white transition-colors"
+                                                                                onClick={() =>
+                                                                                    chatContext === "pitch_deck"
+                                                                                        ? handleGeneratePPT()
+                                                                                        : handleSimulateGeneration(
+                                                                                            chatContext
+                                                                                        )
+                                                                                }
+                                                                            >
+                                                                                {(chatContext === "pitch_deck"
+                                                                                    ? isPptGenerating
+                                                                                    : isGeneratingDoc) ? (
+                                                                                    <Loader2 className="h-3 w-3 mr-1.5 animate-spin" />
+                                                                                ) : (
+                                                                                    <Sparkles className="h-3 w-3 mr-1.5" />
+                                                                                )}
+                                                                                Generate{" "}
+                                                                                {getCurrentContextName()}
+                                                                            </Button>
+                                                                        </motion.div>
+                                                                    )}
 
-                                                                {/* NEW: Enhance Button (Available on all AI messages) */}
                                                                 {m.role === "assistant" && (
-                                                                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.6 }}>
+                                                                    <motion.div
+                                                                        initial={{ opacity: 0 }}
+                                                                        animate={{ opacity: 1 }}
+                                                                        transition={{ delay: 0.6 }}
+                                                                    >
                                                                         <Button
                                                                             size="sm"
                                                                             variant="outline"
                                                                             disabled={isChatLoading || isTyping}
                                                                             className="h-7 text-[10px] border-[#576238] text-[#576238] hover:bg-[#576238] hover:text-white transition-colors"
-                                                                            onClick={() => handleEnhanceMessage(m.content)}
+                                                                            onClick={() =>
+                                                                                handleEnhanceMessage(m.content)
+                                                                            }
                                                                         >
                                                                             <Sparkles className="h-3 w-3 mr-1.5" />
                                                                             Enhance
@@ -1191,16 +1859,25 @@ export default function DocumentsPage() {
                                                     </motion.div>
                                                 ))}
 
-                                                {/* The Typing Indicator Bubble */}
                                                 {isTyping && (
-                                                    <motion.div initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} className="flex gap-3 w-full flex-row">
+                                                    <motion.div
+                                                        initial={{ opacity: 0, y: 5 }}
+                                                        animate={{ opacity: 1, y: 0 }}
+                                                        className="flex gap-3 w-full flex-row"
+                                                    >
                                                         <div className="flex items-center justify-center flex-shrink-0 w-8 h-8 rounded-full bg-white border border-gray-200 text-[#576238] shadow-sm">
                                                             <Bot className="h-4 w-4" />
                                                         </div>
                                                         <div className="px-4 py-4 bg-white border border-gray-200 rounded-2xl rounded-tl-sm shadow-sm flex items-center gap-1.5 h-[44px]">
-                                                            <span className="h-1.5 w-1.5 bg-gray-400 rounded-full animate-bounce"></span>
-                                                            <span className="h-1.5 w-1.5 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: "150ms" }}></span>
-                                                            <span className="h-1.5 w-1.5 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: "300ms" }}></span>
+                                                            <span className="h-1.5 w-1.5 bg-gray-400 rounded-full animate-bounce" />
+                                                            <span
+                                                                className="h-1.5 w-1.5 bg-gray-400 rounded-full animate-bounce"
+                                                                style={{ animationDelay: "150ms" }}
+                                                            />
+                                                            <span
+                                                                className="h-1.5 w-1.5 bg-gray-400 rounded-full animate-bounce"
+                                                                style={{ animationDelay: "300ms" }}
+                                                            />
                                                         </div>
                                                     </motion.div>
                                                 )}
@@ -1210,19 +1887,40 @@ export default function DocumentsPage() {
                                 </div>
 
                                 <div className="p-3 bg-white border-t flex-shrink-0">
-                                    <form onSubmit={e => { e.preventDefault(); handleSendMessage(); }} className="relative flex items-center">
+                                    <form
+                                        onSubmit={(e) => {
+                                            e.preventDefault();
+                                            handleSendMessage();
+                                        }}
+                                        className="relative flex items-center"
+                                    >
                                         <Input
-                                            placeholder={isCurrentDocGenerated ? `Ask about ${getCurrentContextName()}...` : `Please generate ${getCurrentContextName()} first...`}
+                                            placeholder={
+                                                isCurrentDocGenerated
+                                                    ? `Ask about ${getCurrentContextName()}...`
+                                                    : `Please generate ${getCurrentContextName()} first...`
+                                            }
                                             value={newMessage}
-                                            onChange={e => setNewMessage(e.target.value)}
+                                            onChange={(e) => setNewMessage(e.target.value)}
                                             className="pr-10 py-5 text-sm bg-gray-50 focus-visible:ring-[#576238]"
-                                            disabled={!chatSessionId || isChatLoading || !isCurrentDocGenerated || isTyping}
+                                            disabled={
+                                                !chatSessionId ||
+                                                isChatLoading ||
+                                                !isCurrentDocGenerated ||
+                                                isTyping
+                                            }
                                         />
                                         <Button
                                             type="submit"
                                             size="icon"
                                             className="absolute right-1 h-8 w-8 bg-[#576238] hover:bg-[#464f2d] rounded-full"
-                                            disabled={!chatSessionId || isChatLoading || !newMessage.trim() || !isCurrentDocGenerated || isTyping}
+                                            disabled={
+                                                !chatSessionId ||
+                                                isChatLoading ||
+                                                !newMessage.trim() ||
+                                                !isCurrentDocGenerated ||
+                                                isTyping
+                                            }
                                         >
                                             <Send className="h-4 w-4" />
                                         </Button>
@@ -1234,6 +1932,7 @@ export default function DocumentsPage() {
                 </div>
             </main>
 
+            {/* Share Dialog */}
             <Dialog open={manageAccessDialog} onOpenChange={setManageAccessDialog}>
                 <DialogContent aria-describedby={undefined}>
                     <DialogHeader>
@@ -1241,8 +1940,17 @@ export default function DocumentsPage() {
                         <DialogDescription>Invite team members to view or edit.</DialogDescription>
                     </DialogHeader>
                     <div className="flex gap-2 mt-2">
-                        <Input placeholder="email@company.com" value={accessEmail} onChange={e => setAccessEmail(e.target.value)} />
-                        <Button onClick={() => setAccessEmail("")} className="bg-[#576238]">Invite</Button>
+                        <Input
+                            placeholder="email@company.com"
+                            value={accessEmail}
+                            onChange={(e) => setAccessEmail(e.target.value)}
+                        />
+                        <Button
+                            onClick={() => setAccessEmail("")}
+                            className="bg-[#576238]"
+                        >
+                            Invite
+                        </Button>
                     </div>
                 </DialogContent>
             </Dialog>
