@@ -1,195 +1,144 @@
-﻿import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
-import { Check } from "lucide-react";
-import Link from "next/link";
-import Navbar from "@/components/shared/Navbar";
+﻿"use client";
 
-export default function PlansPage() {
-    const plans = [
-        {
-            name: "Starter",
-            price: "$0",
-            period: "forever",
-            description: "Perfect for testing your startup idea",
-            features: [
-                "1 Startup Project",
-                "Basic Idea Check",
-                "Limited Documents (3)",
-                "Community Support",
-                "Progress Tracking",
-                "Basic Analytics",
-            ],
-            cta: "Start Free",
-            highlighted: false,
-        },
-        {
-            name: "Growth",
-            price: "$29",
-            period: "/month",
-            description: "For serious founders ready to scale",
-            features: [
-                "5 Startup Projects",
-                "AI-Powered Idea Check",
-                "Unlimited Documents",
-                "Market Research Tools",
-                "Pitch Deck Analyzer",
-                "Priority Support",
-                "Team Collaboration (up to 3)",
-                "Advanced Analytics",
-                "Export to PDF/Word",
-                "Email Support",
-            ],
-            cta: "Start Growing",
-            highlighted: true,
-        },
-        {
-            name: "Scale",
-            price: "$99",
-            period: "/month",
-            description: "Enterprise-grade features for ambitious teams",
-            features: [
-                "Unlimited Startup Projects",
-                "Advanced AI Analysis",
-                "Unlimited Everything",
-                "Investor Matching",
-                "White-label Options",
-                "Dedicated Account Manager",
-                "Unlimited Team Members",
-                "API Access",
-                "Custom Integrations",
-                "Priority Phone Support",
-                "Onboarding & Training",
-                "Custom Branding",
-            ],
-            cta: "Scale Now",
-            highlighted: false,
-        },
-    ];
+import { useState } from "react";
+import { motion } from "framer-motion";
+import { CheckCircle2, Sparkles } from "lucide-react";
+import { Button } from "@/components/ui/button";
+
+const PLANS = [
+    {
+        name: "Basic",
+        description: "Perfect for early-stage validation.",
+        monthly: { EGP: 0, USD: 0 },
+        features: ["1 Startup Profile", "Basic AI Idea Check", "Standard Export"],
+        popular: false,
+    },
+    {
+        name: "Founder Pro",
+        description: "Everything you need to get investor-ready.",
+        monthly: { EGP: 850, USD: 19 },
+        features: [
+            "Unlimited Pitch Deck Generations",
+            "Deep Competitor Analysis",
+            "Advanced SWOT Matrix",
+            "Priority AI Processing",
+        ],
+        popular: true,
+    },
+    {
+        name: "Investor",
+        description: "For screening and managing deal flow.",
+        monthly: { EGP: 2500, USD: 49 },
+        features: [
+            "Access to Verified Deal Flow",
+            "Automated Startup Screening",
+            "Custom Evaluation Criteria",
+            "Team Collaboration",
+        ],
+        popular: false,
+    },
+];
+
+export default function ModernPricing() {
+    const [currency, setCurrency] = useState<"EGP" | "USD">("EGP");
 
     return (
-        <div className="min-h-screen bg-gradient-to-br from-[#F0EADC] via-[#fff] to-[#FFD95D]/20">
-            <Navbar />
+        <section className="relative py-24 bg-[#Fdfbf7] overflow-hidden">
+            {/* Subtle Background Glows */}
+            <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[400px] bg-[#FFD95D]/10 rounded-full blur-[100px] pointer-events-none" />
 
-            <main className="container mx-auto px-4 py-16">
-                {/* Header */}
-                <div className="text-center mb-16">
-                    <h1 className="text-5xl md:text-6xl font-bold text-[#576238] mb-6">
-                        Choose Your Plan
-                    </h1>
-                    <p className="text-xl md:text-2xl text-muted-foreground max-w-3xl mx-auto">
-                        Start free and upgrade as you grow. All plans include our core gamified experience.
-                    </p>
-                </div>
-
-                {/* Plans Grid */}
-                <div className="grid md:grid-cols-3 gap-8 max-w-7xl mx-auto mb-16">
-                    {plans.map((plan, index) => (
-                        <div key={index} className="relative">
-                            {plan.highlighted && (
-                                <div className="absolute -top-4 left-1/2 -translate-x-1/2 bg-[#FFD95D] text-[#576238] px-6 py-2 rounded-full text-sm font-bold shadow-lg z-10">
-                                    ⭐ Most Popular
-                                </div>
-                            )}
-                            <Card
-                                className={`p-8 h-full flex flex-col ${plan.highlighted
-                                        ? "border-[#FFD95D] border-4 shadow-2xl scale-105 bg-white"
-                                        : "border-2 bg-white/80"
-                                    }`}
-                            >
-                                <div className="text-center mb-6">
-                                    <h2 className="text-3xl font-bold text-[#576238] mb-2">
-                                        {plan.name}
-                                    </h2>
-                                    <p className="text-sm text-muted-foreground mb-4">
-                                        {plan.description}
-                                    </p>
-                                    <div className="flex items-baseline justify-center gap-1">
-                                        <span className="text-5xl font-bold text-[#576238]">
-                                            {plan.price}
-                                        </span>
-                                        <span className="text-muted-foreground text-lg">
-                                            {plan.period}
-                                        </span>
-                                    </div>
-                                </div>
-
-                                <ul className="space-y-4 mb-8 flex-grow">
-                                    {plan.features.map((feature, idx) => (
-                                        <li key={idx} className="flex items-start gap-3">
-                                            <Check className="h-5 w-5 text-[#576238] mt-0.5 flex-shrink-0" />
-                                            <span className="text-sm">{feature}</span>
-                                        </li>
-                                    ))}
-                                </ul>
-
-                                <Link href="/signup" className="w-full">
-                                    <Button
-                                        className={`w-full ${plan.highlighted
-                                                ? "bg-[#576238] hover:bg-[#6b7c3f] text-white"
-                                                : "bg-[#F0EADC] hover:bg-[#FFD95D] text-[#576238]"
-                                            } font-semibold text-lg py-6`}
-                                        size="lg"
-                                    >
-                                        {plan.cta}
-                                    </Button>
-                                </Link>
-                            </Card>
-                        </div>
-                    ))}
-                </div>
-
-                {/* FAQ Section */}
-                <div className="max-w-4xl mx-auto mt-20">
-                    <h2 className="text-3xl font-bold text-center text-[#576238] mb-12">
-                        Frequently Asked Questions
+            <div className="container mx-auto px-4 relative z-10">
+                <div className="text-center max-w-2xl mx-auto mb-16">
+                    <h2 className="text-4xl font-extrabold text-slate-900 tracking-tight mb-4">
+                        Simple, transparent pricing
                     </h2>
-                    <div className="grid md:grid-cols-2 gap-6">
-                        {[
-                            {
-                                q: "Can I change plans later?",
-                                a: "Yes! You can upgrade or downgrade your plan at any time. Changes take effect immediately.",
-                            },
-                            {
-                                q: "Is there a free trial?",
-                                a: "The Starter plan is free forever. You can explore all basic features before upgrading.",
-                            },
-                            {
-                                q: "What payment methods do you accept?",
-                                a: "We accept all major credit cards, PayPal, and wire transfers for enterprise plans.",
-                            },
-                            {
-                                q: "Can I cancel anytime?",
-                                a: "Absolutely! Cancel your subscription anytime with no questions asked.",
-                            },
-                        ].map((faq, index) => (
-                            <Card key={index} className="p-6 bg-white">
-                                <h3 className="font-bold text-[#576238] mb-2">{faq.q}</h3>
-                                <p className="text-sm text-muted-foreground">{faq.a}</p>
-                            </Card>
-                        ))}
+                    <p className="text-lg text-slate-600 mb-8">
+                        Choose the plan that fits your growth stage. Switch currencies to see local or global rates.
+                    </p>
+
+                    {/* Currency Toggle */}
+                    <div className="inline-flex items-center p-1 bg-slate-100 rounded-full border border-slate-200 shadow-inner">
+                        <button
+                            onClick={() => setCurrency("EGP")}
+                            className={`px-6 py-2 rounded-full text-sm font-bold transition-all duration-300 ${currency === "EGP"
+                                    ? "bg-white text-[#576238] shadow-sm"
+                                    : "text-slate-500 hover:text-slate-700"
+                                }`}
+                        >
+                            EGP (Egypt)
+                        </button>
+                        <button
+                            onClick={() => setCurrency("USD")}
+                            className={`px-6 py-2 rounded-full text-sm font-bold transition-all duration-300 ${currency === "USD"
+                                    ? "bg-white text-[#576238] shadow-sm"
+                                    : "text-slate-500 hover:text-slate-700"
+                                }`}
+                        >
+                            USD (Global)
+                        </button>
                     </div>
                 </div>
 
-                {/* CTA Section */}
-                <div className="text-center mt-20">
-                    <Card className="max-w-3xl mx-auto p-12 bg-gradient-to-br from-[#576238] to-[#6b7c3f] text-white">
-                        <h2 className="text-3xl font-bold mb-4">
-                            Ready to Build Your Startup?
-                        </h2>
-                        <p className="text-lg mb-8 opacity-90">
-                            Join thousands of founders using Spark2Scale to bring their ideas to life.
-                        </p>
-                        <Link href="/signup">
+                <div className="grid md:grid-cols-3 gap-8 max-w-6xl mx-auto items-center">
+                    {PLANS.map((plan, i) => (
+                        <motion.div
+                            key={plan.name}
+                            initial={{ opacity: 0, y: 20 }}
+                            whileInView={{ opacity: 1, y: 0 }}
+                            viewport={{ once: true }}
+                            transition={{ delay: i * 0.1 }}
+                            className={`relative rounded-3xl p-8 transition-all duration-300 ${plan.popular
+                                    ? "bg-[#576238] text-white shadow-2xl scale-105 border-none"
+                                    : "bg-white text-slate-900 border border-slate-200 shadow-lg hover:shadow-xl"
+                                }`}
+                        >
+                            {plan.popular && (
+                                <div className="absolute -top-4 left-1/2 -translate-x-1/2 bg-[#FFD95D] text-slate-900 text-xs font-black uppercase tracking-wider py-1 px-4 rounded-full flex items-center gap-1 shadow-sm">
+                                    <Sparkles className="w-3 h-3" /> Most Popular
+                                </div>
+                            )}
+
+                            <h3 className={`text-xl font-bold mb-2 ${plan.popular ? "text-white" : "text-slate-900"}`}>
+                                {plan.name}
+                            </h3>
+                            <p className={`text-sm mb-6 h-10 ${plan.popular ? "text-white/80" : "text-slate-500"}`}>
+                                {plan.description}
+                            </p>
+
+                            <div className="mb-8 flex items-baseline gap-1">
+                                <span className="text-4xl font-extrabold tracking-tight">
+                                    {currency === "USD" ? "$" : "E£"}
+                                    {plan.monthly[currency]}
+                                </span>
+                                <span className={`text-sm font-medium ${plan.popular ? "text-white/70" : "text-slate-500"}`}>
+                                    /month
+                                </span>
+                            </div>
+
+                            <ul className="space-y-4 mb-8">
+                                {plan.features.map((feature, idx) => (
+                                    <li key={idx} className="flex items-start gap-3 text-sm font-medium">
+                                        <CheckCircle2
+                                            className={`w-5 h-5 flex-shrink-0 ${plan.popular ? "text-[#FFD95D]" : "text-[#576238]"
+                                                }`}
+                                        />
+                                        <span>{feature}</span>
+                                    </li>
+                                ))}
+                            </ul>
+
                             <Button
-                                size="lg"
-                                className="bg-[#FFD95D] hover:bg-[#ffe89a] text-[#576238] font-bold text-lg px-12 py-6"
+                                className={`w-full h-12 rounded-xl text-base font-bold transition-all ${plan.popular
+                                        ? "bg-[#FFD95D] hover:bg-[#f5cf53] text-slate-900"
+                                        : "bg-slate-900 hover:bg-slate-800 text-white"
+                                    }`}
                             >
-                                Get Started Free
+                                {plan.monthly[currency] === 0 ? "Get Started for Free" : "Subscribe Now"}
                             </Button>
-                        </Link>
-                    </Card>
+                        </motion.div>
+                    ))}
                 </div>
-            </main>
-        </div>
+            </div>
+        </section>
     );
 }
