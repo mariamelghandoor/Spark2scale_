@@ -347,16 +347,10 @@ function DocumentViewerModal({
         <Dialog open onOpenChange={onClose}>
             <DialogContent
                 aria-describedby={undefined}
-                style={
-                    payload.type === "competitor_matrix" || payload.type === "swot"
-                        ? { width: "95vw", maxWidth: "95vw", height: "94vh" }
-                        : undefined
-                }
-                className={
-                    payload.type === "competitor_matrix" || payload.type === "swot"
-                        ? "p-0 bg-[#F4F1EA] overflow-hidden flex flex-col"
-                        : "max-w-[90vw] w-[90vw] h-[90vh] p-0 overflow-hidden flex flex-col"
-                }
+                // 1. Force the large size for ALL views to bypass Shadcn's max-w limit
+                style={{ width: "95vw", maxWidth: "95vw", height: "94vh" }}
+                // 2. Add [&>button]:hidden to remove the default Shadcn Close "X"
+                className="p-0 bg-[#F4F1EA] overflow-hidden flex flex-col [&>button]:hidden"
             >
                 {(payload.type === "competitor_matrix" || payload.type === "swot") &&
                     (competitors || swot) ? (
@@ -405,8 +399,8 @@ function DocumentViewerModal({
                                                         {comp.competitor_type && (
                                                             <span
                                                                 className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded-full tracking-wider ${comp.competitor_type.toLowerCase() === "direct"
-                                                                        ? "bg-red-500/20 text-red-100"
-                                                                        : "bg-white/20 text-white"
+                                                                    ? "bg-red-500/20 text-red-100"
+                                                                    : "bg-white/20 text-white"
                                                                     }`}
                                                             >
                                                                 {comp.competitor_type}
@@ -526,13 +520,14 @@ function DocumentViewerModal({
                     </>
                 ) : (
                     <>
+                        {/* Custom Header for the PDF/PPT View */}
                         <DialogHeader className="flex-shrink-0 px-6 py-4 bg-[#576238] text-white flex flex-row items-center justify-between">
                             <div>
                                 <DialogTitle className="text-base font-bold text-white leading-tight">
                                     Document Viewer — {payload.name}
                                 </DialogTitle>
                                 <p className="text-xs text-white/60 mt-0.5">
-                                    {payload.type === "pdf" ? "PDF Preview" : "Raw Data Viewer"}
+                                    {payload.type === "pdf" ? "Presentation Preview" : "Raw Data Viewer"}
                                 </p>
                             </div>
                             <Button
@@ -544,7 +539,8 @@ function DocumentViewerModal({
                                 <X className="h-4 w-4" />
                             </Button>
                         </DialogHeader>
-                        <div className="flex-1 overflow-hidden">
+
+                        <div className="flex-1 overflow-hidden bg-white">
                             {payload.type === "pdf" && payload.url ? (
                                 <iframe
                                     src={payload.url}
@@ -1316,7 +1312,14 @@ export default function DocumentsPage() {
                                                         variant="outline"
                                                         size="sm"
                                                         className={`h-8 text-xs ${outlineBtn}`}
-                                                        onClick={() => window.open(pptUrl, "_blank")}
+                                                        onClick={() => {
+                                                            // Encode the URL and pass it to the Microsoft Office Web Viewer
+                                                            const encodedUrl = encodeURIComponent(pptUrl);
+                                                            const viewerUrl = `https://view.officeapps.live.com/op/embed.aspx?src=${encodedUrl}`;
+
+                                                            // This triggers your DocumentViewerModal with the embedded viewer!
+                                                            setViewerPayload({ type: "pdf", url: viewerUrl, name: "Pitch Deck (PPT)" });
+                                                        }}
                                                     >
                                                         <Eye className="h-3 w-3 mr-1.5" /> View
                                                     </Button>
