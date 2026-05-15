@@ -1,4 +1,4 @@
-﻿﻿"use client";
+﻿"use client";
 
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
@@ -23,8 +23,9 @@ import NotificationsDropdown from "@/components/shared/NotificationsDropdown";
 
 import { useAuth } from "@/context/AuthContext";
 
-// Import the new service
+// Import the services
 import { startupDashboardService, WorkflowData, Meeting } from "@/services/startupDashboardService";
+import { startupService } from "@/services/startupService";
 
 export default function StartupDashboard() {
     const params = useParams();
@@ -38,6 +39,9 @@ export default function StartupDashboard() {
     const [videoCount, setVideoCount] = useState(0);
     const [isLoading, setIsLoading] = useState(true);
     const [userRole, setUserRole] = useState<string>("Viewer");
+
+    const [logoPath, setLogoPath] = useState<string | null>(null);
+    const [isUploadingLogo, setIsUploadingLogo] = useState(false);
 
     // Meeting & Calendar State
     const [currentMonthDate, setCurrentMonthDate] = useState(new Date());
@@ -67,6 +71,13 @@ export default function StartupDashboard() {
                 const data = await startupDashboardService.getDashboardData(cleanId, user.id);
                 setWorkflowData(data.workflow);
                 setStartupName(data.startupName);
+
+                // Fetch logo_path from the startup detail
+                const startupDetail = await fetch(
+                    `${(process.env.NEXT_PUBLIC_API_URL || "http://localhost:5231").replace(/\/$/, "").replace(/\/api$/, "")}/api/Startups/${cleanId}`
+                ).then(r => r.ok ? r.json() : null);
+                if (startupDetail?.logo_path) setLogoPath(startupDetail.logo_path);
+
                 setUserRole(data.role); // Set Role
                 setDocCount(data.docCount);
                 setVideoCount(data.videoCount);
@@ -184,7 +195,6 @@ export default function StartupDashboard() {
     return (
         <div className="min-h-screen bg-gradient-to-br from-[#F0EADC] via-[#fff] to-[#FFD95D]/20">
             {/* Top Navigation Bar */}
-            {/* Top Navigation Bar */}
             <div className="border-b bg-white/80 sticky top-0 z-50 backdrop-blur-md shadow-sm">
                 <div className="flex w-full items-center justify-between px-6 md:px-12 py-4">
                     <div className="flex items-center gap-4">
@@ -193,9 +203,38 @@ export default function StartupDashboard() {
                                 <ArrowLeft className="h-5 w-5" />
                             </Button>
                         </Link>
-                        <div>
-                            <h1 className="text-xl font-bold text-[#576238]">Hello {userName} 👋</h1>
-                            <p className="text-sm text-muted-foreground">{startupName}</p>
+                        <div className="flex items-center gap-3">
+                            <label className={`relative cursor-pointer group ${userRole !== "Founder" ? "pointer-events-none" : ""}`}>
+                                {logoPath ? (
+                                    <img src={logoPath} alt={startupName} className="h-11 w-11 rounded-full object-cover border-2 border-[#576238]/30 group-hover:border-[#576238] transition-all" />
+                                ) : (
+                                    <div className="h-11 w-11 rounded-full bg-[#576238]/10 border-2 border-dashed border-[#576238]/30 group-hover:border-[#576238] flex items-center justify-center transition-all">
+                                        {isUploadingLogo
+                                            ? <div className="h-4 w-4 border-2 border-[#576238] border-t-transparent rounded-full animate-spin" />
+                                            : <span className="text-[#576238] font-bold text-sm">{startupName?.[0]?.toUpperCase()}</span>
+                                        }
+                                    </div>
+                                )}
+                                {userRole === "Founder" && (
+                                    <div className="absolute inset-0 rounded-full bg-black/30 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                                        <span className="text-white text-[9px] font-bold">EDIT</span>
+                                    </div>
+                                )}
+                                <input type="file" accept="image/*" className="hidden" onChange={async (e) => {
+                                    const f = e.target.files?.[0];
+                                    if (!f) return;
+                                    setIsUploadingLogo(true);
+                                    try {
+                                        const newPath = await startupService.uploadLogo(cleanId, f);
+                                        setLogoPath(newPath);
+                                    } catch { alert("Logo upload failed"); }
+                                    finally { setIsUploadingLogo(false); }
+                                }} />
+                            </label>
+                            <div>
+                                <h1 className="text-xl font-bold text-[#576238] leading-tight">Hello {userName} 👋</h1>
+                                <p className="text-sm text-muted-foreground">{startupName}</p>
+                            </div>
                         </div>
                     </div>
                     <div className="flex items-center gap-2">

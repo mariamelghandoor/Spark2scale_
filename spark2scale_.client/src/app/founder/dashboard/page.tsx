@@ -47,7 +47,7 @@ const FormField = ({ label, children, hint }: { label: string; children: React.R
 // 2. THE WIZARD COMPONENT (Handles the 8 Steps & Scrolling)
 // ============================================================================
 
-function EvaluationWizard({ data, setData, loading, onSubmit, step, setStep }: any) {
+function EvaluationWizard({ data, setData, loading, onSubmit, step, setStep, pendingLogoPreview, onLogoChange }: any) {
     const totalSteps = 8;
 
     const updateField = (field: string, value: any) => {
@@ -91,6 +91,25 @@ function EvaluationWizard({ data, setData, loading, onSubmit, step, setStep }: a
                                 <FormField label="Amount Raised to Date (USD)"><Input value={data.raised_to_date} onChange={e => updateField('raised_to_date', e.target.value)} /></FormField>
                                 <FormField label="Current Round Size (USD)"><Input value={data.current_round_size} onChange={e => updateField('current_round_size', e.target.value)} /></FormField>
                                 <FormField label="Target Close Date"><Input type="date" value={data.target_close_date} onChange={e => updateField('target_close_date', e.target.value)} /></FormField>
+
+                                <div className="col-span-2">
+                                    <FormField label="Logo (optional)">
+                                        <div className="flex items-center gap-4">
+                                            {pendingLogoPreview ? (
+                                                <img src={pendingLogoPreview} alt="Logo preview" className="h-16 w-16 rounded-full object-cover border-2 border-[#576238]" />
+                                            ) : (
+                                                <div className="h-16 w-16 rounded-full bg-gray-100 border-2 border-dashed border-gray-300 flex items-center justify-center text-gray-400 text-xs">Logo</div>
+                                            )}
+                                            <label className="cursor-pointer text-sm text-[#576238] underline">
+                                                {pendingLogoPreview ? "Change logo" : "Upload logo"}
+                                                <input type="file" accept="image/*" className="hidden" onChange={(e) => {
+                                                    const f = e.target.files?.[0];
+                                                    if (f) onLogoChange(f);
+                                                }} />
+                                            </label>
+                                        </div>
+                                    </FormField>
+                                </div>
                             </div>
                         )}
 
@@ -283,6 +302,9 @@ export default function FounderDashboard() {
     const [isDeleting, setIsDeleting] = useState(false);
     const router = useRouter();
 
+    const [pendingLogoFile, setPendingLogoFile] = useState<File | null>(null);
+    const [pendingLogoPreview, setPendingLogoPreview] = useState<string | null>(null);
+
     const [newStartup, setNewStartup] = useState<Record<string, any>>({
         name: "", field: "Technology", region: "MENA", stage: "Pre-Seed", description: "",
         website_url: "", hq_location: "", date_founded: "", raised_to_date: "0",
@@ -360,7 +382,7 @@ export default function FounderDashboard() {
 
                         return {
                             id: s.sid, name: s.startupname, field: s.field, region: s.region,
-                            stage: s.startup_stage, progress, likes, isBroken,
+                            stage: s.startup_stage, progress, likes, isBroken, logo_path: s.logo_path ?? null
                         };
                     })
                 );
@@ -487,6 +509,8 @@ export default function FounderDashboard() {
         setFormStep(1);
         setValidationErrors([]);
         setExtractionSuccess(false);
+        setPendingLogoFile(null);
+        setPendingLogoPreview(null);
     };
 
     const handleTriggerClick = () => { setIsBlockDropped(true); setTimeout(() => setOpen(true), 600); };
@@ -573,10 +597,28 @@ export default function FounderDashboard() {
             };
 
             const createdStartup = await startupService.create(payload);
+
+            let finalLogoPath: string | undefined;
+            if (pendingLogoFile && createdStartup.sid) {
+                try {
+                    finalLogoPath = await startupService.uploadLogo(createdStartup.sid, pendingLogoFile);
+                } catch (e) {
+                    console.warn("Logo upload failed, continuing without logo", e);
+                }
+            }
+
             const newStartupUI = {
-                id: createdStartup.sid, name: createdStartup.startupname, field: createdStartup.field,
-                region: createdStartup.region, stage: createdStartup.startup_stage, progress: 0, likes: 0, isBroken: false
+                id: createdStartup.sid,
+                name: createdStartup.startupname,
+                field: createdStartup.field,
+                region: createdStartup.region,
+                stage: createdStartup.startup_stage,
+                progress: 0,
+                likes: 0,
+                isBroken: false,
+                logo_path: finalLogoPath ?? null,
             };
+
             const updatedList = [...startups, newStartupUI];
             setStartups(updatedList);
             localStorage.setItem(`dashboard_data_${user.id}`, JSON.stringify(updatedList));
@@ -726,7 +768,19 @@ export default function FounderDashboard() {
                                     </label>
                                 </div>
                                 <div className="flex-1 overflow-hidden relative">
-                                    <EvaluationWizard data={newStartup} setData={setNewStartup} loading={isCreating} onSubmit={handleAddStartup} step={formStep} setStep={setFormStep} />
+                                    <EvaluationWizard
+                                        data={newStartup}
+                                        setData={setNewStartup}
+                                        loading={isCreating}
+                                        onSubmit={handleAddStartup}
+                                        step={formStep}
+                                        setStep={setFormStep}
+                                        pendingLogoPreview={pendingLogoPreview}
+                                        onLogoChange={(f: File) => {
+                                            setPendingLogoFile(f);
+                                            setPendingLogoPreview(URL.createObjectURL(f));
+                                        }}
+                                    />
                                 </div>
                             </DialogContent>
                         </Dialog>
@@ -778,7 +832,19 @@ export default function FounderDashboard() {
                                         </label>
                                     </div>
                                     <div className="flex-1 overflow-hidden relative">
-                                        <EvaluationWizard data={newStartup} setData={setNewStartup} loading={isCreating} onSubmit={handleAddStartup} step={formStep} setStep={setFormStep} />
+                                        <EvaluationWizard
+                                            data={newStartup}
+                                            setData={setNewStartup}
+                                            loading={isCreating}
+                                            onSubmit={handleAddStartup}
+                                            step={formStep}
+                                            setStep={setFormStep}
+                                            pendingLogoPreview={pendingLogoPreview}
+                                            onLogoChange={(f: File) => {
+                                                setPendingLogoFile(f);
+                                                setPendingLogoPreview(URL.createObjectURL(f));
+                                            }}
+                                        />
                                     </div>
                                 </DialogContent>
                             </Dialog>
@@ -789,8 +855,19 @@ export default function FounderDashboard() {
                                 <Link href={`/founder/startup/${startup.id}`} className="block h-full">
                                     <Card className="hover:shadow-xl transition-all cursor-pointer border-2 hover:border-[#FFD95D] h-full">
                                         <CardHeader>
-                                            <CardTitle className="text-[#576238] pr-8">{startup.name}</CardTitle>
-                                            <CardDescription>{startup.field} • {startup.region}</CardDescription>
+                                            <div className="flex items-center gap-3">
+                                                {startup.logo_path ? (
+                                                    <img src={startup.logo_path} alt={startup.name} className="h-10 w-10 rounded-full object-cover border border-gray-200 shrink-0" />
+                                                ) : (
+                                                    <div className="h-10 w-10 rounded-full bg-[#576238]/10 flex items-center justify-center shrink-0">
+                                                        <span className="text-[#576238] font-bold text-sm">{startup.name?.[0]?.toUpperCase()}</span>
+                                                    </div>
+                                                )}
+                                                <div>
+                                                    <CardTitle className="text-[#576238]">{startup.name}</CardTitle>
+                                                    <CardDescription>{startup.field} • {startup.region}</CardDescription>
+                                                </div>
+                                            </div>
                                         </CardHeader>
                                         <CardContent>
                                             <div className="space-y-3">

@@ -147,6 +147,55 @@ namespace Spark2Scale_.Server.Controllers
             catch (Exception ex) { return StatusCode(500, $"AddStartup error: {ex.Message}"); }
         }
 
+        [HttpPost("{id}/upload-logo")]
+        public async Task<IActionResult> UploadLogo(string id, IFormFile file)
+        {
+            if (!Guid.TryParse(id, out Guid sId)) return BadRequest("Invalid ID format");
+            if (file == null || file.Length == 0) return BadRequest("No file provided.");
+
+            try
+            {
+                var supabaseUrl = Environment.GetEnvironmentVariable("SUPABASE_URL") ?? Environment.GetEnvironmentVariable("URL");
+                var supabaseKey = Environment.GetEnvironmentVariable("SUPABASE_KEY") ?? Environment.GetEnvironmentVariable("KEY");
+
+                using var ms = new MemoryStream();
+                await file.CopyToAsync(ms);
+                var fileBytes = ms.ToArray();
+                var ext = Path.GetExtension(file.FileName).ToLower(); // e.g. .jpg
+                var objectPath = $"{sId}{ext}";
+                var publicUrl = $"{supabaseUrl}/storage/v1/object/public/logos/{objectPath}";
+
+                using var http = new HttpClient();
+                http.DefaultRequestHeaders.Add("apikey", supabaseKey);
+                http.DefaultRequestHeaders.Add("Authorization", $"Bearer {supabaseKey}");
+
+                // Upsert so re-uploading works
+                var uploadContent = new ByteArrayContent(fileBytes);
+                uploadContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(file.ContentType);
+                var uploadReq = new HttpRequestMessage(HttpMethod.Post, $"{supabaseUrl}/storage/v1/object/logos/{objectPath}")
+                {
+                    Content = uploadContent
+                };
+                uploadReq.Headers.Add("x-upsert", "true");
+                var uploadResp = await http.SendAsync(uploadReq);
+
+                if (!uploadResp.IsSuccessStatusCode)
+                {
+                    var err = await uploadResp.Content.ReadAsStringAsync();
+                    return StatusCode((int)uploadResp.StatusCode, $"Storage upload failed: {err}");
+                }
+
+                // Update logo_path in DB
+                await _supabase.From<Startup>()
+                    .Where(s => s.Sid == sId)
+                    .Set(s => s.LogoPath, publicUrl)
+                    .Update();
+
+                return Ok(new { logo_path = publicUrl });
+            }
+            catch (Exception ex) { return StatusCode(500, $"UploadLogo error: {ex.Message}"); }
+        }
+
         [HttpGet]
         public async Task<IActionResult> GetStartups([FromQuery] string? founderId, [FromQuery] string? contributorId)
         {
