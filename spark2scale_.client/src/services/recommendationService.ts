@@ -472,11 +472,32 @@ export const recommendationService = {
             return v ?? {};
         };
 
-        // The startup form returned by startupService.getById lives in
-        // `json_response`; it may already be wrapped in `startup_evaluation`.
+        // The detailed startup form lives in `json_response` (optionally
+        // wrapped in `startup_evaluation`). When it is missing/partial, the
+        // founder may still have a lightweight Startup record — backfill
+        // company_snapshot / problem_definition from those top-level fields
+        // (startupname, startup_stage, idea_description, field, region) so the
+        // report shows real identifiers instead of "Unknown" everywhere.
         const extractStartupEval = (sd: any): any => {
-            const root = parseMaybeJson(sd?.json_response ?? sd);
-            return root?.startup_evaluation ?? root ?? {};
+            const form  = parseMaybeJson(sd?.json_response ?? null);
+            const inner = (form && (form.startup_evaluation ?? form)) || {};
+            const snap  = inner?.company_snapshot ?? {};
+            const prob  = inner?.problem_definition ?? {};
+            return {
+                ...inner,
+                company_snapshot: {
+                    ...snap,
+                    company_name:  snap.company_name  || sd?.startupname   || "Unknown",
+                    current_stage: snap.current_stage || sd?.startup_stage || "Unknown",
+                    location:      snap.location || snap.country || sd?.region || "",
+                    industry:      snap.industry || snap.sector  || sd?.field  || "",
+                },
+                problem_definition: {
+                    evidence: { customer_quotes: [] },
+                    ...prob,
+                    problem_statement: prob.problem_statement || sd?.idea_description || "Unknown",
+                },
+            };
         };
 
         // Backend StartupData.scores key  ->  evaluation-agent report/grid key
