@@ -140,6 +140,15 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content }) =
     return <div className="markdown-content">{elements}</div>;
 };
 
+// A statement is "missing" when the founder never provided one (the backend
+// echoes Unknown/N/A for absent insights). In that case the agent still
+// generates a refined version, but there is nothing to be "better" than.
+export function isMissingStatement(s: unknown): boolean {
+    const t = String(s ?? "").trim().toLowerCase();
+    return t === "" || t === "unknown" || t === "n/a" || t === "na"
+        || t === "none" || t === "null" || t === "undefined";
+}
+
 // ---------------------------------------------------------------------------
 // buildReportMarkdown — returns ONLY the strategic analysis markdown
 // (refined statements and company overview are handled separately)
@@ -309,19 +318,20 @@ export const InvestmentMemoView: React.FC<InvestmentMemoViewProps> = ({ data }) 
                                 <tbody>
                                     {refinedKeys.map((key, i) => {
                                         const val = refined[key];
+                                        const missing = isMissingStatement(val.original);
                                         return (
                                             <tr key={key} className={i % 2 === 0 ? "bg-[#F4F1EA]" : "bg-white"}>
                                                 <td className="py-2 px-3 align-top font-bold text-[#576238] border border-gray-200">
                                                     {REFINED_LABELS[key] ?? key.replace(/_/g, " ")}
                                                 </td>
                                                 <td className="py-2 px-3 align-top text-gray-500 italic border border-gray-200">
-                                                    {val.original}
+                                                    {missing ? "None" : val.original}
                                                 </td>
                                                 <td className="py-2 px-3 align-top font-medium text-gray-900 border border-gray-200">
                                                     {val.recommended}
                                                 </td>
                                                 <td className="py-2 px-3 align-top text-gray-600 border border-gray-200">
-                                                    {val.why_better}
+                                                    {missing ? "None" : val.why_better}
                                                 </td>
                                             </tr>
                                         );

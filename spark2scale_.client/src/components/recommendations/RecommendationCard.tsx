@@ -26,7 +26,7 @@ import {
 } from "@/components/ui/dialog";
 import jsPDF from "jspdf";
 import { DBRecommendation, RecommendationContent } from "@/services/recommendationService";
-import { InvestmentMemoView, buildReportMarkdown } from "./ReportView";
+import { InvestmentMemoView, buildReportMarkdown, isMissingStatement } from "./ReportView";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -328,10 +328,13 @@ function exportToPDF(contentData: any, _cardName: string, filename: string): voi
             const d = refined[key];
             const label = LABELS[key] ?? key.replace(/_/g, " ");
             pdf.setFontSize(cellFont);
+            // No original provided → keep the agent's refined text, but show
+            // "None" for the original and the why-better (nothing to compare).
+            const missing = isMissingStatement(d.original);
             const cat = pdf.splitTextToSize(label,                       catW - 2 * PADX);
-            const org = pdf.splitTextToSize(String(d.original    ?? ""), colW - 2 * PADX);
+            const org = pdf.splitTextToSize(missing ? "None" : String(d.original    ?? ""), colW - 2 * PADX);
             const rec = pdf.splitTextToSize(String(d.recommended ?? ""), colW - 2 * PADX);
-            const why = pdf.splitTextToSize(String(d.why_better  ?? ""), colW - 2 * PADX);
+            const why = pdf.splitTextToSize(missing ? "None" : String(d.why_better  ?? ""), colW - 2 * PADX);
             const maxLines = Math.max(cat.length, org.length, rec.length, why.length);
             const rowH = maxLines * 11 + 12;
 
