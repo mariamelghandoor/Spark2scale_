@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useState, useEffect, useMemo } from "react";
 import { Button } from "@/components/ui/button";
@@ -139,6 +139,11 @@ export default function SigninPage() {
                 if (text) {
                     try {
                         data = JSON.parse(text);
+                        if (data.errors) {
+                            data.message = Object.values(data.errors).flat().join(" ");
+                        } else if (data.title && !data.message) {
+                            data.message = data.title as string;
+                        }
                     } catch (parseError) {
                         console.error('JSON parse error:', parseError);
                         throw new Error('Invalid response from server. Please check if the backend is running.');
@@ -153,9 +158,14 @@ export default function SigninPage() {
                     responseText = await clonedResponse.text().catch(() => '');
                     if (responseText && !data.message && !data.detail) {
                         try {
-                            const parsedText = JSON.parse(responseText) as { message?: string; detail?: string;[key: string]: unknown };
+                            const parsedText = JSON.parse(responseText) as { message?: string; detail?: string; title?: string; errors?: Record<string, string[]>; [key: string]: unknown };
                             if (parsedText.message) data.message = parsedText.message;
                             if (parsedText.detail) data.detail = parsedText.detail;
+                            if (parsedText.errors) {
+                                data.message = Object.values(parsedText.errors).flat().join(" ");
+                            } else if (parsedText.title && !data.message) {
+                                data.message = parsedText.title;
+                            }
                         } catch {
                             // If not JSON, use as is
                         }

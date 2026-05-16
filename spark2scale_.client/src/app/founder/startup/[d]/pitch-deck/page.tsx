@@ -94,7 +94,7 @@ export default function PitchDeckPage() {
 
     // Phase
     const [phase, setPhase] = useState<PagePhase>("management");
-    D
+    
     // ── Current pitch deck ID (fetched from backend on mount) ─────────────────
     // Used to link session_report to the correct Supabase row via /extract.
     const [pitchDeckId, setPitchDeckId] = useState<string | null>(null);

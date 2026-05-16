@@ -8,11 +8,11 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { ArrowLeft, Save, Trash2, Camera, Loader2 } from "lucide-react";
-import Link from "next/link";
+// Link import removed since we are using router.back()
 import { motion } from "framer-motion";
 import { useRouter } from "next/navigation";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
-import { userService } from "@/services/userService"; // Import the service
+import { userService } from "@/services/userService";
 import { useAuth } from "@/context/AuthContext";
 
 interface ProfileData {
@@ -51,10 +51,6 @@ export default function ProfilePage() {
             try {
                 // Call Service with Dynamic ID
                 const data = await userService.getProfile(user.id);
-
-                // If the user hasn't set up a profile yet, data might be empty or default.
-                // We should handle that gracefully.
-                // Assuming data.user conforms to what we expect.
 
                 setProfile({
                     fname: data.user.fname || user.fname || "",
@@ -139,14 +135,17 @@ export default function ProfilePage() {
         <div className="min-h-screen bg-gradient-to-br from-[#F0EADC] via-[#fff] to-[#FFD95D]/20">
             {/* Top Navigation Bar */}
             <div className="border-b bg-white/80 backdrop-blur-lg sticky top-0 z-50 shadow-sm">
-                {/* 👇 Edge-to-edge width (w-full) with thicker padding (py-4) */}
                 <div className="flex w-full items-center px-6 md:px-12 py-4">
                     <div className="flex items-center gap-4">
-                        <Link href="/founder/dashboard">
-                            <Button variant="ghost" size="icon" className="hover:bg-[#576238]/10 hover:text-[#576238]">
-                                <ArrowLeft className="h-5 w-5" />
-                            </Button>
-                        </Link>
+                        {/* 👇 Updated Back Button using router.back() */}
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => router.back()}
+                            className="hover:bg-[#576238]/10 hover:text-[#576238]"
+                        >
+                            <ArrowLeft className="h-5 w-5" />
+                        </Button>
                         <div className="flex flex-col justify-center">
                             <h1 className="text-xl font-bold text-[#576238] leading-tight">
                                 User Profile

@@ -1,10 +1,10 @@
-﻿"use client";
+"use client";
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Calendar, Plus, User, ArrowLeft, ArrowRight, Info, Sparkles, FileUp, CheckCircle2 } from "lucide-react";
+import { Calendar, Plus, User, ArrowLeft, ArrowRight, Info, Sparkles, FileUp, CheckCircle2, Trash2, AlertCircle } from "lucide-react";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -47,18 +47,15 @@ const FormField = ({ label, children, hint }: { label: string; children: React.R
 // 2. THE WIZARD COMPONENT (Handles the 8 Steps & Scrolling)
 // ============================================================================
 
-function EvaluationWizard({ data, setData, loading, onSubmit }: any) {
-    const [step, setStep] = useState(1);
+function EvaluationWizard({ data, setData, loading, onSubmit, step, setStep, pendingLogoPreview, onLogoChange }: any) {
     const totalSteps = 8;
 
-    // This helper prevents the input from losing focus while typing
     const updateField = (field: string, value: any) => {
         setData((prev: any) => ({ ...prev, [field]: value }));
     };
 
     return (
         <div className="flex flex-col h-full bg-white">
-            {/* Header Area - Locked at the top */}
             <div className="px-6 py-4 border-b bg-gray-50/80 flex justify-between items-center shrink-0">
                 <div>
                     <DialogTitle className="text-base font-bold text-[#576238]">Startup Form</DialogTitle>
@@ -74,7 +71,6 @@ function EvaluationWizard({ data, setData, loading, onSubmit }: any) {
                 </div>
             </div>
 
-            {/* Scrollable Form Area */}
             <div className="flex-1 overflow-y-auto p-6">
                 <AnimatePresence mode="wait">
                     <motion.div key={step} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-8">
@@ -86,7 +82,7 @@ function EvaluationWizard({ data, setData, loading, onSubmit }: any) {
                                 <FormField label="HQ Location"><Input value={data.hq_location} onChange={e => updateField('hq_location', e.target.value)} placeholder="e.g. Egypt" /></FormField>
                                 <FormField label="Website / Demo Link"><Input value={data.website_url} onChange={e => updateField('website_url', e.target.value)} placeholder="https://..." /></FormField>
                                 <FormField label="Date Founded"><Input type="date" value={data.date_founded} onChange={e => updateField('date_founded', e.target.value)} /></FormField>
-                                <FormField label="Current Stage">
+                                <FormField label="Current Stage *">
                                     <Select value={data.stage} onValueChange={v => updateField('stage', v)}>
                                         <SelectTrigger><SelectValue /></SelectTrigger>
                                         <SelectContent><SelectItem value="Pre-Seed">Pre-Seed</SelectItem><SelectItem value="Seed">Seed</SelectItem></SelectContent>
@@ -95,6 +91,25 @@ function EvaluationWizard({ data, setData, loading, onSubmit }: any) {
                                 <FormField label="Amount Raised to Date (USD)"><Input value={data.raised_to_date} onChange={e => updateField('raised_to_date', e.target.value)} /></FormField>
                                 <FormField label="Current Round Size (USD)"><Input value={data.current_round_size} onChange={e => updateField('current_round_size', e.target.value)} /></FormField>
                                 <FormField label="Target Close Date"><Input type="date" value={data.target_close_date} onChange={e => updateField('target_close_date', e.target.value)} /></FormField>
+
+                                <div className="col-span-2">
+                                    <FormField label="Logo (optional)">
+                                        <div className="flex items-center gap-4">
+                                            {pendingLogoPreview ? (
+                                                <img src={pendingLogoPreview} alt="Logo preview" className="h-16 w-16 rounded-full object-cover border-2 border-[#576238]" />
+                                            ) : (
+                                                <div className="h-16 w-16 rounded-full bg-gray-100 border-2 border-dashed border-gray-300 flex items-center justify-center text-gray-400 text-xs">Logo</div>
+                                            )}
+                                            <label className="cursor-pointer text-sm text-[#576238] underline">
+                                                {pendingLogoPreview ? "Change logo" : "Upload logo"}
+                                                <input type="file" accept="image/*" className="hidden" onChange={(e) => {
+                                                    const f = e.target.files?.[0];
+                                                    if (f) onLogoChange(f);
+                                                }} />
+                                            </label>
+                                        </div>
+                                    </FormField>
+                                </div>
                             </div>
                         )}
 
@@ -127,8 +142,8 @@ function EvaluationWizard({ data, setData, loading, onSubmit }: any) {
                                         </Select>
                                     </FormField>
                                 </div>
-                                <FormField label="Specific Problem (1-2 sentences)"><Textarea value={data.problem_statement} onChange={e => updateField('problem_statement', e.target.value)} /></FormField>
-                                <FormField label="What is broken about current solutions?"><Textarea value={data.gap_analysis} onChange={e => updateField('gap_analysis', e.target.value)} /></FormField>
+                                <FormField label="Specific Problem (1-2 sentences) *"><Textarea value={data.problem_statement} onChange={e => updateField('problem_statement', e.target.value)} /></FormField>
+                                <FormField label="What is broken about current solutions? *"><Textarea value={data.gap_analysis} onChange={e => updateField('gap_analysis', e.target.value)} /></FormField>
                                 <FormField label="Cost of NOT solving this problem"><Input value={data.cost_of_not_solving} onChange={e => updateField('cost_of_not_solving', e.target.value)} placeholder="Time, Money, or Risk" /></FormField>
                                 <div className="grid grid-cols-2 gap-6">
                                     <FormField label="Interviews Conducted"><Input type="number" value={data.interviews_conducted} onChange={e => updateField('interviews_conducted', Number(e.target.value))} /></FormField>
@@ -141,7 +156,7 @@ function EvaluationWizard({ data, setData, loading, onSubmit }: any) {
                             <div className="space-y-6">
                                 <SectionHeader num="4" title="Product & Solution" subtitle="Detail your unique approach and defensibility." />
                                 <div className="grid grid-cols-2 gap-6">
-                                    <FormField label="Product Status">
+                                    <FormField label="Product Status *">
                                         <Select value={data.product_status} onValueChange={v => updateField('product_status', v)}>
                                             <SelectTrigger><SelectValue /></SelectTrigger>
                                             <SelectContent>
@@ -155,7 +170,7 @@ function EvaluationWizard({ data, setData, loading, onSubmit }: any) {
                                     <FormField label="Demo Link / Screenshots"><Input value={data.demo_link} onChange={e => updateField('demo_link', e.target.value)} /></FormField>
                                 </div>
                                 <FormField label="Core use case users come back for"><Input value={data.core_use_case} onChange={e => updateField('core_use_case', e.target.value)} /></FormField>
-                                <FormField label="Meaningful Differentiation"><Textarea value={data.differentiation} onChange={e => updateField('differentiation', e.target.value)} placeholder="Why are you better than alternatives?" /></FormField>
+                                <FormField label="Meaningful Differentiation *"><Textarea value={data.differentiation} onChange={e => updateField('differentiation', e.target.value)} placeholder="Why are you better than alternatives?" /></FormField>
                                 <FormField label="Hardest part to replicate (Moat)"><Input value={data.defensibility} onChange={e => updateField('defensibility', e.target.value)} /></FormField>
                             </div>
                         )}
@@ -163,7 +178,7 @@ function EvaluationWizard({ data, setData, loading, onSubmit }: any) {
                         {step === 5 && (
                             <div className="space-y-6">
                                 <SectionHeader num="5" title="Market & Scope" />
-                                <FormField label="Beachhead Market"><Input value={data.beachhead_market} onChange={e => updateField('beachhead_market', e.target.value)} /></FormField>
+                                <FormField label="Beachhead Market *"><Input value={data.beachhead_market} onChange={e => updateField('beachhead_market', e.target.value)} /></FormField>
                                 <FormField label="Estimated Market Size (USD)"><Input value={data.market_size} onChange={e => updateField('market_size', e.target.value)} /></FormField>
                                 <FormField label="Long-term Vision"><Textarea value={data.vision} onChange={e => updateField('vision', e.target.value)} placeholder="How this becomes big..." /></FormField>
                                 <FormField label="Expansion Strategy"><Textarea value={data.expansion_strategy} onChange={e => updateField('expansion_strategy', e.target.value)} placeholder="New users, products, or segments" /></FormField>
@@ -196,8 +211,8 @@ function EvaluationWizard({ data, setData, loading, onSubmit }: any) {
                                     <SectionHeader num="7" title="GTM Strategy" />
                                     <div className="grid grid-cols-2 gap-4">
                                         <FormField label="Buyer vs End User"><Input value={data.buyer_vs_user} onChange={e => updateField('buyer_vs_user', e.target.value)} /></FormField>
-                                        <FormField label="Primary Acquisition Channel"><Input value={data.acquisition_channel} onChange={e => updateField('acquisition_channel', e.target.value)} /></FormField>
-                                        <FormField label="Sales Motion">
+                                        <FormField label="Primary Acquisition Channel *"><Input value={data.acquisition_channel} onChange={e => updateField('acquisition_channel', e.target.value)} /></FormField>
+                                        <FormField label="Sales Motion *">
                                             <Select value={data.sales_motion} onValueChange={v => updateField('sales_motion', v)}>
                                                 <SelectTrigger><SelectValue /></SelectTrigger>
                                                 <SelectContent>
@@ -213,7 +228,7 @@ function EvaluationWizard({ data, setData, loading, onSubmit }: any) {
                                 <div>
                                     <SectionHeader num="8" title="Business Model" />
                                     <div className="grid grid-cols-2 gap-4">
-                                        <FormField label="Pricing Model"><Input value={data.pricing_model} onChange={e => updateField('pricing_model', e.target.value)} /></FormField>
+                                        <FormField label="Pricing Model *"><Input value={data.pricing_model} onChange={e => updateField('pricing_model', e.target.value)} /></FormField>
                                         <FormField label="Gross Margin %"><Input value={data.gross_margin} onChange={e => updateField('gross_margin', e.target.value)} /></FormField>
                                         <FormField label="Monthly Burn ($)"><Input value={data.monthly_burn} onChange={e => updateField('monthly_burn', e.target.value)} /></FormField>
                                         <FormField label="Runway (Months)"><Input value={data.runway} onChange={e => updateField('runway', e.target.value)} /></FormField>
@@ -236,13 +251,12 @@ function EvaluationWizard({ data, setData, loading, onSubmit }: any) {
                 </AnimatePresence>
             </div>
 
-            {/* Footer Actions - Locked at the bottom */}
             <div className="p-6 border-t bg-gray-50 flex justify-between items-center shrink-0">
-                <Button variant="ghost" onClick={() => setStep(s => s - 1)} disabled={step === 1}>
+                <Button variant="ghost" onClick={() => setStep((s: number) => s - 1)} disabled={step === 1}>
                     <ArrowLeft className="mr-2 h-4 w-4" /> Back
                 </Button>
                 {step < totalSteps
-                    ? <Button onClick={() => setStep(s => s + 1)} className="bg-[#576238] hover:bg-[#6b7c3f]">Next Step <ArrowRight className="ml-2 h-4 w-4" /></Button>
+                    ? <Button onClick={() => setStep((s: number) => s + 1)} className="bg-[#576238] hover:bg-[#6b7c3f]">Next Step <ArrowRight className="ml-2 h-4 w-4" /></Button>
                     : <Button onClick={onSubmit} disabled={loading} className="bg-[#576238] hover:bg-[#6b7c3f] px-8">{loading ? "Submitting..." : "Finish & Create Startup"}</Button>
                 }
             </div>
@@ -254,6 +268,19 @@ function EvaluationWizard({ data, setData, loading, onSubmit }: any) {
 // 3. MAIN DASHBOARD PAGE
 // ============================================================================
 
+const REQUIRED_FIELDS = [
+    { id: "name", name: "Company Name", step: 1 },
+    { id: "stage", name: "Current Stage", step: 1 },
+    { id: "problem_statement", name: "Specific Problem (1-2 sentences)", step: 3 },
+    { id: "gap_analysis", name: "What is broken about current solutions?", step: 3 },
+    { id: "product_status", name: "Product Status", step: 4 },
+    { id: "differentiation", name: "Meaningful differentiation", step: 4 },
+    { id: "beachhead_market", name: "Beachhead market", step: 5 },
+    { id: "acquisition_channel", name: "Primary acquisition channel", step: 7 },
+    { id: "sales_motion", name: "Sales motion", step: 7 },
+    { id: "pricing_model", name: "Pricing model", step: 7 },
+];
+
 export default function FounderDashboard() {
     const { user, loading: authLoading } = useAuth();
     const [userName, setUserName] = useState("");
@@ -263,11 +290,22 @@ export default function FounderDashboard() {
     const [isCreating, setIsCreating] = useState(false);
     const [isExtracting, setIsExtracting] = useState(false);
     const [extractionSuccess, setExtractionSuccess] = useState(false);
+
+    // Dialog and Form States
     const [open, setOpen] = useState(false);
+    const [formStep, setFormStep] = useState(1);
+    const [showCancelAlert, setShowCancelAlert] = useState(false);
+    const [validationErrors, setValidationErrors] = useState<{ id: string, name: string, step: number }[]>([]);
+
     const [isBlockDropped, setIsBlockDropped] = useState(false);
+    const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+    const [isDeleting, setIsDeleting] = useState(false);
     const router = useRouter();
 
-    const [newStartup, setNewStartup] = useState({
+    const [pendingLogoFile, setPendingLogoFile] = useState<File | null>(null);
+    const [pendingLogoPreview, setPendingLogoPreview] = useState<string | null>(null);
+
+    const [newStartup, setNewStartup] = useState<Record<string, any>>({
         name: "", field: "Technology", region: "MENA", stage: "Pre-Seed", description: "",
         website_url: "", hq_location: "", date_founded: "", raised_to_date: "0",
         current_round_size: "0", target_close_date: "",
@@ -278,9 +316,9 @@ export default function FounderDashboard() {
         beachhead_market: "", market_size: "", vision: "", expansion_strategy: "",
         active_users: 0, design_partners: "", early_revenue: "0",
         rev_growth: "0", retention_metrics: "", paying_customers: 0, acv: "0",
-        buyer_vs_user: "", acquisition_channel: "Social Media", sales_motion: "Self-serve",
+        buyer_vs_user: "", acquisition_channel: "", sales_motion: "Self-serve",
         avg_sales_cycle: "", deal_closer: "Founder",
-        pricing_model: "Subscription", avg_price: "0", gross_margin: "0", monthly_burn: "0", runway: "0",
+        pricing_model: "", avg_price: "0", gross_margin: "0", monthly_burn: "0", runway: "0",
         category_definition: "", primary_risk: "", round_milestones: "", funds_priorities: "", existing_investors: ""
     });
 
@@ -344,7 +382,7 @@ export default function FounderDashboard() {
 
                         return {
                             id: s.sid, name: s.startupname, field: s.field, region: s.region,
-                            stage: s.startup_stage, progress, likes, isBroken,
+                            stage: s.startup_stage, progress, likes, isBroken, logo_path: s.logo_path ?? null
                         };
                     })
                 );
@@ -451,43 +489,63 @@ export default function FounderDashboard() {
         }
     };
 
-    const resetForm = () => setNewStartup({
-        name: "", field: "Technology", region: "MENA", stage: "Pre-Seed", description: "",
-        website_url: "", hq_location: "", date_founded: "", raised_to_date: "0",
-        current_round_size: "0", target_close_date: "",
-        full_time_start: "", shipments: "",
-        customer_profile: "", problem_statement: "", current_solution: "", gap_analysis: "",
-        problem_frequency: "Daily", cost_of_not_solving: "", interviews_conducted: 0, customer_quotes: "",
-        product_status: "MVP", demo_link: "", core_use_case: "", differentiation: "", defensibility: "",
-        beachhead_market: "", market_size: "", vision: "", expansion_strategy: "",
-        active_users: 0, design_partners: "", early_revenue: "0",
-        rev_growth: "0", retention_metrics: "", paying_customers: 0, acv: "0",
-        buyer_vs_user: "", acquisition_channel: "Social Media", sales_motion: "Self-serve",
-        avg_sales_cycle: "", deal_closer: "Founder",
-        pricing_model: "Subscription", avg_price: "0", gross_margin: "0", monthly_burn: "0", runway: "0",
-        category_definition: "", primary_risk: "", round_milestones: "", funds_priorities: "", existing_investors: ""
-    });
+    const resetForm = () => {
+        setNewStartup({
+            name: "", field: "Technology", region: "MENA", stage: "Pre-Seed", description: "",
+            website_url: "", hq_location: "", date_founded: "", raised_to_date: "0",
+            current_round_size: "0", target_close_date: "",
+            full_time_start: "", shipments: "",
+            customer_profile: "", problem_statement: "", current_solution: "", gap_analysis: "",
+            problem_frequency: "Daily", cost_of_not_solving: "", interviews_conducted: 0, customer_quotes: "",
+            product_status: "MVP", demo_link: "", core_use_case: "", differentiation: "", defensibility: "",
+            beachhead_market: "", market_size: "", vision: "", expansion_strategy: "",
+            active_users: 0, design_partners: "", early_revenue: "0",
+            rev_growth: "0", retention_metrics: "", paying_customers: 0, acv: "0",
+            buyer_vs_user: "", acquisition_channel: "", sales_motion: "Self-serve",
+            avg_sales_cycle: "", deal_closer: "Founder",
+            pricing_model: "", avg_price: "0", gross_margin: "0", monthly_burn: "0", runway: "0",
+            category_definition: "", primary_risk: "", round_milestones: "", funds_priorities: "", existing_investors: ""
+        });
+        setFormStep(1);
+        setValidationErrors([]);
+        setExtractionSuccess(false);
+        setPendingLogoFile(null);
+        setPendingLogoPreview(null);
+    };
 
     const handleTriggerClick = () => { setIsBlockDropped(true); setTimeout(() => setOpen(true), 600); };
 
     const handleOpenChange = (isOpen: boolean) => {
-        setOpen(isOpen);
         if (!isOpen) {
-            setExtractionSuccess(false);
-            if (startups.length === 0) setTimeout(() => setIsBlockDropped(false), 200);
+            if (validationErrors.length > 0) return;
+            setShowCancelAlert(true);
+        } else {
+            setOpen(true);
+            setFormStep(1); // Ensure it resets to step 1 on fresh open
         }
     };
 
+    const confirmCancelCreation = () => {
+        setShowCancelAlert(false);
+        setOpen(false);
+        resetForm();
+        if (startups.length === 0) setTimeout(() => setIsBlockDropped(false), 200);
+    };
+
     const handleAddStartup = async () => {
-        if (!newStartup.name || !newStartup.field || !newStartup.region || !newStartup.stage) {
-            alert("Please fill in Name, Region, Stage, and Field."); return;
+        // Run field validation based on the required fields map
+        const errors = REQUIRED_FIELDS.filter(f => !newStartup[f.id] || String(newStartup[f.id]).trim() === "");
+
+        if (errors.length > 0) {
+            setValidationErrors(errors);
+            return; // Stop submission and show error alert
         }
+
         if (!user?.id) { alert("User not authenticated."); return; }
         setIsCreating(true);
         try {
             const desc = newStartup.problem_statement?.trim() || newStartup.description || "None";
 
-            // Your exact nested structure remains unchanged
             const structuredJson = {
                 startup_evaluation: {
                     meta_data: { form_type: `${newStartup.stage} Evaluation`, last_updated: new Date().toISOString().split("T")[0] },
@@ -539,10 +597,28 @@ export default function FounderDashboard() {
             };
 
             const createdStartup = await startupService.create(payload);
+
+            let finalLogoPath: string | undefined;
+            if (pendingLogoFile && createdStartup.sid) {
+                try {
+                    finalLogoPath = await startupService.uploadLogo(createdStartup.sid, pendingLogoFile);
+                } catch (e) {
+                    console.warn("Logo upload failed, continuing without logo", e);
+                }
+            }
+
             const newStartupUI = {
-                id: createdStartup.sid, name: createdStartup.startupname, field: createdStartup.field,
-                region: createdStartup.region, stage: createdStartup.startup_stage, progress: 0, likes: 0, isBroken: false
+                id: createdStartup.sid,
+                name: createdStartup.startupname,
+                field: createdStartup.field,
+                region: createdStartup.region,
+                stage: createdStartup.startup_stage,
+                progress: 0,
+                likes: 0,
+                isBroken: false,
+                logo_path: finalLogoPath ?? null,
             };
+
             const updatedList = [...startups, newStartupUI];
             setStartups(updatedList);
             localStorage.setItem(`dashboard_data_${user.id}`, JSON.stringify(updatedList));
@@ -552,11 +628,92 @@ export default function FounderDashboard() {
         finally { setIsCreating(false); }
     };
 
+    const handleDeleteStartup = async (e: React.MouseEvent, id: string) => {
+        e.preventDefault();
+        e.stopPropagation();
+
+        setIsDeleting(true);
+        try {
+            await startupService.delete(id);
+            const updatedList = startups.filter(s => s.id !== id);
+            setStartups(updatedList);
+            if (user?.id) localStorage.setItem(`dashboard_data_${user.id}`, JSON.stringify(updatedList));
+            setConfirmDeleteId(null);
+        } catch (error) {
+            console.error("Error deleting startup:", error);
+            alert("Failed to delete startup. Please try again.");
+        } finally {
+            setIsDeleting(false);
+        }
+    };
+
     if (authLoading) return <div className="h-screen w-full flex items-center justify-center bg-[#F0EADC]"><LegoLoader /></div>;
 
     return (
-        <div className="h-screen w-full overflow-y-auto bg-gradient-to-br from-[#F0EADC] via-[#fff] to-[#FFD95D]/20">
-            <div className="border-b bg-white/80 backdrop-blur-lg sticky top-0 z-50 shadow-sm">
+        <div className="h-screen w-full overflow-y-auto bg-gradient-to-br from-[#F0EADC] via-[#fff] to-[#FFD95D]/20 relative">
+            {/* Validations Alert Dialog */}
+            <Dialog open={validationErrors.length > 0} onOpenChange={(open) => !open && setValidationErrors([])}>
+                <DialogContent className="sm:max-w-md bg-white border border-[#576238]">
+                    <DialogHeader>
+                        <div className="flex items-center gap-3 mb-2">
+                            <AlertCircle className="h-7 w-7 text-[#FFD95D]" />
+                            <DialogTitle className="text-xl text-[#576238]">Missing Required Info</DialogTitle>
+                        </div>
+                        <DialogDescription className="text-gray-600">
+                            You're almost there! We just need you to complete a few more fields to build your investor-ready profile.
+                        </DialogDescription>
+                    </DialogHeader>
+
+                    <div className="max-h-[40vh] overflow-y-auto mt-4 space-y-4 pr-2">
+                        {[1, 2, 3, 4, 5, 6, 7, 8].map(stepNum => {
+                            const stepErrors = validationErrors.filter(e => e.step === stepNum);
+                            if (stepErrors.length === 0) return null;
+                            return (
+                                <div key={stepNum} className="bg-gray-50/80 p-4 rounded-xl border border-gray-100 shadow-sm">
+                                    <div className="flex items-center justify-between mb-3">
+                                        <h4 className="font-bold text-[#576238] text-sm uppercase tracking-wider">
+                                            Step {stepNum}
+                                        </h4>
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            className="h-7 text-xs bg-white hover:bg-[#576238]/10 hover:text-[#576238]"
+                                            onClick={() => { setFormStep(stepNum); setValidationErrors([]); }}
+                                        >
+                                            Go to Step
+                                        </Button>
+                                    </div>
+                                    <ul className="list-disc pl-5 text-sm text-gray-700 space-y-1">
+                                        {stepErrors.map(e => <li key={e.id}>{e.name}</li>)}
+                                    </ul>
+                                </div>
+                            )
+                        })}
+                    </div>
+
+                    <div className="flex justify-end mt-4 pt-2 border-t">
+                        <Button onClick={() => setValidationErrors([])} className="bg-[#576238] hover:bg-[#6b7c3f]">Got it</Button>
+                    </div>
+                </DialogContent>
+            </Dialog>
+
+            {/* Cancel Edit Alert Dialog */}
+            <Dialog open={showCancelAlert} onOpenChange={setShowCancelAlert}>
+                <DialogContent className="sm:max-w-sm bg-white border border-gray-200">
+                    <DialogHeader>
+                        <DialogTitle className="text-lg text-gray-900">Discard Startup?</DialogTitle>
+                        <DialogDescription className="text-gray-600 mt-2">
+                            Are you sure you don't want to continue making this startup? Any unsaved progress will be completely lost.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="flex justify-end gap-3 mt-4">
+                        <Button variant="outline" className="border-gray-200" onClick={() => setShowCancelAlert(false)}>No, continue editing</Button>
+                        <Button className="bg-red-600 hover:bg-red-700 text-white" onClick={confirmCancelCreation}>Yes, discard</Button>
+                    </div>
+                </DialogContent>
+            </Dialog>
+
+            <div className="border-b bg-white/80 backdrop-blur-lg sticky top-0 z-40 shadow-sm">
                 <div className="flex w-full items-center justify-between px-6 md:px-12 py-4">
                     <h1 className="text-xl font-bold text-[#576238] leading-tight">Hello {userName} 👋</h1>
                     <div className="flex items-center gap-2">
@@ -574,8 +731,13 @@ export default function FounderDashboard() {
                         <Dialog open={open} onOpenChange={handleOpenChange}>
                             <DialogTrigger asChild><Button className="bg-[#576238] hover:bg-[#6b7c3f]"><Plus className="mr-2 h-4 w-4" /> Add Startup</Button></DialogTrigger>
 
-                            {/* Inline the DialogContent here so it has access to Dashboard state but controls layout perfectly */}
-                            <DialogContent className="sm:max-w-[850px] w-[95vw] h-[90vh] p-0 flex flex-col overflow-hidden bg-white border-none shadow-2xl rounded-2xl">
+                            <DialogContent className="sm:max-w-[850px] w-[95vw] h-[90vh] p-0 flex flex-col overflow-hidden bg-white border-none shadow-2xl rounded-2xl"
+                                onInteractOutside={(e) => {
+                                    e.preventDefault();
+                                    if (validationErrors.length === 0) {
+                                        handleOpenChange(false);
+                                    }
+                                }}>
                                 <div className="bg-[#576238] px-6 py-5 shrink-0">
                                     <div className="flex items-center gap-2 mb-3">
                                         <Sparkles className="h-5 w-5 text-[#FFD95D]" />
@@ -606,7 +768,19 @@ export default function FounderDashboard() {
                                     </label>
                                 </div>
                                 <div className="flex-1 overflow-hidden relative">
-                                    <EvaluationWizard data={newStartup} setData={setNewStartup} loading={isCreating} onSubmit={handleAddStartup} />
+                                    <EvaluationWizard
+                                        data={newStartup}
+                                        setData={setNewStartup}
+                                        loading={isCreating}
+                                        onSubmit={handleAddStartup}
+                                        step={formStep}
+                                        setStep={setFormStep}
+                                        pendingLogoPreview={pendingLogoPreview}
+                                        onLogoChange={(f: File) => {
+                                            setPendingLogoFile(f);
+                                            setPendingLogoPreview(URL.createObjectURL(f));
+                                        }}
+                                    />
                                 </div>
                             </DialogContent>
                         </Dialog>
@@ -621,7 +795,13 @@ export default function FounderDashboard() {
                         <>
                             <LegoAddTrigger isDropped={isBlockDropped} onTrigger={handleTriggerClick} />
                             <Dialog open={open} onOpenChange={handleOpenChange}>
-                                <DialogContent className="sm:max-w-[850px] w-[95vw] h-[90vh] p-0 flex flex-col overflow-hidden bg-white border-none shadow-2xl rounded-2xl">
+                                <DialogContent className="sm:max-w-[850px] w-[95vw] h-[90vh] p-0 flex flex-col overflow-hidden bg-white border-none shadow-2xl rounded-2xl"
+                                    onInteractOutside={(e) => {
+                                        e.preventDefault();
+                                        if (validationErrors.length === 0) {
+                                            handleOpenChange(false);
+                                        }
+                                    }}>
                                     <div className="bg-[#576238] px-6 py-5 shrink-0">
                                         <div className="flex items-center gap-2 mb-3">
                                             <Sparkles className="h-5 w-5 text-[#FFD95D]" />
@@ -652,19 +832,42 @@ export default function FounderDashboard() {
                                         </label>
                                     </div>
                                     <div className="flex-1 overflow-hidden relative">
-                                        <EvaluationWizard data={newStartup} setData={setNewStartup} loading={isCreating} onSubmit={handleAddStartup} />
+                                        <EvaluationWizard
+                                            data={newStartup}
+                                            setData={setNewStartup}
+                                            loading={isCreating}
+                                            onSubmit={handleAddStartup}
+                                            step={formStep}
+                                            setStep={setFormStep}
+                                            pendingLogoPreview={pendingLogoPreview}
+                                            onLogoChange={(f: File) => {
+                                                setPendingLogoFile(f);
+                                                setPendingLogoPreview(URL.createObjectURL(f));
+                                            }}
+                                        />
                                     </div>
                                 </DialogContent>
                             </Dialog>
                         </>
                     ) : (
                         startups.map((startup, index) => (
-                            <motion.div key={startup.id || index} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.1 }}>
-                                <Link href={`/founder/startup/${startup.id}`}>
-                                    <Card className="hover:shadow-xl transition-all cursor-pointer border-2 hover:border-[#FFD95D]">
+                            <motion.div key={startup.id || index} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.1 }} className="relative group">
+                                <Link href={`/founder/startup/${startup.id}`} className="block h-full">
+                                    <Card className="hover:shadow-xl transition-all cursor-pointer border-2 hover:border-[#FFD95D] h-full">
                                         <CardHeader>
-                                            <CardTitle className="text-[#576238]">{startup.name}</CardTitle>
-                                            <CardDescription>{startup.field} • {startup.region}</CardDescription>
+                                            <div className="flex items-center gap-3">
+                                                {startup.logo_path ? (
+                                                    <img src={startup.logo_path} alt={startup.name} className="h-10 w-10 rounded-full object-cover border border-gray-200 shrink-0" />
+                                                ) : (
+                                                    <div className="h-10 w-10 rounded-full bg-[#576238]/10 flex items-center justify-center shrink-0">
+                                                        <span className="text-[#576238] font-bold text-sm">{startup.name?.[0]?.toUpperCase()}</span>
+                                                    </div>
+                                                )}
+                                                <div>
+                                                    <CardTitle className="text-[#576238]">{startup.name}</CardTitle>
+                                                    <CardDescription>{startup.field} • {startup.region}</CardDescription>
+                                                </div>
+                                            </div>
                                         </CardHeader>
                                         <CardContent>
                                             <div className="space-y-3">
@@ -685,9 +888,34 @@ export default function FounderDashboard() {
                                         </CardContent>
                                     </Card>
                                 </Link>
+                                <AnimatePresence mode="wait">
+                                    {confirmDeleteId === startup.id ? (
+                                        <motion.div
+                                            key="confirm"
+                                            initial={{ opacity: 0, scale: 0.95 }}
+                                            animate={{ opacity: 1, scale: 1 }}
+                                            exit={{ opacity: 0, scale: 0.95 }}
+                                            className="absolute top-4 right-4 bg-red-50 p-3 rounded-xl border-2 border-red-200 shadow-lg z-20 flex flex-col items-end gap-2"
+                                        >
+                                            <p className="text-xs text-red-700 font-bold mb-1">Delete startup?</p>
+                                            <div className="flex gap-2">
+                                                <Button size="sm" variant="outline" className="h-7 text-xs bg-white hover:bg-gray-100 border-red-200" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setConfirmDeleteId(null); }}>No</Button>
+                                                <Button size="sm" className="h-7 text-xs bg-red-600 hover:bg-red-700 text-white" onClick={(e) => handleDeleteStartup(e, startup.id)} disabled={isDeleting}>{isDeleting ? "..." : "Yes"}</Button>
+                                            </div>
+                                        </motion.div>
+                                    ) : (
+                                        <button
+                                            onClick={(e) => { e.preventDefault(); e.stopPropagation(); setConfirmDeleteId(startup.id); }}
+                                            className="absolute top-4 right-4 p-2 bg-white/90 hover:bg-red-100 text-gray-400 hover:text-red-600 rounded-full opacity-0 group-hover:opacity-100 transition-all z-10 shadow-sm border border-gray-200"
+                                            title="Delete Startup"
+                                        >
+                                            <Trash2 className="h-4 w-4" />
+                                        </button>
+                                    )}
+                                </AnimatePresence>
                             </motion.div>
                         ))
-                    )}  
+                    )}
                 </div>
             </main>
         </div>

@@ -220,6 +220,7 @@ namespace Spark2Scale_.Server.Controllers
                     {
                         var errorBody = await response.Content.ReadAsStringAsync();
                         Console.WriteLine($"[SignUp] Admin.CreateUser failed: {response.StatusCode} - {errorBody}");
+<<<<<<< HEAD
 
                         // Detect "email already registered" responses from Supabase Admin API.
                         // Supabase returns 422 with error_code "email_exists" or messages like
@@ -233,6 +234,12 @@ namespace Spark2Scale_.Server.Controllers
                             (response.StatusCode == System.Net.HttpStatusCode.UnprocessableEntity && lowerBody.Contains("email"));
 
                         if (looksLikeDuplicate)
+=======
+                        
+                        // Fallback to standard SignUp if Admin fails (e.g. if key is wrong, though it shouldn't be)
+                        // Or return error if user already exists
+                        if (errorBody.Contains("generic") || response.StatusCode == System.Net.HttpStatusCode.BadRequest) 
+>>>>>>> 850e1fe6b540b3fad57b55956662cb73b9d7c0b5
                         {
                             return Conflict(new { message = "An account with this email already exists. Please sign in instead." });
                         }
@@ -241,7 +248,26 @@ namespace Spark2Scale_.Server.Controllers
                         {
                             return BadRequest(new { message = "Signup failed. Please check your details and try again." });
                         }
-                        throw new Exception($"Admin Create Failed: {errorBody}");
+                        
+                        Console.WriteLine("[SignUp] Falling back to standard SignUp because Admin API failed.");
+                        try 
+                        {
+                            var authSession = await _supabase.Auth.SignUp(email, request.Password, options);
+                            if (authSession?.User != null)
+                            {
+                                authUserId = authSession.User.Id;
+                                accessToken = authSession.AccessToken;
+                                Console.WriteLine($"[SignUp] Fallback standard SignUp success. User ID: {authUserId}");
+                            }
+                            else
+                            {
+                                throw new Exception($"Admin Create Failed: {errorBody}");
+                            }
+                        } 
+                        catch (Exception fallbackEx) 
+                        {
+                            throw new Exception($"Standard SignUp Fallback Failed: {fallbackEx.Message}. Original Admin Error: {errorBody}");
+                        }
                     }
                 }
                 

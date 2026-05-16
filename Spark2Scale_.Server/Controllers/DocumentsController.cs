@@ -427,7 +427,7 @@ namespace Spark2Scale_.Server.Controllers
         }
 
         [HttpPost("{id}/generate-swot")]
-        public async Task<IActionResult> GenerateSwot(string id)
+        public async Task<IActionResult> GenerateSwot(string id, [FromBody] GenerateDocumentDto input = null)
         {
             Console.WriteLine($"\n========== START GENERATE SWOT ==========");
             Console.WriteLine($"[GenerateSwot] Invoked with ID: {id}");
@@ -494,7 +494,8 @@ namespace Spark2Scale_.Server.Controllers
                         idea_name = startup.StartupName ?? "No name",
                         idea_description = startup.IdeaDescription ?? "No description",
                         region = startup.Region ?? "Global",
-                        market_research = marketResearchPayload
+                        market_research = marketResearchPayload,
+                        user_comment = input?.Comment
                     };
 
                     Console.WriteLine($"[GenerateSwot] External Payload: idea_name='{externalPayload.idea_name}' region='{externalPayload.region}'");
@@ -628,7 +629,7 @@ namespace Spark2Scale_.Server.Controllers
         }
 
         [HttpPost("{id}/generate-competitor-matrix")]
-        public async Task<IActionResult> GenerateCompetitorMatrix(string id)
+        public async Task<IActionResult> GenerateCompetitorMatrix(string id, [FromBody] GenerateDocumentDto input = null)
         {
             Console.WriteLine($"\n========== START GENERATE COMPETITOR MATRIX ==========");
             Console.WriteLine($"[GenerateCompetitorMatrix] Invoked with ID: {id}");
@@ -689,7 +690,8 @@ namespace Spark2Scale_.Server.Controllers
                         idea_name = startup.StartupName ?? "No name",
                         idea_description = startup.IdeaDescription ?? "No description",
                         region = startup.Region ?? "Global",
-                        market_research = marketResearchPayload
+                        market_research = marketResearchPayload,
+                        user_comment = input?.Comment
                     };
 
                     Console.WriteLine($"[GenerateCompetitorMatrix] External Payload: idea_name='{externalPayload.idea_name}' region='{externalPayload.region}'");
@@ -1350,10 +1352,15 @@ namespace Spark2Scale_.Server.Controllers
         }
     }
 
-        public class SaveAIResponseDto
+    public class SaveAIResponseDto
     {
         public Guid StartupId { get; set; }
         public string? Type { get; set; }
         public object Content { get; set; }
+    }
+
+    public class GenerateDocumentDto
+    {
+        public string? Comment { get; set; }
     }
 }

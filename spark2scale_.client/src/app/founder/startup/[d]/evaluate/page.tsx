@@ -3,7 +3,10 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { ArrowLeft, Download, PlayCircle, CheckCircle, FileText, Loader2, Trash2, AlertTriangle, Target, Info } from "lucide-react";
+import {
+    ArrowLeft, Download, PlayCircle, CheckCircle, FileText,
+    Loader2, Trash2, AlertTriangle, Target, Info, Sparkles, Activity, Bot
+} from "lucide-react";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { useParams } from "next/navigation";
@@ -421,23 +424,63 @@ export default function EvaluatePage() {
 
                     {/* Empty State */}
                     {!evalDoc && userRole === 'Founder' && !isGenerating && (
-                        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="max-w-4xl mx-auto">
-                            <Card className="mb-6 border-2 border-[#FFD95D]">
-                                <CardHeader className="bg-gradient-to-r from-[#FFD95D]/20 to-transparent">
-                                    <CardTitle className="text-[#576238]">Run New Evaluation</CardTitle>
-                                    <CardDescription>Get an AI-powered assessment of your startup's current state</CardDescription>
-                                </CardHeader>
-                                <CardContent className="pt-6">
-                                    <div className="text-center space-y-4">
-                                        <div className="text-6xl mb-4">🎯</div>
-                                        <p className="text-muted-foreground mb-6">Our AI will analyze your documents, market research, and business model.</p>
-                                        <Button onClick={handleRunEvaluation} disabled={isGenerating} className="bg-[#576238] hover:bg-[#6b7c3f] min-w-[250px]" size="lg">
-                                            {isGenerating ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <PlayCircle className="mr-2 h-5 w-5" />}
-                                            {isGenerating ? "Analyzing Data..." : "Run Evaluation"}
-                                        </Button>
+                        <motion.div
+                            initial={{ opacity: 0, y: 20 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ duration: 0.5, ease: "easeOut" }}
+                            className="max-w-3xl mx-auto mt-12 md:mt-20"
+                        >
+                            <div className="relative overflow-hidden rounded-[2rem] bg-white shadow-xl ring-1 ring-slate-900/5 transition-all hover:shadow-2xl">
+                                {/* Decorative Background Glows */}
+                                <div className="pointer-events-none absolute -right-20 -top-20 h-64 w-64 rounded-full bg-[#FFD95D]/20 blur-3xl" />
+                                <div className="pointer-events-none absolute -left-20 -bottom-20 h-64 w-64 rounded-full bg-[#576238]/10 blur-3xl" />
+
+                                <div className="relative p-10 md:p-16 text-center flex flex-col items-center">
+                                    {/* Refined Icon Container */}
+                                    <div className="mb-8 flex h-24 w-24 items-center justify-center rounded-3xl bg-gradient-to-br from-[#576238]/10 to-[#576238]/5 shadow-inner ring-1 ring-[#576238]/20">
+                                        <Target className="h-10 w-10 text-[#576238]" />
                                     </div>
-                                </CardContent>
-                            </Card>
+
+                                    <h2 className="mb-4 text-3xl font-extrabold tracking-tight text-slate-900 md:text-4xl">
+                                        Evaluate Your Startup
+                                    </h2>
+
+                                    <p className="mb-10 max-w-lg text-lg text-slate-600 leading-relaxed">
+                                        Get a comprehensive, AI-driven assessment of your business model, market readiness, and pitch documents. Identify your blind spots before investors do.
+                                    </p>
+
+                                    {/* Feature Pills */}
+                                    <div className="mb-12 flex flex-wrap justify-center gap-3 text-sm font-medium text-slate-700">
+                                        <div className="flex items-center gap-2 rounded-full bg-slate-50 px-4 py-2 ring-1 ring-slate-200">
+                                            <Bot className="h-4 w-4 text-[#576238]" /> Deep Analysis
+                                        </div>
+                                        <div className="flex items-center gap-2 rounded-full bg-slate-50 px-4 py-2 ring-1 ring-slate-200">
+                                            <Activity className="h-4 w-4 text-[#576238]" /> Objective Scoring
+                                        </div>
+                                        <div className="flex items-center gap-2 rounded-full bg-slate-50 px-4 py-2 ring-1 ring-slate-200">
+                                            <AlertTriangle className="h-4 w-4 text-[#576238]" /> Risk Identification
+                                        </div>
+                                    </div>
+
+                                    {/* Modern Prominent Button */}
+                                    <Button
+                                        onClick={handleRunEvaluation}
+                                        disabled={isGenerating}
+                                        className="group relative h-14 overflow-hidden rounded-full bg-[#576238] px-10 text-base font-semibold text-white transition-all hover:bg-[#4a532f] hover:scale-105 hover:shadow-xl hover:shadow-[#576238]/20"
+                                    >
+                                        <span className="relative z-10 flex items-center gap-2">
+                                            {isGenerating ? (
+                                                <Loader2 className="h-5 w-5 animate-spin" />
+                                            ) : (
+                                                <Sparkles className="h-5 w-5 transition-transform group-hover:rotate-12" />
+                                            )}
+                                            {isGenerating ? "Analyzing Your Data..." : "Run AI Evaluation"}
+                                        </span>
+                                        {/* Hover Shine Effect */}
+                                        <div className="absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/20 to-transparent transition-transform duration-1000 group-hover:translate-x-full" />
+                                    </Button>
+                                </div>
+                            </div>
                         </motion.div>
                     )}
 
