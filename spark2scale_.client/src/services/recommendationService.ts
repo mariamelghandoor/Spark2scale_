@@ -458,7 +458,12 @@ export const recommendationService = {
     // same real startup data (NOT a static memo) if the API is unavailable.
     // ---------------------------------------------------------
     async generateAIRecommendation(startupData?: any, evaluationContent?: any): Promise<RecommendationContent | null> {
-        const AI_AGENT_URL = "https://spark2scale-ai-server.azurewebsites.net/api/v1/recommend";
+        // NOTE: must match the host every other AI service uses
+        // (spark2scale-ai-api-server). The old "spark2scale-ai-server" host
+        // does not resolve, which silently forced the offline fallback.
+        const AI_AGENT_URL =
+            (process.env.NEXT_PUBLIC_PYTHON_API_URL || "https://spark2scale-ai-api-server.azurewebsites.net")
+                .replace(/\/+$/, "") + "/api/v1/recommend";
         const requestId    = `req_${Date.now()}`;
 
         // ── Helpers ──────────────────────────────────────────────────
