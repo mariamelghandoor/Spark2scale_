@@ -57,6 +57,21 @@ export default function AuthCallbackPage() {
                     console.log('=== GOOGLE SIGN-IN CALLBACK DETECTED ===');
                     endpoint = `${cleanApiUrl}/api/Auth/google-signin`;
                     body = { AccessToken: accessToken };
+
+                    // If the user came from the signup page, they picked a userType
+                    // (founder/investor/contributor) before the OAuth redirect.
+                    // Forward it so the backend creates the right profile + role.
+                    const signupCtxStr = localStorage.getItem('googleSignupContext');
+                    if (signupCtxStr) {
+                        try {
+                            const ctx = JSON.parse(signupCtxStr) as { userType?: string; tags?: string[] };
+                            if (ctx.userType) body.UserType = ctx.userType;
+                            if (Array.isArray(ctx.tags) && ctx.tags.length > 0) body.Tags = ctx.tags;
+                        } catch (e) {
+                            console.error('Failed to parse googleSignupContext:', e);
+                        }
+                        localStorage.removeItem('googleSignupContext');
+                    }
                 } else {
                     console.log('=== EMAIL VERIFICATION REQUEST ===');
                     console.log('Type:', type);

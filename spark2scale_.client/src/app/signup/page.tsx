@@ -43,6 +43,13 @@ function SignupContent() {
         }
 
         try {
+            // Persist the chosen profile type (and investor tags) so the OAuth callback
+            // can hand it to the backend when the new profile is created.
+            localStorage.setItem('googleSignupContext', JSON.stringify({
+                userType: formData.userType || 'founder',
+                tags: formData.userType === 'investor' ? formData.tags : [],
+            }));
+
             const { error } = await supabase.auth.signInWithOAuth({
                 provider: 'google',
                 options: {

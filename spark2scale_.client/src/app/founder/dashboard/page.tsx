@@ -313,7 +313,7 @@ export default function FounderDashboard() {
                     data.map(async (s: any) => {
                         const [wfResult, pitchResult] = await Promise.allSettled([
                             fetch(`${(process.env.NEXT_PUBLIC_API_URL || "http://localhost:5231").replace(/\/$/, "").replace(/\/api$/, "")}/api/StartupWorkflow/${s.sid}`).then(r => r.ok ? r.json() : null),
-                            fetch(`${(process.env.NEXT_PUBLIC_API_URL || "http://localhost:5231").replace(/\/$/, "").replace(/\/api$/, "")}/api/PitchDecks?startupId=${s.sid}`).then(r => r.ok ? r.json() : []),
+                            fetch(`${(process.env.NEXT_PUBLIC_API_URL || "http://localhost:5231").replace(/\/$/, "").replace(/\/api$/, "")}/api/PitchDecks/${s.sid}`).then(r => r.ok ? r.json() : []),
                         ]);
 
                         let progress = s.progress_count ?? 0;

@@ -129,9 +129,20 @@ namespace Spark2Scale_.Server.Controllers
 
             try
             {
+                // 0️⃣ Pre-flight duplicate check: reject if email already exists in our profiles table.
+                // This catches users who completed verification on a previous signup.
+                var existingUserResult = await _supabase
+                    .From<PublicUser>()
+                    .Filter("email", Supabase.Postgrest.Constants.Operator.Equals, email)
+                    .Get();
+                if (existingUserResult.Models.Any())
+                {
+                    return Conflict(new { message = "An account with this email already exists. Please sign in instead." });
+                }
+
                 // 1️⃣ Create Auth user with User Metadata
-                var redirectUrl = !string.IsNullOrEmpty(request.RedirectUrl) 
-                        ? request.RedirectUrl 
+                var redirectUrl = !string.IsNullOrEmpty(request.RedirectUrl)
+                        ? request.RedirectUrl
                         : $"{Request.Scheme}://localhost:3000/auth/callback";
                 
                 Console.WriteLine($"[SignUp] Using RedirectURL: {redirectUrl}");
@@ -209,11 +220,26 @@ namespace Spark2Scale_.Server.Controllers
                     {
                         var errorBody = await response.Content.ReadAsStringAsync();
                         Console.WriteLine($"[SignUp] Admin.CreateUser failed: {response.StatusCode} - {errorBody}");
-                        // Fallback to standard SignUp if Admin fails (e.g. if key is wrong, though it shouldn't be)
-                        // Or return error if user already exists
-                        if (errorBody.Contains("generic") || response.StatusCode == System.Net.HttpStatusCode.BadRequest) 
+
+                        // Detect "email already registered" responses from Supabase Admin API.
+                        // Supabase returns 422 with error_code "email_exists" or messages like
+                        // "A user with this email address has already been registered" / "User already registered".
+                        var lowerBody = errorBody.ToLowerInvariant();
+                        var looksLikeDuplicate =
+                            lowerBody.Contains("email_exists") ||
+                            lowerBody.Contains("already registered") ||
+                            lowerBody.Contains("already been registered") ||
+                            lowerBody.Contains("user_already_exists") ||
+                            (response.StatusCode == System.Net.HttpStatusCode.UnprocessableEntity && lowerBody.Contains("email"));
+
+                        if (looksLikeDuplicate)
                         {
-                             return BadRequest(new { message = "Signup failed. User might already exist." });
+                            return Conflict(new { message = "An account with this email already exists. Please sign in instead." });
+                        }
+
+                        if (response.StatusCode == System.Net.HttpStatusCode.BadRequest)
+                        {
+                            return BadRequest(new { message = "Signup failed. Please check your details and try again." });
                         }
                         throw new Exception($"Admin Create Failed: {errorBody}");
                     }
@@ -483,11 +509,26 @@ namespace Spark2Scale_.Server.Controllers
                         }
                     }
 
-                    await EnsureProfileExists(uid, email, fname, lname, new FullSignUpRequest 
-                    { 
-                        UserType = "founder" // Default to founder if unknown, or let them choose later? 
-                                             // Ideally, we should ask them. But for now, default.
+                    var requestedType = (request.UserType ?? "").Trim().ToLower();
+                    if (requestedType != "founder" && requestedType != "investor" && requestedType != "contributor")
+                    {
+                        requestedType = "founder";
+                    }
+
+                    await EnsureProfileExists(uid, email, fname, lname, new FullSignUpRequest
+                    {
+                        UserType = requestedType,
+                        Tags = request.Tags ?? Array.Empty<string>()
                     });
+
+                    if (requestedType == "founder")
+                    {
+                        await EnsureFounderRole(uid);
+                    }
+                    else if (requestedType == "investor")
+                    {
+                        await EnsureInvestorRole(uid, request.Tags ?? Array.Empty<string>());
+                    }
 
                     // Fetch again
                     profileResult = await _supabase

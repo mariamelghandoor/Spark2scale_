@@ -9,6 +9,7 @@ using System.Linq;
 using System.Net.Http;
 using System.Threading.Tasks;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using Microsoft.Extensions.Logging;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -133,58 +134,176 @@ namespace Spark2Scale_.Server.Controllers
             if (!await _access.IsFounderOrOwner(GetToken(), sId))
                 return Unauthorized(new { message = "Unauthorized upload." });
 
+            // Implementation note: this endpoint deliberately uses raw HTTP against the
+            // PostgREST API (mirroring SaveAIResponse below) instead of the supabase-csharp
+            // SDK. The SDK applies [PrimaryKey("did", false)] on the Document model, which
+            // strips `did` from the request body — leading to silent duplicate inserts and
+            // FK violations on document_versions. Raw HTTP gives us a controlled payload
+            // and a deterministic response.
+            var supabaseUrl = Environment.GetEnvironmentVariable("SUPABASE_URL") ?? Environment.GetEnvironmentVariable("URL");
+            var supabaseKey = Environment.GetEnvironmentVariable("SUPABASE_KEY") ?? Environment.GetEnvironmentVariable("KEY");
+            if (string.IsNullOrEmpty(supabaseUrl) || string.IsNullOrEmpty(supabaseKey))
+            {
+                return StatusCode(500, new { message = "Supabase URL/key not configured." });
+            }
+
             try
             {
+                // 1. Upload the binary to Supabase Storage.
                 var fileName = $"{sId}/{DateTime.Now.Ticks}_{form.File.FileName}";
                 byte[] fileBytes;
                 using (var ms = new MemoryStream()) { await form.File.CopyToAsync(ms); fileBytes = ms.ToArray(); }
-
                 await _supabase.Storage.From("startup-docs").Upload(fileBytes, fileName);
                 var publicUrl = _supabase.Storage.From("startup-docs").GetPublicUrl(fileName);
                 var now = DateTime.UtcNow;
 
-                if (!string.IsNullOrEmpty(form.DocumentId) && Guid.TryParse(form.DocumentId, out Guid dId))
+                using var http = _httpClientFactory.CreateClient();
+                http.DefaultRequestHeaders.Add("apikey", supabaseKey);
+                http.DefaultRequestHeaders.Add("Authorization", $"Bearer {supabaseKey}");
+                http.DefaultRequestHeaders.Add("Prefer", "return=representation");
+
+                // 2. Resolve whether this is a new doc or a new version of an existing one.
+                //    Priority: explicit DocumentId > current doc of same (startup_id, type).
+                Guid? targetDid = null;
+                int targetCurrentVersion = 0;
+                if (!string.IsNullOrEmpty(form.DocumentId) && Guid.TryParse(form.DocumentId, out Guid dIdParsed))
                 {
-                    var existingRes = await _supabase.From<Document>().Where(x => x.Did == dId).Get();
-                    var currentDoc = existingRes.Models.FirstOrDefault();
-                    if (currentDoc != null)
+                    var lookup = await http.GetAsync($"{supabaseUrl}/rest/v1/documents?did=eq.{dIdParsed}&select=did,current_version");
+                    if (lookup.IsSuccessStatusCode)
                     {
-                        currentDoc.CurrentPath = publicUrl;
-                        currentDoc.CurrentVersion++;
-                        currentDoc.UpdatedAt = now;
-                        await _supabase.From<Document>().Upsert(currentDoc);
-
-                        await _supabase.From<DocumentVersion>().Insert(new DocumentVersion
+                        var rows = JArray.Parse(await lookup.Content.ReadAsStringAsync());
+                        if (rows.Count > 0)
                         {
-                            DocumentId = dId,
-                            StartupId = sId,
-                            VersionNumber = currentDoc.CurrentVersion,
-                            Path = publicUrl,
-                            CreatedAt = now,
-                            GeneratedBy = "manual"
-                        });
-
-                        return Ok(new { message = "Version updated" });
+                            targetDid = (Guid)rows[0]["did"]!;
+                            targetCurrentVersion = (int)rows[0]["current_version"]!;
+                        }
+                    }
+                }
+                if (targetDid == null)
+                {
+                    var lookup = await http.GetAsync(
+                        $"{supabaseUrl}/rest/v1/documents?startup_id=eq.{sId}&type=eq.{Uri.EscapeDataString(form.Type)}&is_current=eq.true&select=did,current_version&limit=1");
+                    if (lookup.IsSuccessStatusCode)
+                    {
+                        var rows = JArray.Parse(await lookup.Content.ReadAsStringAsync());
+                        if (rows.Count > 0)
+                        {
+                            targetDid = (Guid)rows[0]["did"]!;
+                            targetCurrentVersion = (int)rows[0]["current_version"]!;
+                        }
                     }
                 }
 
-                var newDid = Guid.NewGuid();
-                var newDoc = new Document { Did = newDid, StartupId = sId, DocumentName = form.DocName, Type = form.Type, CurrentPath = publicUrl, CurrentVersion = 1, CanAccess = 1, UpdatedAt = now, CreatedAt = now, IsCurrent = true };
-                await _supabase.From<Document>().Insert(newDoc);
+                Guid persistedDid;
+                int persistedVersion;
 
-                await _supabase.From<DocumentVersion>().Insert(new DocumentVersion
+                if (targetDid != null)
                 {
-                    DocumentId = newDid,
-                    StartupId = sId,
-                    VersionNumber = 1,
-                    Path = publicUrl,
-                    CreatedAt = now,
-                    GeneratedBy = "manual"
-                });
+                    // 3a. Version update: PATCH the existing row.
+                    persistedVersion = targetCurrentVersion + 1;
+                    var patchPayload = new
+                    {
+                        current_path = publicUrl,
+                        current_version = persistedVersion,
+                        updated_at = now,
+                        is_current = true
+                    };
+                    var patchReq = new HttpRequestMessage(new HttpMethod("PATCH"),
+                        $"{supabaseUrl}/rest/v1/documents?did=eq.{targetDid}")
+                    {
+                        Content = new StringContent(System.Text.Json.JsonSerializer.Serialize(patchPayload),
+                            System.Text.Encoding.UTF8, "application/json")
+                    };
+                    var patchResp = await http.SendAsync(patchReq);
+                    if (!patchResp.IsSuccessStatusCode)
+                    {
+                        var err = await patchResp.Content.ReadAsStringAsync();
+                        _logger.LogError("[Upload] PATCH failed {Status}: {Body}", patchResp.StatusCode, err);
+                        return StatusCode((int)patchResp.StatusCode, new { message = "Failed to update document.", detail = err });
+                    }
+                    var patched = JArray.Parse(await patchResp.Content.ReadAsStringAsync());
+                    if (patched.Count == 0)
+                    {
+                        _logger.LogError("[Upload] PATCH returned 0 rows for did {Did}", targetDid);
+                        return StatusCode(500, new { message = "Document update affected 0 rows." });
+                    }
+                    persistedDid = targetDid.Value;
+                }
+                else
+                {
+                    // 3b. New doc: POST a fresh row with an explicit did.
+                    var newDid = Guid.NewGuid();
+                    var insertPayload = new
+                    {
+                        did = newDid,
+                        startup_id = sId,
+                        document_name = form.DocName,
+                        type = form.Type,
+                        current_path = publicUrl,
+                        current_version = 1,
+                        canaccess = 1,
+                        updated_at = now,
+                        created_at = now,
+                        is_current = true
+                    };
+                    var insertReq = new HttpRequestMessage(HttpMethod.Post, $"{supabaseUrl}/rest/v1/documents")
+                    {
+                        Content = new StringContent(System.Text.Json.JsonSerializer.Serialize(insertPayload),
+                            System.Text.Encoding.UTF8, "application/json")
+                    };
+                    var insertResp = await http.SendAsync(insertReq);
+                    if (!insertResp.IsSuccessStatusCode)
+                    {
+                        var err = await insertResp.Content.ReadAsStringAsync();
+                        _logger.LogError("[Upload] POST documents failed {Status}: {Body}", insertResp.StatusCode, err);
+                        return StatusCode((int)insertResp.StatusCode, new { message = "Failed to persist document.", detail = err });
+                    }
+                    var inserted = JArray.Parse(await insertResp.Content.ReadAsStringAsync());
+                    if (inserted.Count == 0)
+                    {
+                        _logger.LogError("[Upload] POST documents returned 0 rows");
+                        return StatusCode(500, new { message = "Document insert returned 0 rows." });
+                    }
+                    persistedDid = (Guid)inserted[0]["did"]!;
+                    persistedVersion = 1;
+                }
 
-                return Ok(new { message = "File created" });
+                // 4. Append a row to document_versions for the version history.
+                var versionPayload = new
+                {
+                    document_id = persistedDid,
+                    startup_id = sId,
+                    version_number = persistedVersion,
+                    path = publicUrl,
+                    created_at = now,
+                    generated_by = "manual"
+                };
+                var versionReq = new HttpRequestMessage(HttpMethod.Post,
+                    $"{supabaseUrl}/rest/v1/document_versions")
+                {
+                    Content = new StringContent(System.Text.Json.JsonSerializer.Serialize(versionPayload),
+                        System.Text.Encoding.UTF8, "application/json")
+                };
+                var versionResp = await http.SendAsync(versionReq);
+                if (!versionResp.IsSuccessStatusCode)
+                {
+                    var err = await versionResp.Content.ReadAsStringAsync();
+                    _logger.LogError("[Upload] POST document_versions failed {Status}: {Body}", versionResp.StatusCode, err);
+                    return StatusCode((int)versionResp.StatusCode, new { message = "Failed to record version.", detail = err });
+                }
+
+                return Ok(new
+                {
+                    message = targetDid != null ? "Version updated" : "File created",
+                    did = persistedDid,
+                    version = persistedVersion
+                });
             }
-            catch (Exception ex) { return StatusCode(500, ex.Message); }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "[Upload] Unhandled exception");
+                return StatusCode(500, new { message = "Upload failed.", detail = ex.Message });
+            }
         }
 
         [HttpDelete("{documentId}")]
@@ -694,6 +813,398 @@ namespace Spark2Scale_.Server.Controllers
                 Console.WriteLine($"[GenerateCompetitorMatrix] CRITICAL EXCEPTION CAUGHT: {ex.Message}");
                 Console.WriteLine($"[GenerateCompetitorMatrix] StackTrace: {ex.StackTrace}");
                 Console.WriteLine($"========== END GENERATE COMPETITOR MATRIX (ERROR) ==========\n");
+                return StatusCode(500, new { error = "Internal Server Error", message = ex.Message });
+            }
+        }
+
+        [HttpPost("{id}/generate-bmc")]
+        public async Task<IActionResult> GenerateBmc(string id)
+        {
+            Console.WriteLine($"\n========== START GENERATE BMC ==========");
+            Console.WriteLine($"[GenerateBmc] Invoked with ID: {id}");
+
+            if (!Guid.TryParse(id, out Guid sId))
+            {
+                return BadRequest("Invalid ID format");
+            }
+
+            try
+            {
+                var startup = (await _supabase.From<Startup>().Where(s => s.Sid == sId).Get()).Models.FirstOrDefault();
+                if (startup == null) return NotFound("Startup not found");
+
+                var mrDocs = await _supabase.From<Document>()
+                    .Filter("startup_id", Supabase.Postgrest.Constants.Operator.Equals, sId.ToString())
+                    .Filter("type", Supabase.Postgrest.Constants.Operator.Equals, "Market Research")
+                    .Filter("is_current", Supabase.Postgrest.Constants.Operator.Equals, "true")
+                    .Get();
+
+                var marketResearchDoc = mrDocs.Models.FirstOrDefault();
+                if (marketResearchDoc == null || marketResearchDoc.JsonResponse == null)
+                {
+                    return BadRequest("Market Research document is required to generate BMC.");
+                }
+
+                JsonElement ToJsonElement(object? raw)
+                {
+                    if (raw == null) return System.Text.Json.JsonSerializer.Deserialize<JsonElement>("{}");
+                    string s = raw is string str ? str : Newtonsoft.Json.JsonConvert.SerializeObject(raw);
+                    try { return System.Text.Json.JsonSerializer.Deserialize<JsonElement>(s); }
+                    catch { return System.Text.Json.JsonSerializer.Deserialize<JsonElement>("{}"); }
+                }
+
+                var marketResearchPayload = ToJsonElement(marketResearchDoc.JsonResponse);
+
+                // Optional: Evaluation (prefer "Founder Evaluation", fall back to "Investor Evaluation")
+                JsonElement? evaluationPayload = null;
+                var evalDocs = await _supabase.From<Document>()
+                    .Filter("startup_id", Supabase.Postgrest.Constants.Operator.Equals, sId.ToString())
+                    .Filter("type", Supabase.Postgrest.Constants.Operator.Equals, "Founder Evaluation")
+                    .Filter("is_current", Supabase.Postgrest.Constants.Operator.Equals, "true")
+                    .Get();
+                var evalDoc = evalDocs.Models.FirstOrDefault();
+                if (evalDoc == null)
+                {
+                    var investorEvalDocs = await _supabase.From<Document>()
+                        .Filter("startup_id", Supabase.Postgrest.Constants.Operator.Equals, sId.ToString())
+                        .Filter("type", Supabase.Postgrest.Constants.Operator.Equals, "Investor Evaluation")
+                        .Filter("is_current", Supabase.Postgrest.Constants.Operator.Equals, "true")
+                        .Get();
+                    evalDoc = investorEvalDocs.Models.FirstOrDefault();
+                }
+                if (evalDoc?.JsonResponse != null) evaluationPayload = ToJsonElement(evalDoc.JsonResponse);
+
+                // Recommendation — from documents table (type = "Recommendation", is_current = true).
+                JsonElement? recommendationPayload = null;
+                var recDocs = await _supabase.From<Document>()
+                    .Filter("startup_id", Supabase.Postgrest.Constants.Operator.Equals, sId.ToString())
+                    .Filter("type", Supabase.Postgrest.Constants.Operator.Equals, "Recommendation")
+                    .Filter("is_current", Supabase.Postgrest.Constants.Operator.Equals, "true")
+                    .Get();
+                var recDoc = recDocs.Models.FirstOrDefault();
+                if (recDoc?.JsonResponse != null) recommendationPayload = ToJsonElement(recDoc.JsonResponse);
+
+                string jsonContent = "";
+                using (var client = new HttpClient())
+                {
+                    client.Timeout = TimeSpan.FromMinutes(3);
+
+                    var externalPayload = new
+                    {
+                        idea_name = startup.StartupName ?? "No name",
+                        idea_description = startup.IdeaDescription ?? "No description",
+                        region = startup.Region ?? "Global",
+                        market_research = marketResearchPayload,
+                        evaluation = evaluationPayload,
+                        recommendation = recommendationPayload
+                    };
+
+                    var response = await client.PostAsJsonAsync(
+                        "https://spark2scale-ai-api-server.azurewebsites.net/api/v1/bmc/generate",
+                        externalPayload);
+
+                    Console.WriteLine($"[GenerateBmc] External Response Status: {response.StatusCode}");
+
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        var error = await response.Content.ReadAsStringAsync();
+                        return StatusCode((int)response.StatusCode, $"AI Service Failed: {error}");
+                    }
+
+                    jsonContent = await response.Content.ReadAsStringAsync();
+                }
+
+                object jsonObjectToSave;
+                try { jsonObjectToSave = System.Text.Json.JsonSerializer.Deserialize<JsonElement>(jsonContent ?? "{}"); }
+                catch { jsonObjectToSave = new { raw_output = jsonContent }; }
+
+                try
+                {
+                    var supabaseUrl = Environment.GetEnvironmentVariable("SUPABASE_URL") ?? Environment.GetEnvironmentVariable("URL");
+                    var supabaseKey = Environment.GetEnvironmentVariable("SUPABASE_KEY") ?? Environment.GetEnvironmentVariable("KEY");
+
+                    using var http = _httpClientFactory.CreateClient();
+                    http.DefaultRequestHeaders.Add("apikey", supabaseKey);
+                    http.DefaultRequestHeaders.Add("Authorization", $"Bearer {supabaseKey}");
+                    http.DefaultRequestHeaders.Add("Prefer", "return=representation");
+
+                    var bmcDocs = await _supabase.From<Document>()
+                        .Filter("startup_id", Supabase.Postgrest.Constants.Operator.Equals, sId.ToString())
+                        .Filter("type", Supabase.Postgrest.Constants.Operator.Equals, "Business Model Canvas")
+                        .Filter("is_current", Supabase.Postgrest.Constants.Operator.Equals, "true")
+                        .Get();
+
+                    var currentDoc = bmcDocs.Models.FirstOrDefault();
+                    int nextVersion = 1;
+
+                    if (currentDoc != null)
+                    {
+                        var patchUrl = $"{supabaseUrl}/rest/v1/documents?did=eq.{currentDoc.Did}";
+                        var patchRequest = new HttpRequestMessage(new HttpMethod("PATCH"), patchUrl) { Content = new StringContent("{\"is_current\": false}", System.Text.Encoding.UTF8, "application/json") };
+                        await http.SendAsync(patchRequest);
+                        nextVersion = currentDoc.CurrentVersion + 1;
+                    }
+
+                    var newDocId = Guid.NewGuid();
+
+                    var insertPayload = new
+                    {
+                        did = newDocId,
+                        startup_id = sId,
+                        document_name = $"Business Model Canvas v{nextVersion}",
+                        type = "Business Model Canvas",
+                        current_path = "",
+                        current_version = nextVersion,
+                        canaccess = 1,
+                        updated_at = DateTime.UtcNow,
+                        created_at = DateTime.UtcNow,
+                        is_current = true,
+                        json_response = jsonObjectToSave
+                    };
+
+                    try
+                    {
+                        var insertRequest = new HttpRequestMessage(HttpMethod.Post, $"{supabaseUrl}/rest/v1/documents") { Content = new StringContent(System.Text.Json.JsonSerializer.Serialize(insertPayload), System.Text.Encoding.UTF8, "application/json") };
+                        var docRes = await http.SendAsync(insertRequest);
+                        if (!docRes.IsSuccessStatusCode)
+                        {
+                            var err = await docRes.Content.ReadAsStringAsync();
+                            Console.WriteLine($"[GenerateBmc] Document insert failed: {err}");
+                        }
+                    }
+                    catch (Exception docEx)
+                    {
+                        Console.WriteLine($"[Ignored] BMC document insert error: {docEx.Message}");
+                    }
+
+                    try
+                    {
+                        var versionDoc = new DocumentVersion
+                        {
+                            DocumentId = newDocId,
+                            StartupId = sId,
+                            VersionNumber = nextVersion,
+                            Path = "",
+                            CreatedAt = DateTime.UtcNow,
+                            GeneratedBy = "AI"
+                        };
+                        await _supabase.From<DocumentVersion>().Insert(versionDoc);
+                    }
+                    catch (Exception verEx)
+                    {
+                        Console.WriteLine($"[Ignored] BMC DocumentVersion insert error: {verEx.Message}");
+                    }
+                }
+                catch (Exception dbEx)
+                {
+                    Console.WriteLine($"[GenerateBmc] Database setup error: {dbEx.Message}");
+                }
+
+                Console.WriteLine($"========== END GENERATE BMC ==========\n");
+                return Content(jsonContent ?? "{}", "application/json", System.Text.Encoding.UTF8);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[GenerateBmc] CRITICAL EXCEPTION: {ex.Message}");
+                return StatusCode(500, new { error = "Internal Server Error", message = ex.Message });
+            }
+        }
+
+        public class EnhanceBmcDto
+        {
+            public Guid SessionId { get; set; }
+        }
+
+        [HttpPost("{startupId}/enhance-bmc")]
+        public async Task<IActionResult> EnhanceBmc(string startupId, [FromBody] EnhanceBmcDto input)
+        {
+            Console.WriteLine($"\n========== START ENHANCE BMC ==========");
+            Console.WriteLine($"[EnhanceBmc] startupId: {startupId}, sessionId: {input?.SessionId}");
+
+            if (!Guid.TryParse(startupId, out Guid sId)) return BadRequest("Invalid startup ID.");
+            if (input == null || input.SessionId == Guid.Empty) return BadRequest("sessionId is required.");
+
+            try
+            {
+                // 1. Startup (for idea_name / idea_description / region)
+                var startup = (await _supabase.From<Startup>().Where(s => s.Sid == sId).Get()).Models.FirstOrDefault();
+                if (startup == null) return NotFound("Startup not found");
+
+                // 2. Chat session with summarized_chat
+                var sessResult = await _supabase.From<ChatSession>()
+                    .Where(x => x.SessionId == input.SessionId)
+                    .Get();
+                var session = sessResult.Models.FirstOrDefault();
+                if (session == null) return NotFound("Chat session not found");
+                if (string.IsNullOrWhiteSpace(session.SummarizedChat))
+                    return BadRequest("No summarized_chat on this session. Click Enhance first.");
+
+                // 3. Parse document_changes out of summarized_chat JSON
+                List<string> documentChanges;
+                try
+                {
+                    using var sumDoc = JsonDocument.Parse(session.SummarizedChat);
+                    if (!sumDoc.RootElement.TryGetProperty("document_changes", out var changesEl)
+                        || changesEl.ValueKind != JsonValueKind.Array)
+                    {
+                        return BadRequest("summarized_chat has no document_changes array.");
+                    }
+                    documentChanges = changesEl.EnumerateArray()
+                        .Select(e => e.GetString() ?? string.Empty)
+                        .Where(s => !string.IsNullOrWhiteSpace(s))
+                        .ToList();
+                }
+                catch (Exception parseEx)
+                {
+                    return BadRequest($"Could not parse summarized_chat: {parseEx.Message}");
+                }
+
+                if (!documentChanges.Any())
+                    return BadRequest("No actionable changes in summarized_chat.");
+
+                // 4. Current BMC document
+                var bmcDocs = await _supabase.From<Document>()
+                    .Filter("startup_id", Supabase.Postgrest.Constants.Operator.Equals, sId.ToString())
+                    .Filter("type", Supabase.Postgrest.Constants.Operator.Equals, "Business Model Canvas")
+                    .Filter("is_current", Supabase.Postgrest.Constants.Operator.Equals, "true")
+                    .Get();
+                var currentBmcDoc = bmcDocs.Models.FirstOrDefault();
+                if (currentBmcDoc?.JsonResponse == null)
+                    return BadRequest("No current BMC found. Generate BMC first.");
+
+                JsonElement currentBmcPayload;
+                try
+                {
+                    string bmcRawJson = currentBmcDoc.JsonResponse is string s
+                        ? s
+                        : Newtonsoft.Json.JsonConvert.SerializeObject(currentBmcDoc.JsonResponse);
+                    currentBmcPayload = System.Text.Json.JsonSerializer.Deserialize<JsonElement>(bmcRawJson);
+                }
+                catch (Exception convEx)
+                {
+                    return StatusCode(500, $"Could not serialize current BMC: {convEx.Message}");
+                }
+
+                // 5. Call AI /api/v1/bmc/enhance
+                string jsonContent;
+                using (var client = new HttpClient())
+                {
+                    client.Timeout = TimeSpan.FromMinutes(3);
+
+                    var externalPayload = new
+                    {
+                        idea_name = startup.StartupName ?? "No name",
+                        idea_description = startup.IdeaDescription ?? "No description",
+                        region = startup.Region ?? "Global",
+                        current_bmc = currentBmcPayload,
+                        document_changes = documentChanges
+                    };
+
+                    var response = await client.PostAsJsonAsync(
+                        "https://spark2scale-ai-api-server.azurewebsites.net/api/v1/bmc/enhance",
+                        externalPayload);
+
+                    Console.WriteLine($"[EnhanceBmc] AI status: {response.StatusCode}");
+
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        var err = await response.Content.ReadAsStringAsync();
+                        return StatusCode((int)response.StatusCode, $"AI enhance failed: {err}");
+                    }
+
+                    jsonContent = await response.Content.ReadAsStringAsync();
+                }
+
+                // 6. Parse AI response (for change_log + validation)
+                object jsonObjectToSave;
+                try { jsonObjectToSave = System.Text.Json.JsonSerializer.Deserialize<JsonElement>(jsonContent ?? "{}"); }
+                catch { jsonObjectToSave = new { raw_output = jsonContent }; }
+
+                // 7. Save as new BMC version (archive old, insert new) — same pattern as GenerateBmc
+                try
+                {
+                    var supabaseUrl = Environment.GetEnvironmentVariable("SUPABASE_URL") ?? Environment.GetEnvironmentVariable("URL");
+                    var supabaseKey = Environment.GetEnvironmentVariable("SUPABASE_KEY") ?? Environment.GetEnvironmentVariable("KEY");
+
+                    using var http = _httpClientFactory.CreateClient();
+                    http.DefaultRequestHeaders.Add("apikey", supabaseKey);
+                    http.DefaultRequestHeaders.Add("Authorization", $"Bearer {supabaseKey}");
+                    http.DefaultRequestHeaders.Add("Prefer", "return=representation");
+
+                    int nextVersion = (currentBmcDoc.CurrentVersion) + 1;
+
+                    // Archive old current doc
+                    var patchUrl = $"{supabaseUrl}/rest/v1/documents?did=eq.{currentBmcDoc.Did}";
+                    var patchRequest = new HttpRequestMessage(new HttpMethod("PATCH"), patchUrl)
+                    {
+                        Content = new StringContent("{\"is_current\": false}", System.Text.Encoding.UTF8, "application/json")
+                    };
+                    await http.SendAsync(patchRequest);
+
+                    var newDocId = Guid.NewGuid();
+                    var insertPayload = new
+                    {
+                        did = newDocId,
+                        startup_id = sId,
+                        document_name = $"Business Model Canvas v{nextVersion}",
+                        type = "Business Model Canvas",
+                        current_path = "",
+                        current_version = nextVersion,
+                        canaccess = 1,
+                        updated_at = DateTime.UtcNow,
+                        created_at = DateTime.UtcNow,
+                        is_current = true,
+                        json_response = jsonObjectToSave
+                    };
+
+                    try
+                    {
+                        var insertRequest = new HttpRequestMessage(HttpMethod.Post, $"{supabaseUrl}/rest/v1/documents")
+                        {
+                            Content = new StringContent(System.Text.Json.JsonSerializer.Serialize(insertPayload),
+                                System.Text.Encoding.UTF8, "application/json")
+                        };
+                        var docRes = await http.SendAsync(insertRequest);
+                        if (!docRes.IsSuccessStatusCode)
+                        {
+                            var err = await docRes.Content.ReadAsStringAsync();
+                            Console.WriteLine($"[EnhanceBmc] Document insert failed: {err}");
+                        }
+                    }
+                    catch (Exception docEx)
+                    {
+                        Console.WriteLine($"[Ignored] BMC enhance insert error: {docEx.Message}");
+                    }
+
+                    try
+                    {
+                        var versionDoc = new DocumentVersion
+                        {
+                            DocumentId = newDocId,
+                            StartupId = sId,
+                            VersionNumber = nextVersion,
+                            Path = "",
+                            CreatedAt = DateTime.UtcNow,
+                            GeneratedBy = "AI"
+                        };
+                        await _supabase.From<DocumentVersion>().Insert(versionDoc);
+                    }
+                    catch (Exception verEx)
+                    {
+                        Console.WriteLine($"[Ignored] BMC enhance DocumentVersion insert error: {verEx.Message}");
+                    }
+                }
+                catch (Exception dbEx)
+                {
+                    Console.WriteLine($"[EnhanceBmc] Database error: {dbEx.Message}");
+                }
+
+                Console.WriteLine($"========== END ENHANCE BMC ==========\n");
+                return Content(jsonContent ?? "{}", "application/json", System.Text.Encoding.UTF8);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[EnhanceBmc] CRITICAL EXCEPTION: {ex.Message}");
                 return StatusCode(500, new { error = "Internal Server Error", message = ex.Message });
             }
         }

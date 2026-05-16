@@ -58,11 +58,9 @@ export const pitchDeckService = {
         formData.append("file", file);
 
         try {
-            const response = await apiClient.post(`/api/PitchDecks/upload`, formData, {
-                headers: {
-                    'Content-Type': 'multipart/form-data',
-                },
-            });
+            // Don't pass Content-Type — the browser must auto-generate
+            // "multipart/form-data; boundary=..." with the correct boundary.
+            const response = await apiClient.post(`/api/PitchDecks/upload`, formData);
             return response.data as PitchDeck;
         } catch (error: unknown) {
             let errorText = "Failed to upload video";

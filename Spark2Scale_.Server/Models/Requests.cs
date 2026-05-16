@@ -50,6 +50,8 @@ namespace Spark2Scale_.Server.Models
     public class GoogleSignInRequest
     {
         public string AccessToken { get; set; } = "";
+        public string? UserType { get; set; }
+        public string[]? Tags { get; set; }
     }
 }
 

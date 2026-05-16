@@ -1,6 +1,6 @@
 // services/documentsService.ts
 
-import { Presentation, FileText, Users } from "lucide-react";
+import { Presentation, FileText, Users, LayoutGrid } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 
 export const REQUIRED_DOCS = [
@@ -27,6 +27,14 @@ export const REQUIRED_DOCS = [
         desc: "JSON document containing competitor analysis and matrix.",
         accept: ".json",
         aiPrompt: "Help me generate a competitor matrix analysis based on my startup idea."
+    },
+    {
+        id: "bmc",
+        name: "Business Model Canvas",
+        icon: LayoutGrid,
+        desc: "Nine-block canvas covering value proposition, customers, channels, revenue, costs and more.",
+        accept: ".json,.pdf",
+        aiPrompt: "Help me generate a Business Model Canvas based on my startup idea."
     }
 ];
 export interface DBDocument {
@@ -171,6 +179,35 @@ export const documentsService = {
         } catch (error) {
             console.error("[generateCompetitorMatrix] Error:", error);
             return false;
+        }
+    },
+
+    async generateBmc(startupId: string): Promise<boolean> {
+        try {
+            const res = await apiClient.post(`/api/documents/${startupId}/generate-bmc`);
+            console.log("[generateBmc] Response:", res.data);
+            return true;
+        } catch (error) {
+            console.error("[generateBmc] Error:", error);
+            return false;
+        }
+    },
+
+    async applyBmcChanges(startupId: string, sessionId: string): Promise<{
+        business_model_canvas?: Record<string, string[]>;
+        change_log?: string[];
+        message?: string;
+    } | null> {
+        try {
+            const res = await apiClient.post<{
+                business_model_canvas?: Record<string, string[]>;
+                change_log?: string[];
+                message?: string;
+            }>(`/api/documents/${startupId}/enhance-bmc`, { SessionId: sessionId });
+            return res.data;
+        } catch (error) {
+            console.error("[applyBmcChanges] Error:", error);
+            return null;
         }
     },
 
@@ -342,6 +379,26 @@ export const documentsService = {
             });
         } catch (error) {
             console.error("Error sending message:", error);
+        }
+    },
+
+    async enhanceSession(sessionId: string): Promise<{
+        status: string;
+        summarizedChat?: string | null;
+        lastEnhancedAt?: string | null;
+        messagesSummarized?: number;
+    } | null> {
+        try {
+            const res = await apiClient.post<{
+                status: string;
+                summarizedChat?: string | null;
+                lastEnhancedAt?: string | null;
+                messagesSummarized?: number;
+            }>(`/api/Chat/enhance/${sessionId}`);
+            return res.data;
+        } catch (error) {
+            console.error("Error enhancing session:", error);
+            return null;
         }
     }
 };

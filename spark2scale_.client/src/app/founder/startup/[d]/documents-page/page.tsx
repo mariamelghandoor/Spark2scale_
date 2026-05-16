@@ -372,9 +372,16 @@ export default function DocumentsHistoryPage() {
                 ? JSON.parse(doc.json_response)
                 : doc.json_response;
 
-            const pdfRes = await fetch('https://spark2scale-ai-api-server.azurewebsites.net/api/v1/evaluation/generate-report', {
+            // Routed through the .NET backend to avoid the AI server's CORS block.
+            const apiBase = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5231').replace(/\/$/, '').replace(/\/api$/, '');
+            const reportHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
+            if (typeof window !== 'undefined') {
+                const t = localStorage.getItem('auth_token');
+                if (t) reportHeaders['Authorization'] = `Bearer ${t}`;
+            }
+            const pdfRes = await fetch(`${apiBase}/api/Pdf/generate-report`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: reportHeaders,
                 body: JSON.stringify(parsedJson)
             });
 

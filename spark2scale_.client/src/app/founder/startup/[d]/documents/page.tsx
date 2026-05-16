@@ -149,8 +149,222 @@ function parseCompetitorMatrix(raw: unknown): CompetitorData[] | null {
     }
 }
 
+interface BmcData {
+    value_proposition?: string[];
+    customer_segments?: string[];
+    revenue_streams?: string[];
+    channels?: string[];
+    customer_relationships?: string[];
+    key_resources?: string[];
+    key_activities?: string[];
+    key_partnerships?: string[];
+    cost_structure?: string[];
+    [key: string]: unknown;
+}
+
+function parseBmc(raw: unknown): BmcData | null {
+    if (!raw) return null;
+    try {
+        let obj: any = raw;
+        while (typeof obj === "string") obj = JSON.parse(obj);
+
+        const canvas =
+            (obj?.business_model_canvas as Record<string, unknown>) ||
+            obj;
+
+        const toArray = (v: unknown): string[] => {
+            if (Array.isArray(v)) return v.map(i => String(i).trim()).filter(Boolean);
+            if (typeof v === "string") return v.split("\n").map(s => s.trim()).filter(Boolean);
+            return [];
+        };
+
+        return {
+            value_proposition: toArray(canvas?.value_proposition),
+            customer_segments: toArray(canvas?.customer_segments),
+            revenue_streams: toArray(canvas?.revenue_streams),
+            channels: toArray(canvas?.channels),
+            customer_relationships: toArray(canvas?.customer_relationships),
+            key_resources: toArray(canvas?.key_resources),
+            key_activities: toArray(canvas?.key_activities),
+            key_partnerships: toArray(canvas?.key_partnerships),
+            cost_structure: toArray(canvas?.cost_structure),
+        };
+    } catch {
+        return null;
+    }
+}
+
+// Osterwalder 9-block layout — matches app/graph/BMC/renderer.py exactly.
+// Matplotlib origin is bottom-left; we flip y for CSS grid (row 1 is top).
+// Grid is 10 columns × 6 rows.
+const BMC_BOXES: {
+    key: keyof BmcData;
+    label: string;
+    col: string;
+    row: string;
+}[] = [
+    { key: "key_partnerships",       label: "Key Partnerships",       col: "1 / 3",  row: "1 / 5" },
+    { key: "key_activities",         label: "Key Activities",         col: "3 / 5",  row: "1 / 3" },
+    { key: "key_resources",          label: "Key Resources",          col: "3 / 5",  row: "3 / 5" },
+    { key: "value_proposition",      label: "Value Proposition",      col: "5 / 7",  row: "1 / 5" },
+    { key: "customer_relationships", label: "Customer Relationships", col: "7 / 9",  row: "1 / 3" },
+    { key: "channels",               label: "Channels",               col: "7 / 9",  row: "3 / 5" },
+    { key: "customer_segments",      label: "Customer Segments",      col: "9 / 11", row: "1 / 5" },
+    { key: "cost_structure",         label: "Cost Structure",         col: "1 / 6",  row: "5 / 7" },
+    { key: "revenue_streams",        label: "Revenue Streams",        col: "6 / 11", row: "5 / 7" },
+];
+
+// Canvas-2D port of app/graph/BMC/renderer.py.
+// Draws the 9-block BMC using the Osterwalder layout and the shared palette.
+function renderBmcCanvas(bmc: BmcData, ideaName: string): HTMLCanvasElement {
+    const W = 2000;
+    const H = 1300;
+    const canvas = document.createElement("canvas");
+    canvas.width = W;
+    canvas.height = H;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("Canvas 2D not supported");
+
+    // Palette — mirrors renderer.py
+    const PRIMARY = "#576238";
+    const ACCENT = "#ffd95d";
+    const PAGE_BG = "#F0EADC";
+    const BODY_BG = "#FAF6EC";
+    const TEXT = "#2c3e50";
+
+    ctx.fillStyle = PAGE_BG;
+    ctx.fillRect(0, 0, W, H);
+
+    // Same 10-wide × 6-tall grid + 1.2-unit header band above.
+    const GRID_COLS = 10;
+    const GRID_ROWS = 6;
+    const HEADER_UNITS = 1.2;
+    const TOTAL_UNITS_Y = GRID_ROWS + HEADER_UNITS;
+
+    const MARGIN_X = 50;
+    const MARGIN_Y = 50;
+    const innerW = W - 2 * MARGIN_X;
+    const innerH = H - 2 * MARGIN_Y;
+    const unitX = innerW / GRID_COLS;
+    const unitY = innerH / TOTAL_UNITS_Y;
+
+    // mpl y=0 at bottom; canvas y=0 at top — flip.
+    const toY = (y: number, h: number) => MARGIN_Y + (TOTAL_UNITS_Y - (y + h)) * unitY;
+
+    // Header — "Business Model Canvas" + idea name, centered at top.
+    const headerCenterY = MARGIN_Y + (HEADER_UNITS / 2) * unitY;
+    ctx.fillStyle = PRIMARY;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.font = "bold 44px Arial, sans-serif";
+    ctx.fillText("Business Model Canvas", W / 2, headerCenterY - 18);
+    ctx.fillStyle = TEXT;
+    ctx.font = "bold 28px Arial, sans-serif";
+    const prettyIdea = (ideaName || "")
+        .split(/\s+/)
+        .map(w => (w ? w[0].toUpperCase() + w.slice(1) : ""))
+        .join(" ");
+    ctx.fillText(prettyIdea, W / 2, headerCenterY + 22);
+
+    const TITLE_H = 40;
+    const ACCENT_H = 6;
+    const PAD = 16;
+    const LINE_H = 22;
+    const BODY_FONT = "16px Arial, sans-serif";
+    const TITLE_FONT = "bold 18px Arial, sans-serif";
+
+    const wrapLine = (text: string, maxWidth: number): string[] => {
+        const words = text.split(/\s+/);
+        const lines: string[] = [];
+        let cur = "";
+        for (const w of words) {
+            const test = cur ? `${cur} ${w}` : w;
+            if (ctx.measureText(test).width > maxWidth && cur) {
+                lines.push(cur);
+                cur = w;
+            } else {
+                cur = test;
+            }
+        }
+        if (cur) lines.push(cur);
+        return lines;
+    };
+
+    for (const { key, label, col, row } of BMC_BOXES) {
+        // Parse "col: '1 / 3'" → x, w in grid units; "row: '1 / 5'" → top row, bottom row.
+        const [colStart, colEnd] = col.split("/").map(s => parseInt(s.trim(), 10));
+        const [rowStart, rowEnd] = row.split("/").map(s => parseInt(s.trim(), 10));
+        const x = colStart - 1;
+        const w = colEnd - colStart;
+        // CSS rows 1..(GRID_ROWS+1) top-down; mpl y is bottom-up.
+        // mpl y = GRID_ROWS - (rowEnd - 1), h = rowEnd - rowStart.
+        const mplH = rowEnd - rowStart;
+        const mplY = GRID_ROWS - (rowEnd - 1);
+
+        const px = MARGIN_X + x * unitX;
+        const py = toY(mplY, mplH);
+        const pw = w * unitX;
+        const ph = mplH * unitY;
+
+        // Body
+        ctx.fillStyle = BODY_BG;
+        ctx.fillRect(px, py, pw, ph);
+
+        // Border
+        ctx.strokeStyle = PRIMARY;
+        ctx.lineWidth = 2;
+        ctx.strokeRect(px, py, pw, ph);
+
+        // Title bar
+        ctx.fillStyle = PRIMARY;
+        ctx.fillRect(px, py, pw, TITLE_H);
+        // Mustard accent strip
+        ctx.fillStyle = ACCENT;
+        ctx.fillRect(px, py + TITLE_H, pw, ACCENT_H);
+
+        // Title text
+        ctx.fillStyle = ACCENT;
+        ctx.font = TITLE_FONT;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(label, px + pw / 2, py + TITLE_H / 2);
+
+        // Body bullets
+        const items = (bmc[key] as string[] | undefined) ?? [];
+        ctx.font = BODY_FONT;
+        ctx.textAlign = "left";
+        ctx.textBaseline = "top";
+
+        const bodyX = px + PAD;
+        const maxTextW = pw - 2 * PAD;
+        const bodyTop = py + TITLE_H + ACCENT_H + PAD;
+        const bodyBottom = py + ph - PAD;
+        let cursorY = bodyTop;
+
+        if (items.length === 0) {
+            ctx.fillStyle = "#888";
+            ctx.fillText("(no data)", bodyX, cursorY);
+            continue;
+        }
+
+        ctx.fillStyle = TEXT;
+        for (const item of items) {
+            const lines = wrapLine(`• ${String(item)}`, maxTextW);
+            for (let i = 0; i < lines.length; i++) {
+                if (cursorY + LINE_H > bodyBottom) break;
+                const text = i === 0 ? lines[i] : `   ${lines[i]}`;
+                ctx.fillText(text, bodyX, cursorY);
+                cursorY += LINE_H;
+            }
+            if (cursorY + LINE_H > bodyBottom) break;
+        }
+    }
+
+    return canvas;
+}
+
 interface ViewerPayload {
-    type: "swot" | "pdf" | "competitor_matrix";
+    type: "swot" | "pdf" | "competitor_matrix" | "bmc";
     data?: unknown;
     url?: string;
     name: string;
@@ -165,15 +379,18 @@ function DocumentViewerModal({
 }) {
     const swot = payload.type === "swot" ? parseSwot(payload.data) : null;
     const competitors = payload.type === "competitor_matrix" ? parseCompetitorMatrix(payload.data) : null;
+    const bmc = payload.type === "bmc" ? parseBmc(payload.data) : null;
+
+    const isStructured = payload.type === "competitor_matrix" || payload.type === "swot" || payload.type === "bmc";
 
     return (
         <Dialog open onOpenChange={onClose}>
             <DialogContent
                 aria-describedby={undefined}
-                style={(payload.type === "competitor_matrix" || payload.type === "swot") ? { width: "95vw", maxWidth: "95vw", height: "94vh" } : undefined}
-                className={(payload.type === "competitor_matrix" || payload.type === "swot") ? "p-0 bg-[#F4F1EA] overflow-hidden flex flex-col" : "max-w-[90vw] w-[90vw] h-[90vh] p-0 overflow-hidden flex flex-col"}
+                style={isStructured ? { width: "95vw", maxWidth: "95vw", height: "94vh" } : undefined}
+                className={isStructured ? "p-0 bg-[#F4F1EA] overflow-hidden flex flex-col" : "max-w-[90vw] w-[90vw] h-[90vh] p-0 overflow-hidden flex flex-col"}
             >
-                {(payload.type === "competitor_matrix" || payload.type === "swot") && (competitors || swot) ? (
+                {isStructured && (competitors || swot || bmc) ? (
                     <>
                         <DialogHeader className="sr-only">
                             <DialogTitle>{payload.name}</DialogTitle>
@@ -187,7 +404,11 @@ function DocumentViewerModal({
                                 <div className="bg-[#576238] text-white px-10 py-6">
                                     <p className="text-xs uppercase tracking-widest opacity-70 mb-1 font-sans">Spark2Scale</p>
                                     <h1 className="text-xl font-bold font-sans">
-                                        {payload.type === "swot" ? "SWOT Analysis" : "Competitor Matrix Analysis"}
+                                        {payload.type === "swot"
+                                            ? "SWOT Analysis"
+                                            : payload.type === "bmc"
+                                                ? "Business Model Canvas"
+                                                : "Competitor Matrix Analysis"}
                                     </h1>
                                     <p className="text-sm opacity-75 mt-1">{payload.name}</p>
                                 </div>
@@ -243,6 +464,58 @@ function DocumentViewerModal({
                                             {competitors.length === 0 && (
                                                 <div className="py-12 text-center text-gray-500 italic">No competitors found.</div>
                                             )}
+                                        </div>
+                                    )}
+
+                                    {/* Business Model Canvas — Osterwalder 9-block grid */}
+                                    {payload.type === "bmc" && bmc && (
+                                        <div
+                                            className="pb-6"
+                                            style={{
+                                                display: "grid",
+                                                gridTemplateColumns: "repeat(10, 1fr)",
+                                                gridTemplateRows: "repeat(6, minmax(90px, 1fr))",
+                                                gap: "6px",
+                                                minHeight: "720px",
+                                            }}
+                                        >
+                                            {BMC_BOXES.map(({ key, label, col, row }) => {
+                                                const items = (bmc[key] as string[] | undefined) ?? [];
+                                                return (
+                                                    <div
+                                                        key={String(key)}
+                                                        className="flex flex-col overflow-hidden border border-[#576238]"
+                                                        style={{
+                                                            gridColumn: col,
+                                                            gridRow: row,
+                                                            backgroundColor: "#FAF6EC",
+                                                        }}
+                                                    >
+                                                        <div
+                                                            className="px-3 py-2 flex items-center justify-center"
+                                                            style={{ backgroundColor: "#576238" }}
+                                                        >
+                                                            <span
+                                                                className="font-bold text-xs uppercase tracking-wider"
+                                                                style={{ color: "#ffd95d" }}
+                                                            >
+                                                                {label}
+                                                            </span>
+                                                        </div>
+                                                        <div style={{ height: "4px", backgroundColor: "#ffd95d" }} />
+                                                        <ul className="p-3 space-y-1.5 flex-1 overflow-auto">
+                                                            {items.length === 0 ? (
+                                                                <li className="text-[11px] italic" style={{ color: "#888" }}>(no data)</li>
+                                                            ) : items.map((item, i) => (
+                                                                <li key={i} className="flex items-start gap-1.5 text-[12px] leading-snug" style={{ color: "#2c3e50" }}>
+                                                                    <span className="flex-shrink-0">•</span>
+                                                                    <span>{item}</span>
+                                                                </li>
+                                                            ))}
+                                                        </ul>
+                                                    </div>
+                                                );
+                                            })}
                                         </div>
                                     )}
 
@@ -610,7 +883,9 @@ export default function DocumentsPage() {
                 body: JSON.stringify({
                     file_path: fileData,
                     query: contentToSend,
-                    provider: "gemini",
+                    provider: "groq",
+                    // Pass the chat context type so the AI knows what document it's discussing
+                    document_type: chatContext,
                     // ADD THIS LINE: Pass the last few messages so the AI remembers context
                     chat_history: messages.slice(-5)
                 })
@@ -635,8 +910,83 @@ export default function DocumentsPage() {
     };
 
     // --- NEW: Handle Enhance Message ---
-    const handleEnhanceMessage = (messageContent: string) => {
-        // Doing nothing for now as requested.
+    const [isEnhancing, setIsEnhancing] = useState(false);
+    const [isApplyingBmc, setIsApplyingBmc] = useState(false);
+
+    const handleApplyBmcChanges = async () => {
+        if (!cleanId || !chatSessionId || isApplyingBmc) return;
+        setIsApplyingBmc(true);
+        try {
+            const result = await documentsService.applyBmcChanges(cleanId, chatSessionId);
+            if (!result) {
+                setMessages(prev => [...prev, { role: "assistant", content: "Error: Could not apply changes to the BMC." }]);
+                return;
+            }
+
+            const changeLog = Array.isArray(result.change_log) ? result.change_log : [];
+            const header = "BMC updated. Change log:";
+            const body = changeLog.length > 0
+                ? changeLog.map(c => `• ${c}`).join("\n")
+                : "• (no change log returned)";
+
+            setMessages(prev => [...prev, {
+                role: "assistant",
+                content: `${header}\n\n${body}`
+            }]);
+
+            // Refresh the docs panel so the BMC card shows the new version.
+            await fetchData();
+        } catch {
+            setMessages(prev => [...prev, { role: "assistant", content: "Error: Apply-to-BMC failed." }]);
+        } finally {
+            setIsApplyingBmc(false);
+        }
+    };
+
+    const handleEnhanceMessage = async (_messageContent: string) => {
+        if (!chatSessionId || isEnhancing) return;
+        setIsEnhancing(true);
+        try {
+            const result = await documentsService.enhanceSession(chatSessionId);
+            if (!result) {
+                setMessages(prev => [...prev, { role: "assistant", content: "Error: Could not enhance this chat." }]);
+                return;
+            }
+            if (result.status === "NoChanges") {
+                setMessages(prev => [...prev, { role: "assistant", content: "No new messages to summarize since the last enhancement." }]);
+                return;
+            }
+
+            // AI returns { document_changes: string[], enhanced_at: string }
+            let changes: string[] = [];
+            try {
+                const parsed = result.summarizedChat
+                    ? (typeof result.summarizedChat === "string"
+                        ? JSON.parse(result.summarizedChat)
+                        : result.summarizedChat)
+                    : null;
+                if (parsed && Array.isArray(parsed.document_changes)) {
+                    changes = parsed.document_changes as string[];
+                }
+            } catch {
+                // fall through, treat as raw text
+            }
+
+            const summaryText = changes.length > 0
+                ? changes.map((c, i) => `${i + 1}. ${c}`).join("\n")
+                : (typeof result.summarizedChat === "string" ? result.summarizedChat : "");
+
+            setMessages(prev => [...prev, {
+                role: "assistant",
+                content: summaryText
+                    ? `Enhanced summary — requested document changes:\n\n${summaryText}\n\nClick **Apply changes to BMC** to update the canvas.`
+                    : "Chat enhanced. No actionable document changes were detected."
+            }]);
+        } catch {
+            setMessages(prev => [...prev, { role: "assistant", content: "Error: Enhance failed." }]);
+        } finally {
+            setIsEnhancing(false);
+        }
     };
 
     // --- Helper variable for context state ---
@@ -661,6 +1011,8 @@ export default function DocumentsPage() {
                 success = await documentsService.generateSwot(cleanId);
             } else if (docId === "competitor_matrix") {
                 success = await documentsService.generateCompetitorMatrix(cleanId);
+            } else if (docId === "bmc") {
+                success = await documentsService.generateBmc(cleanId);
             } else {
                 success = await documentsService.generateMockDocument(cleanId, docConfig.name);
             }
@@ -735,10 +1087,45 @@ export default function DocumentsPage() {
                 setViewerPayload({ type: "competitor_matrix", data: state.jsonResponse, name: state.name });
                 return;
             }
+            if (state.configId === "bmc") {
+                setViewerPayload({ type: "bmc", data: state.jsonResponse, name: state.name });
+                return;
+            }
             setViewerPayload({ type: "swot", data: state.jsonResponse, name: state.name });
             return;
         }
         alert("This document has no file or data to view.");
+    };
+
+    const handleDownloadBmc = (state: DocState) => {
+        if (!state.jsonResponse) {
+            alert("Nothing to download yet.");
+            return;
+        }
+        const parsed = parseBmc(state.jsonResponse);
+        if (!parsed) {
+            alert("Could not read the BMC content.");
+            return;
+        }
+        try {
+            const canvas = renderBmcCanvas(parsed, state.name);
+            canvas.toBlob((blob) => {
+                if (!blob) {
+                    alert("Failed to encode image.");
+                    return;
+                }
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = `${state.name.replace(/\s+/g, "_")}_v${state.version ?? 1}.png`;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                URL.revokeObjectURL(url);
+            }, "image/png");
+        } catch {
+            alert("Failed to prepare download.");
+        }
     };
 
     const handleEvaluate = (dbId?: string) => { if (dbId) router.push(`/founder/startup/${cleanId}/documents/${dbId}/evaluate`); };
@@ -931,17 +1318,23 @@ export default function DocumentsPage() {
                                                                         <Eye className="h-3 w-3 mr-1.5" />
                                                                         {isJsonOnly ? "View Analysis" : "View"}
                                                                     </Button>
-                                                                    <Button variant="outline" size="sm" className={`h-8 text-xs ${outlineBtn}`} onClick={() => handleEvaluate(state?.dbId)}>
-                                                                        <Star className="h-3 w-3 mr-1.5" /> Evaluate
-                                                                    </Button>
-                                                                    <Button variant="outline" size="sm" className={`h-8 text-xs ${outlineBtn}`} onClick={() => handleRecommend(state?.dbId)}>
-                                                                        <Edit className="h-3 w-3 mr-1.5" /> Recommend
-                                                                    </Button>
+                                                                    {config.id === "bmc" && state?.jsonResponse && (
+                                                                        <Button variant="outline" size="sm" className={`h-8 text-xs ${outlineBtn}`} onClick={() => state && handleDownloadBmc(state)}>
+                                                                            <Download className="h-3 w-3 mr-1.5" /> Download
+                                                                        </Button>
+                                                                    )}
+                                                                    {config.id !== "bmc" && (
+                                                                        <>
+                                                                            <Button variant="outline" size="sm" className={`h-8 text-xs ${outlineBtn}`} onClick={() => handleEvaluate(state?.dbId)}>
+                                                                                <Star className="h-3 w-3 mr-1.5" /> Evaluate
+                                                                            </Button>
+                                                                            <Button variant="outline" size="sm" className={`h-8 text-xs ${outlineBtn}`} onClick={() => handleRecommend(state?.dbId)}>
+                                                                                <Edit className="h-3 w-3 mr-1.5" /> Recommend
+                                                                            </Button>
+                                                                        </>
+                                                                    )}
                                                                     <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-400 hover:text-red-500 hover:bg-red-50 ml-auto" onClick={() => handleDelete(state?.dbId)}>
                                                                         {deletingId === state?.dbId ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
-                                                                    </Button>
-                                                                    <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-400 hover:text-[#576238]" onClick={() => triggerUpload(config.id)}>
-                                                                        <RefreshCw className="h-3 w-3" />
                                                                     </Button>
                                                                 </>
                                                             ) : (
@@ -1090,12 +1483,39 @@ export default function DocumentsPage() {
                                                                         <Button
                                                                             size="sm"
                                                                             variant="outline"
-                                                                            disabled={isChatLoading || isTyping}
+                                                                            disabled={isChatLoading || isTyping || isEnhancing || !chatSessionId}
                                                                             className="h-7 text-[10px] border-[#576238] text-[#576238] hover:bg-[#576238] hover:text-white transition-colors"
                                                                             onClick={() => handleEnhanceMessage(m.content)}
                                                                         >
-                                                                            <Sparkles className="h-3 w-3 mr-1.5" />
-                                                                            Enhance
+                                                                            {isEnhancing ? (
+                                                                                <Loader2 className="h-3 w-3 mr-1.5 animate-spin" />
+                                                                            ) : (
+                                                                                <Sparkles className="h-3 w-3 mr-1.5" />
+                                                                            )}
+                                                                            {isEnhancing ? "Enhancing…" : "Enhance"}
+                                                                        </Button>
+                                                                    </motion.div>
+                                                                )}
+
+                                                                {/* Apply to BMC — only on the enhance-summary message, when context is BMC and a BMC doc exists */}
+                                                                {m.role === "assistant"
+                                                                    && chatContext === "bmc"
+                                                                    && m.content.startsWith("Enhanced summary")
+                                                                    && !!docStates.find(d => d.configId === "bmc")?.isUploaded && (
+                                                                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.7 }}>
+                                                                        <Button
+                                                                            size="sm"
+                                                                            variant="outline"
+                                                                            disabled={isChatLoading || isTyping || isApplyingBmc || !chatSessionId}
+                                                                            className="h-7 text-[10px] border-[#576238] bg-[#576238] text-white hover:bg-[#464f2d] hover:text-white transition-colors"
+                                                                            onClick={handleApplyBmcChanges}
+                                                                        >
+                                                                            {isApplyingBmc ? (
+                                                                                <Loader2 className="h-3 w-3 mr-1.5 animate-spin" />
+                                                                            ) : (
+                                                                                <Sparkles className="h-3 w-3 mr-1.5" />
+                                                                            )}
+                                                                            {isApplyingBmc ? "Applying…" : "Apply changes to BMC"}
                                                                         </Button>
                                                                     </motion.div>
                                                                 )}
