@@ -453,50 +453,155 @@ export const recommendationService = {
 
     // ---------------------------------------------------------
     // Call the real deployed Recommendation Agent.
-    // Sends MOCK_STARTUP_DATA + MOCK_EVALUATION_OUTPUT as the input payload.
-    // Falls back to local mock data if the API is unavailable / over-quota.
+    // Sends the CURRENT startup's data + its evaluation output, mapped into
+    // the schema the backend expects. Falls back to a report derived from the
+    // same real startup data (NOT a static memo) if the API is unavailable.
     // ---------------------------------------------------------
-    async generateAIRecommendation(_startupData?: any, _evaluationContent?: any): Promise<RecommendationContent | null> {
+    async generateAIRecommendation(startupData?: any, evaluationContent?: any): Promise<RecommendationContent | null> {
         const AI_AGENT_URL = "https://spark2scale-ai-server.azurewebsites.net/api/v1/recommend";
         const requestId    = `req_${Date.now()}`;
 
-        // ── Shared insight builder from mock inputs ──────────────────
-        const buildInsights = () => {
-            const snapshot = MOCK_STARTUP_DATA.startup_evaluation.company_snapshot;
-            const problem  = MOCK_STARTUP_DATA.startup_evaluation.problem_definition;
-            const product  = MOCK_STARTUP_DATA.startup_evaluation.product_and_solution;
-            const market   = MOCK_STARTUP_DATA.startup_evaluation.market_and_scope;
-            const traction = MOCK_STARTUP_DATA.startup_evaluation.traction_metrics;
-            const vision   = MOCK_STARTUP_DATA.startup_evaluation.vision_and_strategy;
-            const founders = MOCK_STARTUP_DATA.startup_evaluation.founder_and_team.founders;
-            return {
-                company_name:       snapshot.company_name,
-                stage:              snapshot.current_stage,
-                target_raise:       `${snapshot.current_round.target_amount}k`,
-                problem_statement:  problem.problem_statement,
-                founder_experience: founders.map((f: any) => `${f.name} (${f.role}) — ${f.prior_experience}`).join("; "),
-                founder_market_fit: founders[0]?.founder_market_fit_statement ?? "",
-                customer_quotes:    problem.evidence.customer_quotes,
-                differentiation:    product.differentiation,
-                core_stickiness:    product.core_stickiness,
-                active_users:       traction.active_users_monthly,
-                early_revenue:      traction.early_revenue,
-                five_year_vision:   vision.five_year_vision,
-                beachhead_market:   market.beachhead_market,
-                market_size:        market.market_size_estimate,
-                gap_analysis:       problem.gap_analysis,
-            };
+        // ── Helpers ──────────────────────────────────────────────────
+        const parseMaybeJson = (v: any): any => {
+            if (typeof v === "string") { try { return JSON.parse(v); } catch { return {}; } }
+            return v ?? {};
         };
+
+        // The startup form returned by startupService.getById lives in
+        // `json_response`; it may already be wrapped in `startup_evaluation`.
+        const extractStartupEval = (sd: any): any => {
+            const root = parseMaybeJson(sd?.json_response ?? sd);
+            return root?.startup_evaluation ?? root ?? {};
+        };
+
+        // Backend StartupData.scores key  ->  evaluation-agent report/grid key
+        const SCORE_MAP: Record<string, string> = {
+            team: "team", problem: "problem", product: "product", market: "market",
+            traction: "traction", gtm: "gtm", economics: "business",
+            vision: "vision", ops: "operations",
+        };
+
+        const clamp5 = (n: number) => Math.max(0, Math.min(5, n));
+
+        // Coerce any of the agent's score representations into a 0-5 float.
+        const toScore5 = (gridVal: any, report: any): number => {
+            if (gridVal !== undefined && gridVal !== null && !isNaN(Number(gridVal))) {
+                return clamp5(Number(gridVal));
+            }
+            const raw = report?.score;
+            if (typeof raw === "string" && raw.includes("/")) {
+                const p = parseFloat(raw.split("/")[0]);
+                if (!isNaN(p)) return clamp5(p);
+            } else if (typeof raw === "number") {
+                return clamp5(raw <= 5 ? raw : raw / 20);
+            }
+            const sn = Number(report?.score_numeric);
+            if (!isNaN(sn) && sn > 0) return clamp5(sn / 20); // 0-100 -> 0-5
+            return 0;
+        };
+
+        // Map the evaluation-agent output to the backend's strict StartupData.
+        const mapEvaluation = (ec: any, startupEval: any) => {
+            const fr = ec?.final_report ?? {};
+            const fo = fr?.founder_output ?? {};
+            const io = fr?.investor_output ?? {};
+
+            // Scorecard grid (0-5), lower-cased keys, from founder or investor side
+            const rawGrid =
+                fo?.Content?.["Scorecard Grid"] ?? fo?.scorecard_grid ??
+                io?.Content?.["Scorecard Grid"] ?? io?.scorecard_grid ?? {};
+            const grid: Record<string, number> = {};
+            Object.entries(rawGrid || {}).forEach(([k, v]) => { grid[k.toLowerCase()] = Number(v); });
+
+            // Dimension-analysis justifications (fallback for descriptions)
+            const dims = fo?.Content?.["Dimension Analysis"] ?? fo?.dimension_analysis ?? [];
+            const dimJust: Record<string, string> = {};
+            if (Array.isArray(dims)) {
+                dims.forEach((d: any) => {
+                    const name = String(d?.dimension ?? "").toLowerCase();
+                    if (name) dimJust[name] = String(d?.justification ?? "");
+                });
+            }
+
+            const scores: Record<string, { score: number; description: string }> = {};
+            Object.entries(SCORE_MAP).forEach(([backendKey, evalKey]) => {
+                const report = ec?.[`${evalKey}_report`] ?? {};
+                const description =
+                    (report?.explanation && String(report.explanation)) ||
+                    dimJust[evalKey] ||
+                    "No analysis available for this dimension.";
+                scores[backendKey] = {
+                    score: toScore5(grid[evalKey], report),
+                    description,
+                };
+            });
+
+            const snap = startupEval?.company_snapshot ?? {};
+            const prob = startupEval?.problem_definition ?? {};
+            const stage = String(snap?.current_stage || "Pre-Seed");
+            const company_context = String(
+                fo?.Content?.["Executive Summary"] ?? fo?.executive_summary ??
+                io?.Content?.["Executive Summary"] ??
+                (snap?.company_name
+                    ? `${snap.company_name}: ${prob?.problem_statement ?? "Early-stage startup."}`
+                    : "Early-stage startup.")
+            );
+
+            return { stage, company_context, scores };
+        };
+
+        // UI insight card, built from the REAL startup form (not a fixed mock).
+        const buildInsights = (startupEval: any) => {
+            const snap     = startupEval?.company_snapshot ?? {};
+            const problem  = startupEval?.problem_definition ?? {};
+            const product  = startupEval?.product_and_solution ?? {};
+            const market   = startupEval?.market_and_scope ?? {};
+            const traction = startupEval?.traction_metrics ?? {};
+            const vision   = startupEval?.vision_and_strategy ?? {};
+            const founders = startupEval?.founder_and_team?.founders ?? [];
+            return {
+                company_name:       snap?.company_name ?? "Unknown",
+                stage:              snap?.current_stage ?? "Unknown",
+                target_raise:       snap?.current_round?.target_amount != null
+                                        ? `${snap.current_round.target_amount}k` : "Unknown",
+                problem_statement:  problem?.problem_statement ?? "Unknown",
+                founder_experience: Array.isArray(founders)
+                                        ? founders.map((f: any) => `${f?.name ?? ""} (${f?.role ?? ""}) — ${f?.prior_experience ?? ""}`).join("; ")
+                                        : "Unknown",
+                founder_market_fit: founders?.[0]?.founder_market_fit_statement ?? "",
+                customer_quotes:    problem?.evidence?.customer_quotes ?? [],
+                differentiation:    product?.differentiation ?? "Unknown",
+                core_stickiness:    product?.core_stickiness ?? "Unknown",
+                active_users:       traction?.active_users_monthly ?? 0,
+                early_revenue:      traction?.early_revenue ?? "USD 0",
+                five_year_vision:   vision?.five_year_vision ?? "Unknown",
+                beachhead_market:   market?.beachhead_market ?? "Unknown",
+                market_size:        market?.market_size_estimate ?? "Unknown",
+                gap_analysis:       problem?.gap_analysis ?? "Unknown",
+            } as RecommendationContent["insights"];
+        };
+
+        // Resolve the real inputs (fall back to the seed mocks only if the
+        // caller passed nothing at all — e.g. an isolated dev/test harness).
+        const startupEval = (() => {
+            const ev = extractStartupEval(startupData);
+            return ev && Object.keys(ev).length ? ev : MOCK_STARTUP_DATA.startup_evaluation;
+        })();
+        const evalContent  = evaluationContent ?? {};
+        const evaluation_output =
+            (evaluationContent && Object.keys(evaluationContent).length)
+                ? mapEvaluation(evalContent, startupEval)
+                : MOCK_EVALUATION_OUTPUT;
 
         // ── 1. Try the real AI agent ──────────────────────────────────
         try {
             const payload = {
-                raw_input:        MOCK_STARTUP_DATA.startup_evaluation,
-                evaluation_output: MOCK_EVALUATION_OUTPUT,
-                request_id:       requestId,
+                raw_input:         { startup_evaluation: startupEval },
+                evaluation_output: evaluation_output,
+                request_id:        requestId,
             };
 
-            console.log("🚀 [AI Agent] Calling real API:", AI_AGENT_URL);
+            console.log("🚀 [AI Agent] Calling real API:", AI_AGENT_URL, payload);
 
             const response = await fetch(AI_AGENT_URL, {
                 method:  "POST",
@@ -512,57 +617,68 @@ export const recommendationService = {
             const data = await response.json();
             console.log("✅ [AI Agent] Response received:", data);
 
+            // Prefer the backend's own extracted insights (derived from the
+            // real startup); fall back to the locally-built card.
+            const apiInsights =
+                data?.insights && Object.keys(data.insights).length
+                    ? (data.insights as RecommendationContent["insights"])
+                    : buildInsights(startupEval);
+
             const content: RecommendationContent = {
                 request_id:            requestId,
                 timestamp:             new Date().toISOString(),
                 recommendation_report: data.final_report || MOCK_AI_RESPONSE,
-                insights:              buildInsights(),
+                insights:              apiInsights,
                 refined_statements:    data.refined_statements  || {},
                 matched_patterns:      data.matched_patterns    || [],
                 patterns_detected:     [],
-                evaluation_scores:     MOCK_EVALUATION_OUTPUT.scores,
-                company_context:       MOCK_EVALUATION_OUTPUT.company_context,
-                stage:                 MOCK_EVALUATION_OUTPUT.stage,
+                evaluation_scores:     evaluation_output.scores,
+                company_context:       evaluation_output.company_context,
+                stage:                 evaluation_output.stage,
             };
 
             return content;
 
         } catch (error) {
-            // ── 2. Fallback: use mock data when the API is unreachable ──
-            console.warn("⚠️ [AI Agent] API unavailable — using mock data fallback.", error);
+            // ── 2. Fallback: derive a per-startup report from the real
+            //      data so different startups still get different output. ──
+            console.warn("⚠️ [AI Agent] API unavailable — generating offline report from real startup data.", error);
+
+            const insights = buildInsights(startupEval);
+            const weak = Object.entries(evaluation_output.scores)
+                .filter(([, v]) => (v as any).score <= 2)
+                .map(([k]) => k);
+
+            const offlineReport =
+`### STRATEGIC MEMO (OFFLINE) — ${insights.company_name}
+**Stage:** ${evaluation_output.stage}  |  **Target Raise:** ${insights.target_raise}
+
+> ⚠️ The AI agent was unreachable. This summary is generated locally from
+> your latest evaluation; regenerate when the service is back online for the
+> full analysis.
+
+**Context:** ${evaluation_output.company_context}
+
+**Core problem:** ${insights.problem_statement}
+
+**Weakest dimensions (score ≤ 2/5):** ${weak.length ? weak.join(", ") : "none flagged"}
+
+**Scorecard:**
+${Object.entries(evaluation_output.scores)
+    .map(([k, v]) => `- **${k}**: ${(v as any).score}/5 — ${(v as any).description}`)
+    .join("\n")}`;
 
             const content: RecommendationContent = {
                 request_id:            `fallback_${Date.now()}`,
                 timestamp:             new Date().toISOString(),
-                recommendation_report: MOCK_AI_RESPONSE,
-                insights:              buildInsights(),
-                refined_statements: {
-                    problem_statement: {
-                        original:    "Early-stage founders lack a structured system to validate ideas, develop essential business documents, and reach investors.",
-                        recommended: "MENA early-stage founders lose 18+ months building products without validated market demand because no trusted, data-driven framework exists to assess idea viability before committing resources.",
-                        why_better:  "Quantifies the pain with a time metric, specifies the geography (MENA), and anchors the problem to a measurable outcome investors care about.",
-                    },
-                    founder_market_fit: {
-                        original:    "Because we have done real research and already knew different startup owners.",
-                        recommended: "As builders who interviewed 40+ MENA founders and operated within two regional AI companies, we translate the gap we lived into a product the market needs.",
-                        why_better:  "Replaces a vague claim with a specific credibility indicator (40+ interviews) and connects personal experience directly to market insight.",
-                    },
-                    differentiation: {
-                        original:    "AI-powered structured system for startup validation.",
-                        recommended: "The only MENA-native AI platform that combines multi-agent validation, investor-grade scoring, and actionable document generation in a single workflow — trained on regional founder data.",
-                        why_better:  "Owns the geography, specifies the unique mechanism (multi-agent + regional training), and clarifies the value output (documents), making it immune to generic SaaS comparisons.",
-                    },
-                    five_year_vision: {
-                        original:    "Become the leading platform for startup validation in the MENA region.",
-                        recommended: "By 2030, Spark2Scale will be the default infrastructure layer for startup readiness in MENA — the system accelerators, VC firms, and founders use before any capital changes hands.",
-                        why_better:  "Sets a concrete year, shifts from 'leading platform' (a feature claim) to 'infrastructure layer' (a category-defining position), and names the specific stakeholders that validate its success.",
-                    },
-                },
+                recommendation_report: offlineReport,
+                insights:              insights,
+                refined_statements:    {},
                 matched_patterns:      [],
                 patterns_detected:     [],
-                evaluation_scores:     MOCK_EVALUATION_OUTPUT.scores,
-                company_context:       MOCK_EVALUATION_OUTPUT.company_context,
-                stage:                 MOCK_EVALUATION_OUTPUT.stage,
+                evaluation_scores:     evaluation_output.scores,
+                company_context:       evaluation_output.company_context,
+                stage:                 evaluation_output.stage,
             };
 
             return content;

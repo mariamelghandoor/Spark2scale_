@@ -196,27 +196,65 @@ const REFINED_LABELS: Record<string, string> = {
     gap_analysis: "Gap Analysis",
 };
 
+// Fixed render order — mirrors the backend OutputManager.statement_types so the
+// "[REPORT] Statement Refinements" table is identical to recommendation.md.
+const REFINED_ORDER: string[] = [
+    "problem_statement",
+    "founder_market_fit",
+    "differentiation",
+    "core_stickiness",
+    "five_year_vision",
+    "beachhead_market",
+    "gap_analysis",
+];
+
+// Matches Python: datetime.strftime('%B %d, %Y at %I:%M %p')
+function formatGenerated(d: Date = new Date()): string {
+    const month = d.toLocaleString("en-US", { month: "long" });
+    const day   = d.getDate();
+    let h = d.getHours();
+    const ampm = h >= 12 ? "PM" : "AM";
+    h = h % 12 || 12;
+    const hh = String(h).padStart(2, "0");
+    const mm = String(d.getMinutes()).padStart(2, "0");
+    return `${month} ${day}, ${d.getFullYear()} at ${hh}:${mm} ${ampm}`;
+}
+
 export const InvestmentMemoView: React.FC<InvestmentMemoViewProps> = ({ data }) => {
     const ins = data?.insights ?? {};
     const refined: Record<string, { original: string; recommended: string; why_better: string }> =
         data?.refined_statements ?? data?.refinedStatements ?? {};
     const finalContent = buildReportMarkdown(data);
+    const companyName  = ins.company_name || "Startup";
 
+    // Mirrors recommendation.md "[DATA] Company Overview" table exactly.
     const overviewRows: [string, string][] = [
-        ins.company_name && ["Company Name", ins.company_name],
-        ins.stage && ["Stage", ins.stage],
-        ins.target_raise && ["Target Raise", ins.target_raise],
-        ins.problem_statement && ["Problem", ins.problem_statement],
-    ].filter(Boolean) as [string, string][];
+        ["Company Name", String(ins.company_name ?? "N/A")],
+        ["Stage",        String(ins.stage ?? "N/A")],
+        ["Target Raise", String(ins.target_raise ?? "N/A")],
+        ["Generated",    formatGenerated()],
+    ];
+
+    const refinedKeys = REFINED_ORDER.filter(
+        k => refined[k] && typeof refined[k] === "object",
+    );
 
     return (
         <div className="bg-white text-black w-full mx-auto shadow-2xl rounded overflow-hidden">
 
             {/* ── Olive header band ── */}
             <div className="bg-[#576238] text-white px-10 py-6">
-                <p className="text-xs uppercase tracking-widest opacity-70 mb-1 font-sans">Spark2Scale</p>
-                <h1 className="text-xl font-bold font-sans">Recommendation Agent</h1>
-                <p className="text-sm opacity-75 mt-1">Strategic Analysis Report</p>
+                <h1 className="text-xl font-bold font-sans">[LAUNCH] Spark2Scale Recommendation Agent</h1>
+            </div>
+
+            {/* ── Strategic Recommendations sub-banner (olive gradient) ── */}
+            <div
+                className="px-10 py-4 text-white"
+                style={{ background: "linear-gradient(135deg, #4a5f2d 0%, #7b8f4a 100%)" }}
+            >
+                <h2 className="text-lg font-bold font-sans">
+                    Strategic Recommendations for {companyName}
+                </h2>
             </div>
 
             {/* ── Mustard accent stripe ── */}
@@ -224,87 +262,99 @@ export const InvestmentMemoView: React.FC<InvestmentMemoViewProps> = ({ data }) 
 
             <div className="px-10 py-8 space-y-10">
 
-                {/* ── Report date ── */}
-                <p className="text-xs text-gray-400">
-                    Generated: {new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })}
-                </p>
+                {/* ── [DATA] Company Overview ── */}
+                <section>
+                    <SectionHeader title="[DATA] Company Overview" upper={false} />
+                    <table className="w-full border-collapse text-sm mt-1">
+                        <thead>
+                            <tr className="bg-[#576238] text-white">
+                                <th className="px-4 py-2 text-left font-bold uppercase tracking-wide text-xs w-44">Attribute</th>
+                                <th className="px-4 py-2 text-left font-bold uppercase tracking-wide text-xs">Details</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {overviewRows.map(([label, val], i) => (
+                                <tr key={i} className={i % 2 === 0 ? "bg-[#F4F1EA]" : "bg-white"}>
+                                    <td className="font-bold text-[#576238] px-4 py-2.5 w-44 border border-gray-200 align-top">
+                                        {label}
+                                    </td>
+                                    <td className="px-4 py-2.5 text-gray-700 border border-gray-200">
+                                        {val}
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </section>
 
-                {/* ── Company Overview ── */}
-                {overviewRows.length > 0 && (
+                {/* ── [REPORT] Statement Refinements (4-col table) ── */}
+                {refinedKeys.length > 0 && (
                     <section>
-                        <SectionHeader title="Company Overview" />
-                        <table className="w-full border-collapse text-sm mt-1">
-                            <tbody>
-                                {overviewRows.map(([label, val], i) => (
-                                    <tr key={i} className={i % 2 === 0 ? "bg-[#F4F1EA]" : "bg-white"}>
-                                        <td className="font-bold text-[#576238] px-4 py-2.5 w-40 border border-gray-200 align-top">
-                                            {label}
-                                        </td>
-                                        <td className="px-4 py-2.5 text-gray-700 border border-gray-200">
-                                            {val}
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </section>
-                )}
-
-                {/* ── Refined Statements (BEFORE Strategic Analysis / Core Hypothesis) ── */}
-                {Object.keys(refined).length > 0 && (
-                    <section>
-                        <SectionHeader title="Refined Statements" />
-                        <p className="text-xs text-gray-500 italic mt-2 mb-4">
-                            AI-enhanced versions of your key statements for improved investor appeal.
+                        <SectionHeader title="[REPORT] Statement Refinements" upper={false} />
+                        <p className="text-sm text-gray-700 mt-2 mb-4">
+                            <strong>AI-Enhanced Core Messaging</strong> — Improved versions of your key
+                            statements for better clarity and investor appeal.
                         </p>
 
-                        <div className="space-y-6">
-                            {Object.entries(refined).map(([key, val]) => (
-                                <div key={key}>
-                                    {/* Statement label strip */}
-                                    <div className="flex items-stretch gap-0 bg-[#F4F1EA] overflow-hidden rounded-t">
-                                        <div className="w-1 bg-[#576238] shrink-0" />
-                                        <span className="font-bold text-[#576238] text-xs uppercase tracking-widest px-3 py-2">
-                                            {REFINED_LABELS[key] ?? key.replace(/_/g, " ")}
-                                        </span>
-                                    </div>
-
-                                    <div className="border border-t-0 border-gray-200 rounded-b px-4 pt-4 pb-3 space-y-3 bg-white">
-                                        {/* Original */}
-                                        <div>
-                                            <span className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1">
-                                                Original
-                                            </span>
-                                            <p className="text-sm text-gray-500 italic leading-relaxed">{val.original}</p>
-                                        </div>
-
-                                        {/* Refined (mustard highlight) */}
-                                        <div className="bg-[#fffbea] border border-[#ffd95d] rounded-md px-4 py-3">
-                                            <span className="text-xs font-bold text-[#576238] uppercase tracking-widest block mb-1">
-                                                Refined
-                                            </span>
-                                            <p className="text-sm font-semibold text-gray-900 leading-relaxed">{val.recommended}</p>
-                                        </div>
-
-                                        {/* Why Better */}
-                                        <div>
-                                            <span className="text-xs font-bold text-green-700 uppercase tracking-widest block mb-1">
-                                                Why Better
-                                            </span>
-                                            <p className="text-sm text-gray-600 italic leading-relaxed">{val.why_better}</p>
-                                        </div>
-                                    </div>
-                                </div>
-                            ))}
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-sm text-left border-collapse">
+                                <thead>
+                                    <tr className="bg-[#576238] text-white">
+                                        <th className="py-2 px-3 font-bold uppercase tracking-wide text-xs">Category</th>
+                                        <th className="py-2 px-3 font-bold uppercase tracking-wide text-xs">Original Statement</th>
+                                        <th className="py-2 px-3 font-bold uppercase tracking-wide text-xs">Refined Statement</th>
+                                        <th className="py-2 px-3 font-bold uppercase tracking-wide text-xs">Why It's Better</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {refinedKeys.map((key, i) => {
+                                        const val = refined[key];
+                                        return (
+                                            <tr key={key} className={i % 2 === 0 ? "bg-[#F4F1EA]" : "bg-white"}>
+                                                <td className="py-2 px-3 align-top font-bold text-[#576238] border border-gray-200">
+                                                    {REFINED_LABELS[key] ?? key.replace(/_/g, " ")}
+                                                </td>
+                                                <td className="py-2 px-3 align-top text-gray-500 italic border border-gray-200">
+                                                    {val.original}
+                                                </td>
+                                                <td className="py-2 px-3 align-top font-medium text-gray-900 border border-gray-200">
+                                                    {val.recommended}
+                                                </td>
+                                                <td className="py-2 px-3 align-top text-gray-600 border border-gray-200">
+                                                    {val.why_better}
+                                                </td>
+                                            </tr>
+                                        );
+                                    })}
+                                </tbody>
+                            </table>
                         </div>
                     </section>
                 )}
 
-                {/* ── Strategic Analysis & Recommendations ── */}
+                {/* ── 📋 Strategic Analysis & Recommendations ── */}
                 <section>
-                    <SectionHeader title="Strategic Analysis & Recommendations" />
+                    <SectionHeader title="📋 Strategic Analysis & Recommendations" upper={false} />
                     <div className="mt-4">
                         <MarkdownRenderer content={finalContent} />
+                    </div>
+                </section>
+
+                {/* ── [IDEA] About This Report ── */}
+                <section>
+                    <SectionHeader title="[IDEA] About This Report" upper={false} />
+                    <div className="mt-3 bg-[#f9faf6] border-l-4 border-[#4a5f2d] rounded px-5 py-4">
+                        <p className="text-sm text-gray-700 leading-relaxed">
+                            This strategic recommendation report was generated by the{" "}
+                            <strong>Spark2Scale AI Recommendation Agent</strong> using advanced
+                            evaluation algorithms and AI-powered analysis. The recommendations are
+                            based on startup evaluation data, market research, and industry best
+                            practices.
+                        </p>
+                        <p className="text-sm text-[#7b8f4a] italic mt-3">
+                            [WARNING] <strong>Note:</strong> This is an automated analysis. Please
+                            use professional judgment when implementing these recommendations.
+                        </p>
                     </div>
                 </section>
             </div>
@@ -320,8 +370,12 @@ export const InvestmentMemoView: React.FC<InvestmentMemoViewProps> = ({ data }) 
 // ---------------------------------------------------------------------------
 // Shared section-header component (olive band, white text)
 // ---------------------------------------------------------------------------
-const SectionHeader: React.FC<{ title: string }> = ({ title }) => (
-    <div className="bg-[#576238] text-white px-4 py-2 font-bold text-xs uppercase tracking-widest font-sans rounded-sm">
+const SectionHeader: React.FC<{ title: string; upper?: boolean }> = ({ title, upper = true }) => (
+    <div
+        className={`bg-[#576238] text-white px-4 py-2 font-bold tracking-widest font-sans rounded-sm ${
+            upper ? "text-xs uppercase" : "text-sm"
+        }`}
+    >
         {title}
     </div>
 );
