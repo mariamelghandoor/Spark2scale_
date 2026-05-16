@@ -472,15 +472,36 @@ export const recommendationService = {
             return v ?? {};
         };
 
-        // The detailed startup form lives in `json_response` (optionally
-        // wrapped in `startup_evaluation`). When it is missing/partial, the
-        // founder may still have a lightweight Startup record — backfill
-        // company_snapshot / problem_definition from those top-level fields
-        // (startupname, startup_stage, idea_description, field, region) so the
-        // report shows real identifiers instead of "Unknown" everywhere.
-        const extractStartupEval = (sd: any): any => {
-            const form  = parseMaybeJson(sd?.json_response ?? null);
-            const inner = (form && (form.startup_evaluation ?? form)) || {};
+        // Find a startup_evaluation-shaped object (one carrying
+        // company_snapshot / problem_definition) anywhere in a parsed payload.
+        // Per the project, the Founder Evaluation document's json_response
+        // carries BOTH the founder's form and the AI result, so the form may
+        // be at the top level or nested under a common wrapper key.
+        const findFormObject = (src: any, depth = 0): any => {
+            if (!src || typeof src !== "object" || depth > 4) return null;
+            if (src.company_snapshot || src.problem_definition) return src;
+            for (const k of ["startup_evaluation", "user_data", "input",
+                             "normalized_input", "raw_input", "data",
+                             "content", "json_response", "result"]) {
+                if (src[k] && typeof src[k] === "object") {
+                    const hit = findFormObject(src[k], depth + 1);
+                    if (hit) return hit;
+                }
+            }
+            return null;
+        };
+
+        // Resolve the founder's startup_evaluation form. Priority:
+        //   1. the evaluation.json from the Documents table (Founder
+        //      Evaluation doc carries the form + result together)
+        //   2. the Startups row json_response
+        //   3. scaffold from the lightweight Startup record so identifiers
+        //      (name / stage / problem / sector) are never blank "Unknown".
+        const extractStartupEval = (sd: any, evContent: any): any => {
+            const inner =
+                findFormObject(parseMaybeJson(evContent)) ||
+                findFormObject(parseMaybeJson(sd?.json_response ?? null)) ||
+                {};
             const snap  = inner?.company_snapshot ?? {};
             const prob  = inner?.problem_definition ?? {};
             return {
@@ -607,15 +628,11 @@ export const recommendationService = {
             } as RecommendationContent["insights"];
         };
 
-        // Resolve the real inputs (fall back to the seed mocks only if the
-        // caller passed nothing at all — e.g. an isolated dev/test harness).
-        const startupEval = (() => {
-            const ev = extractStartupEval(startupData);
-            return ev && Object.keys(ev).length ? ev : MOCK_STARTUP_DATA.startup_evaluation;
-        })();
-        const evalContent  = evaluationContent ?? {};
+        // Resolve the real inputs from the evaluation.json + startup record.
+        const evalContent  = parseMaybeJson(evaluationContent);
+        const startupEval  = extractStartupEval(startupData, evalContent);
         const evaluation_output =
-            (evaluationContent && Object.keys(evaluationContent).length)
+            (evalContent && Object.keys(evalContent).length)
                 ? mapEvaluation(evalContent, startupEval)
                 : MOCK_EVALUATION_OUTPUT;
 
