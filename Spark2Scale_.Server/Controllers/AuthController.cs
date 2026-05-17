@@ -112,7 +112,6 @@ namespace Spark2Scale_.Server.Controllers
         }
 
         // ===================== SIGN UP =====================
-        // ===================== SIGN UP =====================
         [HttpPost("signup")]
         public async Task<IActionResult> SignUp([FromBody] FullSignUpRequest request)
         {
@@ -220,7 +219,6 @@ namespace Spark2Scale_.Server.Controllers
                     {
                         var errorBody = await response.Content.ReadAsStringAsync();
                         Console.WriteLine($"[SignUp] Admin.CreateUser failed: {response.StatusCode} - {errorBody}");
-<<<<<<< HEAD
 
                         // Detect "email already registered" responses from Supabase Admin API.
                         // Supabase returns 422 with error_code "email_exists" or messages like
@@ -234,12 +232,6 @@ namespace Spark2Scale_.Server.Controllers
                             (response.StatusCode == System.Net.HttpStatusCode.UnprocessableEntity && lowerBody.Contains("email"));
 
                         if (looksLikeDuplicate)
-=======
-                        
-                        // Fallback to standard SignUp if Admin fails (e.g. if key is wrong, though it shouldn't be)
-                        // Or return error if user already exists
-                        if (errorBody.Contains("generic") || response.StatusCode == System.Net.HttpStatusCode.BadRequest) 
->>>>>>> 850e1fe6b540b3fad57b55956662cb73b9d7c0b5
                         {
                             return Conflict(new { message = "An account with this email already exists. Please sign in instead." });
                         }
@@ -279,31 +271,7 @@ namespace Spark2Scale_.Server.Controllers
                      return StatusCode(500, new { message = "Failed to create user account." });
                 }
 
-                // Initial "Auth" object simulation for downstream logic
-                // We don't have a session, but we have the ID.
-                // The original code used `auth.User.Id`.
-                // We represented this by `authUserId`.
-                
-                // Proceed with existing logic using `authUserId`...
-                // Mocking the "auth" object is not needed if we just set variables.
-                
                 Console.WriteLine($"[SignUp] User created. proceedStep: {authUserId}");
-                
-                // Original logic expected `auth` object for session check.
-                // context: "auth" variable was used. We need to completely replace that block.
-                // logic:
-                // if (auth.User != null) { ... }
-                
-                // We replaced lines 159-161. 
-                // We need to remove the `auth` checks or adapt them.
-                // Since I am replacing lines 159-161, I need to be careful about the next lines.
-                // The next lines (163-195) check `auth.User`.
-                // I should probably replace a LARGER chunk to rewrite that logic.
-                
-                // RE-READING: I am replacing lines 159-161.
-                // But the subsequent logic (163+) uses `auth`.
-                // I need to instruct the tool to replace MORE lines or I will break compilation.
-                // Let's replace from 159 to 195.
                 
                     if (requiresEmailConfirmation)
                     {
@@ -657,11 +625,6 @@ namespace Spark2Scale_.Server.Controllers
             }
         }
 
-        // ===================== RESEND VERIFICATION =====================
-
-
-        // ===================== VERIFY EMAIL CALLBACK =====================
-        // Called after user clicks email verification link
         // ===================== VERIFY EMAIL CALLBACK =====================
         // Called after user clicks email verification link
         [HttpPost("verify-email")]
