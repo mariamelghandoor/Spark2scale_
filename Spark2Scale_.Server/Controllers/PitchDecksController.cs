@@ -134,6 +134,8 @@ namespace Spark2Scale_.Server.Controllers
         }
 
         [HttpPost("upload")]
+        [RequestFormLimits(MultipartBodyLengthLimit = 104857600)] // 100 MB limit
+        [RequestSizeLimit(104857600)]
         public async Task<IActionResult> UploadPitchDeck([FromForm] PitchDeckUploadDto input)
         {
             if (input.startup_id == Guid.Empty) return BadRequest("Startup ID is required.");
