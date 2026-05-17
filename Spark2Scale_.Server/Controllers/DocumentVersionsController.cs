@@ -52,12 +52,13 @@ namespace Spark2Scale_.Server.Controllers
         {
             if (!Guid.TryParse(startupId, out Guid sId)) return BadRequest("Invalid ID");
 
-            // Fetch all versions associated with this startup
-            var result = await _supabase.From<DocumentVersion>()
+            // Count one row per actual document (uploaded + AI-generated).
+            // The previous implementation counted document_versions, which double-
+            // counts the same document when it has multiple versions.
+            var result = await _supabase.From<Document>()
                 .Where(x => x.StartupId == sId)
                 .Get();
 
-            // Return the count
             return Ok(new { count = result.Models.Count });
         }
         // --- NEW ENDPOINT: PATCH api/DocumentVersions/visibility/{vid} ---

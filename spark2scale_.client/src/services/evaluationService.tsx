@@ -146,10 +146,17 @@ export const evaluationService = {
                 await new Promise(resolve => setTimeout(resolve, 5000));
             }
 
-            console.log("📦 Step 4: Requesting PDFs from Python server...");
-            const pdfRes = await fetch('https://spark2scale-ai-api-server.azurewebsites.net/api/v1/evaluation/generate-report', {
+            console.log("📦 Step 4: Requesting PDFs via backend proxy...");
+            // Routed through the .NET backend to avoid the AI server's CORS block.
+            const apiBase = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5231').replace(/\/$/, '').replace(/\/api$/, '');
+            const reportHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
+            if (typeof window !== 'undefined') {
+                const t = localStorage.getItem('auth_token');
+                if (t) reportHeaders['Authorization'] = `Bearer ${t}`;
+            }
+            const pdfRes = await fetch(`${apiBase}/api/Pdf/generate-report`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: reportHeaders,
                 body: JSON.stringify(finalResult)
             });
 
@@ -196,18 +203,32 @@ export const evaluationService = {
         try {
             const doc = await this.getCurrentEvaluation(startupId);
 
-            // [MOCK MODE] If no real doc exists, return the mock data
-            if (!doc || !doc.current_path) {
-                console.warn("⚠️ [Mock Mode] Returning mock evaluation data for testing.");
+            if (!doc) {
+                console.warn("⚠️ [Mock Mode] No Founder Evaluation document found; using mock data.");
                 return MOCK_EVALUATION_DATA;
             }
 
-            // Fetch the content from the storage URL
-            // Note: Using fetch/axios directly as this might be an external blob URL
-            const response = await fetch(doc.current_path);
-            if (!response.ok) throw new Error("Failed to fetch document content");
+            // The Documents table returns the evaluation JSON directly in
+            // `json_response` (the .NET GetDocuments endpoint parses it).
+            // `current_path` for a Founder Evaluation is the report PDF, so we
+            // must NOT fetch/.json() it (that always threw → silent mock).
+            const jr = doc.json_response;
+            if (jr && typeof jr === "object" && Object.keys(jr).length > 0) {
+                return jr;
+            }
+            if (typeof jr === "string" && jr.trim()) {
+                try { return JSON.parse(jr); } catch { /* fall through */ }
+            }
 
-            return await response.json();
+            // Legacy fallback: only fetch current_path if it is a JSON file
+            // (never a PDF report).
+            if (doc.current_path && /\.json($|\?)/i.test(doc.current_path)) {
+                const response = await fetch(doc.current_path);
+                if (response.ok) return await response.json();
+            }
+
+            console.warn("⚠️ [Mock Mode] Evaluation doc had no json_response; using mock data.");
+            return MOCK_EVALUATION_DATA;
         } catch (error) {
             console.error("Error fetching evaluation content, falling back to mock:", error);
             return MOCK_EVALUATION_DATA;

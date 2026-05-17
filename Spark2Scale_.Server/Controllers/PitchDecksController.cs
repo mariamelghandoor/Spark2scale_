@@ -195,6 +195,7 @@ namespace Spark2Scale_.Server.Controllers
                     // No previous version found — create a new row at version 1
                     var newDeck = new PitchDeck
                     {
+                        pitchdeckid = Guid.NewGuid(),
                         startup_id = input.startup_id,
                         video_url = publicUrl,
                         tags = new List<string>(),

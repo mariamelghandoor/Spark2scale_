@@ -4,6 +4,7 @@ import { useEffect, useState, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { invitationService, InvitationResponse } from '@/services/invitationService';
 import Link from 'next/link';
+import LegoLoader from "@/components/lego/LegoLoader";
 
 function InviteContent() {
     const searchParams = useSearchParams();
@@ -77,7 +78,7 @@ function InviteContent() {
     if (loading) {
         return (
             <div className="min-h-screen flex items-center justify-center bg-[#F0EADC]">
-                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#576238]"></div>
+                <LegoLoader />
             </div>
         );
     }
@@ -135,7 +136,7 @@ function InviteContent() {
 
 export default function InvitePage() {
     return (
-        <Suspense fallback={<div className="min-h-screen flex items-center justify-center bg-[#F0EADC]">Loading...</div>}>
+        <Suspense fallback={<div className="min-h-screen flex items-center justify-center bg-[#F0EADC]"><LegoLoader /></div>}>
             <InviteContent />
         </Suspense>
     );

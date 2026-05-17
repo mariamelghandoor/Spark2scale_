@@ -10,9 +10,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import Link from "next/link";
 import LegoIllustration from "@/components/lego/LegoIllustration";
 import { motion } from "framer-motion";
-import { Loader2, CheckCircle2, Eye, EyeOff } from "lucide-react";
+import { CheckCircle2, Eye, EyeOff } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createBrowserClient } from "@supabase/auth-helpers-nextjs";
+import LegoSpinner from "@/components/lego/LegoSpinner";
 
 function SignupContent() {
     const [showPassword, setShowPassword] = useState(false);
@@ -43,6 +44,13 @@ function SignupContent() {
         }
 
         try {
+            // Persist the chosen profile type (and investor tags) so the OAuth callback
+            // can hand it to the backend when the new profile is created.
+            localStorage.setItem('googleSignupContext', JSON.stringify({
+                userType: formData.userType || 'founder',
+                tags: formData.userType === 'investor' ? formData.tags : [],
+            }));
+
             const { error } = await supabase.auth.signInWithOAuth({
                 provider: 'google',
                 options: {
@@ -672,7 +680,7 @@ function SignupContent() {
                                         >
                                             {loading ? (
                                                 <>
-                                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                                    <LegoSpinner className="mr-2 h-4 w-4 animate-spin" />
                                                     Creating Account...
                                                 </>
                                             ) : (
@@ -749,7 +757,7 @@ export default function SignupPage() {
     return (
         <Suspense fallback={
             <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-[#F0EADC] via-[#fff] to-[#FFD95D]/20">
-                <Loader2 className="h-8 w-8 animate-spin text-[#576238]" />
+                <LegoSpinner className="h-8 w-8 animate-spin text-[#576238]" />
             </div>
         }>
             <SignupContent />

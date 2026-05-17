@@ -112,7 +112,6 @@ namespace Spark2Scale_.Server.Controllers
         }
 
         // ===================== SIGN UP =====================
-        // ===================== SIGN UP =====================
         [HttpPost("signup")]
         public async Task<IActionResult> SignUp([FromBody] FullSignUpRequest request)
         {
@@ -129,9 +128,20 @@ namespace Spark2Scale_.Server.Controllers
 
             try
             {
+                // 0️⃣ Pre-flight duplicate check: reject if email already exists in our profiles table.
+                // This catches users who completed verification on a previous signup.
+                var existingUserResult = await _supabase
+                    .From<PublicUser>()
+                    .Filter("email", Supabase.Postgrest.Constants.Operator.Equals, email)
+                    .Get();
+                if (existingUserResult.Models.Any())
+                {
+                    return Conflict(new { message = "An account with this email already exists. Please sign in instead." });
+                }
+
                 // 1️⃣ Create Auth user with User Metadata
-                var redirectUrl = !string.IsNullOrEmpty(request.RedirectUrl) 
-                        ? request.RedirectUrl 
+                var redirectUrl = !string.IsNullOrEmpty(request.RedirectUrl)
+                        ? request.RedirectUrl
                         : $"{Request.Scheme}://localhost:3000/auth/callback";
                 
                 Console.WriteLine($"[SignUp] Using RedirectURL: {redirectUrl}");
@@ -209,12 +219,26 @@ namespace Spark2Scale_.Server.Controllers
                     {
                         var errorBody = await response.Content.ReadAsStringAsync();
                         Console.WriteLine($"[SignUp] Admin.CreateUser failed: {response.StatusCode} - {errorBody}");
-                        
-                        // Fallback to standard SignUp if Admin fails (e.g. if key is wrong, though it shouldn't be)
-                        // Or return error if user already exists
-                        if (errorBody.Contains("generic") || response.StatusCode == System.Net.HttpStatusCode.BadRequest) 
+
+                        // Detect "email already registered" responses from Supabase Admin API.
+                        // Supabase returns 422 with error_code "email_exists" or messages like
+                        // "A user with this email address has already been registered" / "User already registered".
+                        var lowerBody = errorBody.ToLowerInvariant();
+                        var looksLikeDuplicate =
+                            lowerBody.Contains("email_exists") ||
+                            lowerBody.Contains("already registered") ||
+                            lowerBody.Contains("already been registered") ||
+                            lowerBody.Contains("user_already_exists") ||
+                            (response.StatusCode == System.Net.HttpStatusCode.UnprocessableEntity && lowerBody.Contains("email"));
+
+                        if (looksLikeDuplicate)
                         {
-                             return BadRequest(new { message = "Signup failed. User might already exist." });
+                            return Conflict(new { message = "An account with this email already exists. Please sign in instead." });
+                        }
+
+                        if (response.StatusCode == System.Net.HttpStatusCode.BadRequest)
+                        {
+                            return BadRequest(new { message = "Signup failed. Please check your details and try again." });
                         }
                         
                         Console.WriteLine("[SignUp] Falling back to standard SignUp because Admin API failed.");
@@ -247,31 +271,7 @@ namespace Spark2Scale_.Server.Controllers
                      return StatusCode(500, new { message = "Failed to create user account." });
                 }
 
-                // Initial "Auth" object simulation for downstream logic
-                // We don't have a session, but we have the ID.
-                // The original code used `auth.User.Id`.
-                // We represented this by `authUserId`.
-                
-                // Proceed with existing logic using `authUserId`...
-                // Mocking the "auth" object is not needed if we just set variables.
-                
                 Console.WriteLine($"[SignUp] User created. proceedStep: {authUserId}");
-                
-                // Original logic expected `auth` object for session check.
-                // context: "auth" variable was used. We need to completely replace that block.
-                // logic:
-                // if (auth.User != null) { ... }
-                
-                // We replaced lines 159-161. 
-                // We need to remove the `auth` checks or adapt them.
-                // Since I am replacing lines 159-161, I need to be careful about the next lines.
-                // The next lines (163-195) check `auth.User`.
-                // I should probably replace a LARGER chunk to rewrite that logic.
-                
-                // RE-READING: I am replacing lines 159-161.
-                // But the subsequent logic (163+) uses `auth`.
-                // I need to instruct the tool to replace MORE lines or I will break compilation.
-                // Let's replace from 159 to 195.
                 
                     if (requiresEmailConfirmation)
                     {
@@ -503,11 +503,26 @@ namespace Spark2Scale_.Server.Controllers
                         }
                     }
 
-                    await EnsureProfileExists(uid, email, fname, lname, new FullSignUpRequest 
-                    { 
-                        UserType = "founder" // Default to founder if unknown, or let them choose later? 
-                                             // Ideally, we should ask them. But for now, default.
+                    var requestedType = (request.UserType ?? "").Trim().ToLower();
+                    if (requestedType != "founder" && requestedType != "investor" && requestedType != "contributor")
+                    {
+                        requestedType = "founder";
+                    }
+
+                    await EnsureProfileExists(uid, email, fname, lname, new FullSignUpRequest
+                    {
+                        UserType = requestedType,
+                        Tags = request.Tags ?? Array.Empty<string>()
                     });
+
+                    if (requestedType == "founder")
+                    {
+                        await EnsureFounderRole(uid);
+                    }
+                    else if (requestedType == "investor")
+                    {
+                        await EnsureInvestorRole(uid, request.Tags ?? Array.Empty<string>());
+                    }
 
                     // Fetch again
                     profileResult = await _supabase
@@ -610,11 +625,6 @@ namespace Spark2Scale_.Server.Controllers
             }
         }
 
-        // ===================== RESEND VERIFICATION =====================
-
-
-        // ===================== VERIFY EMAIL CALLBACK =====================
-        // Called after user clicks email verification link
         // ===================== VERIFY EMAIL CALLBACK =====================
         // Called after user clicks email verification link
         [HttpPost("verify-email")]

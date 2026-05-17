@@ -2,9 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Loader2 } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { handleAuthSuccess } from "@/lib/auth";
+import LegoSpinner from "@/components/lego/LegoSpinner";
 
 export default function AuthCallbackPage() {
     const router = useRouter();
@@ -57,6 +57,21 @@ export default function AuthCallbackPage() {
                     console.log('=== GOOGLE SIGN-IN CALLBACK DETECTED ===');
                     endpoint = `${cleanApiUrl}/api/Auth/google-signin`;
                     body = { AccessToken: accessToken };
+
+                    // If the user came from the signup page, they picked a userType
+                    // (founder/investor/contributor) before the OAuth redirect.
+                    // Forward it so the backend creates the right profile + role.
+                    const signupCtxStr = localStorage.getItem('googleSignupContext');
+                    if (signupCtxStr) {
+                        try {
+                            const ctx = JSON.parse(signupCtxStr) as { userType?: string; tags?: string[] };
+                            if (ctx.userType) body.UserType = ctx.userType;
+                            if (Array.isArray(ctx.tags) && ctx.tags.length > 0) body.Tags = ctx.tags;
+                        } catch (e) {
+                            console.error('Failed to parse googleSignupContext:', e);
+                        }
+                        localStorage.removeItem('googleSignupContext');
+                    }
                 } else {
                     console.log('=== EMAIL VERIFICATION REQUEST ===');
                     console.log('Type:', type);
@@ -222,7 +237,7 @@ export default function AuthCallbackPage() {
         return (
             <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-[#F0EADC] via-[#fff] to-[#FFD95D]/20">
                 <div className="text-center space-y-4">
-                    <Loader2 className="h-12 w-12 animate-spin text-[#576238] mx-auto" />
+                    <LegoSpinner className="h-12 w-12 animate-spin text-[#576238] mx-auto" />
                     <p className="text-lg font-semibold text-[#576238]">Verifying your email...</p>
                     <p className="text-sm text-muted-foreground">Please wait while we confirm your account.</p>
                 </div>

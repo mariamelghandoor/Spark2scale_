@@ -2,7 +2,7 @@
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Calendar, X, Heart, Eye, Video, Sparkles, Trophy, Loader2, MessageCircle } from "lucide-react";
+import { Calendar, X, Heart, Eye, Video, Sparkles, Trophy, MessageCircle } from "lucide-react";
 import Link from "next/link";
 import { motion, useMotionValue, useTransform } from "framer-motion";
 import NotificationsDropdown from "@/components/shared/NotificationsDropdown";
@@ -58,6 +58,7 @@ interface InvestorDto {
 }
 
 import { useAuth } from "@/context/AuthContext";
+import LegoSpinner from "@/components/lego/LegoSpinner";
 
 export default function InvestorFeed() {
     const { user, loading: authLoading } = useAuth();
@@ -461,14 +462,14 @@ export default function InvestorFeed() {
 
                     {currentIndex < pitchDecks.length && pitchDecks.length > 0 && (
                         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }} className="flex justify-center items-center gap-4 mt-8">
-                            <Button onClick={() => handleSwipe("left")} disabled={actionLoading} size="lg" variant="outline" className="rounded-full w-14 h-14 border-2 border-red-500 text-red-500 hover:bg-red-50 disabled:opacity-50">{actionLoading ? <Loader2 className="h-6 w-6 animate-spin" /> : <X className="h-6 w-6" />}</Button>
+                            <Button onClick={() => handleSwipe("left")} disabled={actionLoading} size="lg" variant="outline" className="rounded-full w-14 h-14 border-2 border-red-500 text-red-500 hover:bg-red-50 disabled:opacity-50">{actionLoading ? <LegoSpinner className="h-6 w-6 animate-spin" /> : <X className="h-6 w-6" />}</Button>
                             
                             <Button onClick={() => handleContactFounder(currentPitch.pitchdeckid)} disabled={actionLoading} size="lg" className="rounded-full px-6 py-6 border-2 border-[#576238] bg-white text-[#576238] hover:bg-[#576238] hover:text-white disabled:opacity-50 font-bold transition-colors">
-                                {actionLoading ? <Loader2 className="h-6 w-6 animate-spin mr-2" /> : <MessageCircle className="h-6 w-6 mr-2" />}
+                                {actionLoading ? <LegoSpinner className="h-6 w-6 animate-spin mr-2" /> : <MessageCircle className="h-6 w-6 mr-2" />}
                                 Contact Founder
                             </Button>
 
-                            <Button onClick={() => handleSwipe("right")} disabled={actionLoading} size="lg" className={`rounded-full w-14 h-14 disabled:opacity-50 ${isCurrentLiked ? 'bg-red-500 hover:bg-red-600' : 'bg-[#576238] hover:bg-[#6b7c3f]'}`}>{actionLoading ? <Loader2 className="h-6 w-6 animate-spin" /> : <Heart className={`h-6 w-6 ${isCurrentLiked ? 'fill-white' : ''}`} />}</Button>
+                            <Button onClick={() => handleSwipe("right")} disabled={actionLoading} size="lg" className={`rounded-full w-14 h-14 disabled:opacity-50 ${isCurrentLiked ? 'bg-red-500 hover:bg-red-600' : 'bg-[#576238] hover:bg-[#6b7c3f]'}`}>{actionLoading ? <LegoSpinner className="h-6 w-6 animate-spin" /> : <Heart className={`h-6 w-6 ${isCurrentLiked ? 'fill-white' : ''}`} />}</Button>
                         </motion.div>
                     )}
                 </div>

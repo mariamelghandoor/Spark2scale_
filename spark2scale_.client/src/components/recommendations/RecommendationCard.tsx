@@ -13,7 +13,7 @@
  */
 
 import React, { useState } from "react";
-import { Eye, Download, Loader2, Trash2 } from "lucide-react";
+import { Eye, Download, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
     Dialog,
@@ -26,7 +26,8 @@ import {
 } from "@/components/ui/dialog";
 import jsPDF from "jspdf";
 import { DBRecommendation, RecommendationContent } from "@/services/recommendationService";
-import { InvestmentMemoView, buildReportMarkdown } from "./ReportView";
+import { InvestmentMemoView, buildReportMarkdown, isMissingStatement } from "./ReportView";
+import LegoSpinner from "@/components/lego/LegoSpinner";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -73,9 +74,25 @@ const MUSTARD: RGB = [255, 217, 93];   // #ffd95d  (accent stripe, bullets, refi
 const ALT_ROW: RGB = [244, 241, 234];  // #F4F1EA  (alternating table row — matches Tailwind class)
 const DARK:    RGB = [44,  62,  80];   // #2c3e50  (body text)
 const MID:     RGB = [80,  80,  80];   // mid-grey
-const GREY:    RGB = [150, 150, 150];  // light grey (date, subtitle)
 const WHITE:   RGB = [255, 255, 255];
-const GREEN_W: RGB = [39,  120, 80];   // "Why Better" label (green-700 ≈ #166534)
+const OLIVE2:  RGB = [123, 143, 74];   // #7b8f4a  (sub-banner — matches recommendation.md gradient end)
+
+// Matches Python OutputManager: datetime.strftime('%B %d, %Y at %I:%M %p')
+function formatGenerated(d: Date = new Date()): string {
+    const month = d.toLocaleString("en-US", { month: "long" });
+    let h = d.getHours();
+    const ampm = h >= 12 ? "PM" : "AM";
+    h = h % 12 || 12;
+    const hh = String(h).padStart(2, "0");
+    const mm = String(d.getMinutes()).padStart(2, "0");
+    return `${month} ${d.getDate()}, ${d.getFullYear()} at ${hh}:${mm} ${ampm}`;
+}
+
+// Fixed order — mirrors backend OutputManager.statement_types.
+const REFINED_ORDER: string[] = [
+    "problem_statement", "founder_market_fit", "differentiation",
+    "core_stickiness", "five_year_vision", "beachhead_market", "gap_analysis",
+];
 
 /** Renders inline **bold** text with word-wrap, returns new Y. */
 function renderInline(
@@ -155,201 +172,213 @@ function exportToPDF(contentData: any, _cardName: string, filename: string): voi
     };
     const check = (n: number) => { if (y + n > pageH - FOOTER_H - M) addPage(); };
 
+    const ins = contentData?.insights ?? {};
+    const companyName = ins.company_name || "Startup";
+
     // ─────────────────────────────────────────────────────────────────────
-    // 1.  OLIVE HEADER BAND  (matches <div className="bg-[#576238]…">)
+    // 1.  HEADER  — "[LAUNCH] Spark2Scale Recommendation Agent"
+    //     + sub-banner "Strategic Recommendations for {company}"
+    //     (mirrors recommendation.md header block)
     // ─────────────────────────────────────────────────────────────────────
     pdf.setFillColor(...OLIVE);
-    pdf.rect(0, 0, pageW, 82, "F");
-
-    // "SPARK2SCALE"  — tiny uppercase label (opacity-70 white)
-    pdf.setFontSize(7.5);
-    pdf.setFont("helvetica", "bold");
-    pdf.setTextColor(190, 205, 175);          // approximates white at 70 % opacity on olive
-    pdf.text("SPARK2SCALE", M, 20);
-
-    // "Recommendation Agent"  — h1 bold
-    pdf.setFontSize(18);
+    pdf.rect(0, 0, pageW, 56, "F");
+    pdf.setFontSize(16);
     pdf.setFont("helvetica", "bold");
     pdf.setTextColor(...WHITE);
-    pdf.text("Recommendation Agent", M, 46);
+    pdf.text("[LAUNCH] Spark2Scale Recommendation Agent", M, 35);
 
-    // "Strategic Analysis Report"  — subtitle (opacity-75 white)
-    pdf.setFontSize(10);
-    pdf.setFont("helvetica", "normal");
-    pdf.setTextColor(210, 220, 200);          // ≈ white at 75 % opacity
-    pdf.text("Strategic Analysis Report", M, 66);
+    // Sub-banner (olive → lighter-olive, like the .md gradient)
+    pdf.setFillColor(...OLIVE2);
+    pdf.rect(0, 56, pageW, 34, "F");
+    pdf.setFontSize(13);
+    pdf.setFont("helvetica", "bold");
+    pdf.setTextColor(...WHITE);
+    pdf.text(
+        pdf.splitTextToSize(`Strategic Recommendations for ${companyName}`, maxW)[0],
+        M, 78,
+    );
 
-    // Mustard accent stripe (h-1.5)
+    // Mustard accent stripe
     pdf.setFillColor(...MUSTARD);
-    pdf.rect(0, 82, pageW, 6, "F");
+    pdf.rect(0, 90, pageW, 6, "F");
 
-    y = 106;
-
-    // ─────────────────────────────────────────────────────────────────────
-    // 2.  GENERATED DATE  (matches <p className="text-xs text-gray-400">)
-    // ─────────────────────────────────────────────────────────────────────
-    pdf.setFontSize(8.5);
-    pdf.setFont("helvetica", "normal");
-    pdf.setTextColor(...GREY);
-    const dateStr = new Date().toLocaleDateString("en-GB", {
-        day: "numeric", month: "long", year: "numeric",
-    });
-    pdf.text(`Generated: ${dateStr}`, M, y);
-    y += 28;                                  // space-y-10 gap before first section
+    y = 120;
 
     // ─────────────────────────────────────────────────────────────────────
-    // 3.  COMPANY OVERVIEW  (matches <section> … SectionHeader + <table>)
+    // 2.  [DATA] Company Overview  (Attribute | Details — matches the .md table)
     // ─────────────────────────────────────────────────────────────────────
-    const ins = contentData?.insights ?? {};
-    const overviewRows: [string, string][] = ([
-        ins.company_name      && ["Company Name",  String(ins.company_name)],
-        ins.stage             && ["Stage",         String(ins.stage)],
-        ins.target_raise      && ["Target Raise",  String(ins.target_raise)],
-        ins.problem_statement && ["Problem",       String(ins.problem_statement)],
-    ].filter(Boolean)) as [string, string][];
+    const overviewRows: [string, string][] = [
+        ["Company Name", String(ins.company_name ?? "N/A")],
+        ["Stage",        String(ins.stage ?? "N/A")],
+        ["Target Raise", String(ins.target_raise ?? "N/A")],
+        ["Generated",    formatGenerated()],
+    ];
 
-    if (overviewRows.length > 0) {
-        check(90);
-        y = pdfSectionHeader(pdf, "Company Overview", M, y, maxW);
+    {
+        check(110);
+        y = pdfSectionHeader(pdf, "[DATA] Company Overview", M, y, maxW);
 
-        const labelW = 120;
+        const labelW = 140;
         const valW   = maxW - labelW;
+
+        // Header row (Attribute | Details)
+        const HDR_H = 18;
+        pdf.setFillColor(...OLIVE);
+        pdf.rect(M, y, maxW, HDR_H, "F");
+        pdf.setFont("helvetica", "bold");
+        pdf.setFontSize(8);
+        pdf.setTextColor(...WHITE);
+        pdf.text("ATTRIBUTE", M + 8, y + 12);
+        pdf.text("DETAILS",   M + labelW + 8, y + 12);
+        pdf.setDrawColor(200, 200, 200);
+        pdf.setLineWidth(0.3);
+        pdf.rect(M, y, maxW, HDR_H, "S");
+        pdf.line(M + labelW, y, M + labelW, y + HDR_H);
+        y += HDR_H;
 
         overviewRows.forEach(([label, val], ri) => {
             pdf.setFontSize(9);
             const valLines = pdf.splitTextToSize(val, valW - 12);
-            const rowH = Math.max(valLines.length * LINE_H, 14) + 8;   // py-2.5 ≈ 10pt
+            const rowH = Math.max(valLines.length * LINE_H, 14) + 8;
             check(rowH);
 
-            // Row fill (alternating #F4F1EA / white — matches Tailwind class)
             pdf.setFillColor(...(ri % 2 === 0 ? ALT_ROW : WHITE));
             pdf.rect(M, y, maxW, rowH, "F");
-
-            // Row border (border border-gray-200)
             pdf.setDrawColor(200, 200, 200);
             pdf.setLineWidth(0.3);
             pdf.rect(M, y, maxW, rowH, "S");
-            pdf.line(M + labelW, y, M + labelW, y + rowH);  // column divider
+            pdf.line(M + labelW, y, M + labelW, y + rowH);
 
-            // Label cell (font-bold text-[#576238])
             pdf.setFont("helvetica", "bold");
             pdf.setTextColor(...OLIVE);
             pdf.text(label, M + 8, y + 10);
 
-            // Value cell
             pdf.setFont("helvetica", "normal");
             pdf.setTextColor(...DARK);
             pdf.text(valLines, M + labelW + 8, y + 10);
 
             y += rowH;
         });
-        y += 28;    // space-y-10 between sections
+        y += 28;
     }
 
     // ─────────────────────────────────────────────────────────────────────
-    // 4.  REFINED STATEMENTS  (matches <section> with statement blocks)
+    // 3.  [REPORT] Statement Refinements  (4-col table — matches the .md)
     // ─────────────────────────────────────────────────────────────────────
     const refined: Record<string, { original: string; recommended: string; why_better: string }> =
         contentData?.refined_statements ?? contentData?.refinedStatements ?? {};
 
-    if (Object.keys(refined).length > 0) {
-        check(50);
-        y = pdfSectionHeader(pdf, "Refined Statements", M, y, maxW);
+    const LABELS: Record<string, string> = {
+        problem_statement:  "Problem Statement",
+        founder_market_fit: "Founder-Market Fit",
+        differentiation:    "Differentiation",
+        core_stickiness:    "Core Stickiness",
+        five_year_vision:   "Five-Year Vision",
+        beachhead_market:   "Beachhead Market",
+        gap_analysis:       "Gap Analysis",
+    };
+    const refinedKeys = REFINED_ORDER.filter(
+        k => refined[k] && typeof refined[k] === "object",
+    );
 
-        // Subtitle: AI-enhanced versions…
-        pdf.setFont("helvetica", "italic");
+    if (refinedKeys.length > 0) {
+        check(60);
+        y = pdfSectionHeader(pdf, "[REPORT] Statement Refinements", M, y, maxW);
+
+        pdf.setFont("helvetica", "normal");
         pdf.setFontSize(8.5);
-        pdf.setTextColor(...GREY);
+        pdf.setTextColor(...DARK);
         pdf.text(
-            "AI-enhanced versions of your key statements for improved investor appeal.",
+            pdf.splitTextToSize(
+                "AI-Enhanced Core Messaging — Improved versions of your key statements for better clarity and investor appeal.",
+                maxW,
+            ),
             M, y,
         );
-        y += 18;    // mt-2 mb-4
+        y += 22;
 
-        const LABELS: Record<string, string> = {
-            problem_statement:  "Problem Statement",
-            founder_market_fit: "Founder-Market Fit",
-            differentiation:    "Differentiation",
-            core_stickiness:    "Core Stickiness",
-            five_year_vision:   "Five-Year Vision",
-            beachhead_market:   "Beachhead Market",
-            gap_analysis:       "Gap Analysis",
+        // Column geometry: Category | Original | Refined | Why It's Better
+        const catW  = 88;
+        const colW  = (maxW - catW) / 3;
+        const PADX  = 5;
+        const cellFont = 8;
+
+        const drawHeaderRow = () => {
+            const HDR_H = 20;
+            pdf.setFillColor(...OLIVE);
+            pdf.rect(M, y, maxW, HDR_H, "F");
+            pdf.setFont("helvetica", "bold");
+            pdf.setFontSize(7.5);
+            pdf.setTextColor(...WHITE);
+            pdf.text("CATEGORY",          M + PADX,                 y + 13);
+            pdf.text("ORIGINAL STATEMENT", M + catW + PADX,         y + 13);
+            pdf.text("REFINED STATEMENT",  M + catW + colW + PADX,  y + 13);
+            pdf.text("WHY IT'S BETTER",    M + catW + 2 * colW + PADX, y + 13);
+            pdf.setDrawColor(200, 200, 200);
+            pdf.setLineWidth(0.3);
+            pdf.rect(M, y, maxW, HDR_H, "S");
+            [catW, catW + colW, catW + 2 * colW].forEach(off =>
+                pdf.line(M + off, y, M + off, y + HDR_H));
+            y += HDR_H;
         };
 
-        Object.entries(refined).forEach(([key, data]) => {
-            const label  = LABELS[key] ?? key.replace(/_/g, " ");
-            const origW  = pdf.splitTextToSize(String(data.original    ?? ""), maxW - 20);
-            const recW   = pdf.splitTextToSize(String(data.recommended ?? ""), maxW - 28);
-            const whyW   = pdf.splitTextToSize(String(data.why_better  ?? ""), maxW - 20);
-            const estH   = 26 + origW.length * LINE_H + 14      // label strip + orig
-                         + recW.length * LINE_H + 36             // refined box
-                         + whyW.length * LINE_H + 30;            // why better + separator
-            check(estH);
+        check(40);
+        drawHeaderRow();
 
-            // ── Label strip  (bg-[#F4F1EA] + olive left bar + LABELS[key] bold) ──
-            const STRIP_H = 22;
-            pdf.setFillColor(...ALT_ROW);
-            pdf.roundedRect(M, y, maxW, STRIP_H, 2, 2, "F");
-            pdf.setFillColor(...OLIVE);
-            pdf.rect(M, y, 4, STRIP_H, "F");   // olive left accent bar (w-1)
+        refinedKeys.forEach((key, ri) => {
+            const d = refined[key];
+            const label = LABELS[key] ?? key.replace(/_/g, " ");
+            pdf.setFontSize(cellFont);
+            // No original provided → keep the agent's refined text, but show
+            // "None" for the original and the why-better (nothing to compare).
+            const missing = isMissingStatement(d.original);
+            const cat = pdf.splitTextToSize(label,                       catW - 2 * PADX);
+            const org = pdf.splitTextToSize(missing ? "None" : String(d.original    ?? ""), colW - 2 * PADX);
+            const rec = pdf.splitTextToSize(String(d.recommended ?? ""), colW - 2 * PADX);
+            const why = pdf.splitTextToSize(missing ? "None" : String(d.why_better  ?? ""), colW - 2 * PADX);
+            const maxLines = Math.max(cat.length, org.length, rec.length, why.length);
+            const rowH = maxLines * 11 + 12;
+
+            // Page-break: start a fresh page + repeat the header row
+            if (y + rowH > pageH - FOOTER_H - M) {
+                addPage();
+                check(40);
+                drawHeaderRow();
+            }
+
+            pdf.setFillColor(...(ri % 2 === 0 ? ALT_ROW : WHITE));
+            pdf.rect(M, y, maxW, rowH, "F");
+            pdf.setDrawColor(200, 200, 200);
+            pdf.setLineWidth(0.3);
+            pdf.rect(M, y, maxW, rowH, "S");
+            [catW, catW + colW, catW + 2 * colW].forEach(off =>
+                pdf.line(M + off, y, M + off, y + rowH));
+
+            const ty = y + 11;
             pdf.setFont("helvetica", "bold");
-            pdf.setFontSize(8.5);
             pdf.setTextColor(...OLIVE);
-            pdf.text(label.toUpperCase(), M + 12, y + STRIP_H / 2 + 3);
-            y += STRIP_H + 10;                  // strip height + pt-4
+            pdf.text(cat, M + PADX, ty);
 
-            // ── ORIGINAL ──
-            pdf.setFont("helvetica", "bold");
-            pdf.setFontSize(7.5);
-            pdf.setTextColor(160, 160, 160);    // text-gray-400 uppercase label
-            pdf.text("ORIGINAL", M + 6, y);
-            y += 11;
             pdf.setFont("helvetica", "italic");
-            pdf.setFontSize(9);
-            pdf.setTextColor(120, 120, 120);    // text-gray-500 italic
-            pdf.text(origW, M + 6, y);
-            y += origW.length * LINE_H + 10;
+            pdf.setTextColor(120, 120, 120);
+            pdf.text(org, M + catW + PADX, ty);
 
-            // ── REFINED (bg-[#fffbea] border border-[#ffd95d] rounded) ──
-            const recBoxH = recW.length * LINE_H + 26;
-            pdf.setFillColor(255, 251, 234);    // #fffbea
-            pdf.setDrawColor(...MUSTARD);
-            pdf.setLineWidth(1);
-            pdf.roundedRect(M + 4, y, maxW - 4, recBoxH, 3, 3, "FD");
             pdf.setFont("helvetica", "bold");
-            pdf.setFontSize(7.5);
-            pdf.setTextColor(...OLIVE);
-            pdf.text("REFINED", M + 10, y + 11);
-            pdf.setFont("helvetica", "bold");
-            pdf.setFontSize(9.5);
             pdf.setTextColor(...DARK);
-            pdf.text(recW, M + 10, y + 22);
-            y += recBoxH + 10;
+            pdf.text(rec, M + catW + colW + PADX, ty);
 
-            // ── WHY BETTER ──
-            pdf.setFont("helvetica", "bold");
-            pdf.setFontSize(7.5);
-            pdf.setTextColor(...GREEN_W);        // text-green-700
-            pdf.text("WHY BETTER", M + 6, y);
-            y += 11;
-            pdf.setFont("helvetica", "italic");
-            pdf.setFontSize(9);
-            pdf.setTextColor(70, 110, 70);       // italic green-ish
-            pdf.text(whyW, M + 6, y);
-            y += whyW.length * LINE_H + 8;
+            pdf.setFont("helvetica", "normal");
+            pdf.setTextColor(...MID);
+            pdf.text(why, M + catW + 2 * colW + PADX, ty);
 
-            // ── Divider between statements ──
-            pdf.setDrawColor(210, 215, 200);
-            pdf.setLineWidth(0.4);
-            pdf.line(M, y, pageW - M, y);
-            y += 20;    // space-y-6
+            y += rowH;
         });
 
-        y += 16;    // space-y-10
+        y += 24;
     }
 
     // ─────────────────────────────────────────────────────────────────────
-    // 5.  STRATEGIC ANALYSIS  (markdown body via MarkdownRenderer-equivalent)
+    // 4.  📋 Strategic Analysis & Recommendations  (markdown body)
     // ─────────────────────────────────────────────────────────────────────
     check(36);
     y = pdfSectionHeader(pdf, "Strategic Analysis & Recommendations", M, y, maxW);
@@ -499,6 +528,46 @@ function exportToPDF(contentData: any, _cardName: string, filename: string): voi
     if (tableBuf.length > 0) flushPdfTable();
 
     // ─────────────────────────────────────────────────────────────────────
+    // 5.  [IDEA] About This Report  (matches the closing block of the .md)
+    // ─────────────────────────────────────────────────────────────────────
+    {
+        const aboutLines = pdf.splitTextToSize(
+            "This strategic recommendation report was generated by the Spark2Scale AI " +
+            "Recommendation Agent using advanced evaluation algorithms and AI-powered " +
+            "analysis. The recommendations are based on startup evaluation data, market " +
+            "research, and industry best practices.",
+            maxW - 24,
+        );
+        const noteLines = pdf.splitTextToSize(
+            "[WARNING] Note: This is an automated analysis. Please use professional " +
+            "judgment when implementing these recommendations.",
+            maxW - 24,
+        );
+        const boxH = aboutLines.length * LINE_H + noteLines.length * LINE_H + 36;
+
+        check(40 + boxH);
+        y += 10;
+        y = pdfSectionHeader(pdf, "[IDEA] About This Report", M, y, maxW);
+
+        // Light panel with olive left accent (bg-#f9faf6 border-l-4 #4a5f2d)
+        pdf.setFillColor(249, 250, 246);
+        pdf.rect(M, y, maxW, boxH, "F");
+        pdf.setFillColor(...OLIVE);
+        pdf.rect(M, y, 4, boxH, "F");
+
+        pdf.setFont("helvetica", "normal");
+        pdf.setFontSize(9);
+        pdf.setTextColor(...DARK);
+        pdf.text(aboutLines, M + 14, y + 16);
+
+        pdf.setFont("helvetica", "italic");
+        pdf.setTextColor(...OLIVE2);
+        pdf.text(noteLines, M + 14, y + 16 + aboutLines.length * LINE_H + 10);
+
+        y += boxH + 10;
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
     // 6.  MUSTARD FOOTER on every page
     //     (matches <div className="bg-[#ffd95d] … text-center text-xs">)
     // ─────────────────────────────────────────────────────────────────────
@@ -626,7 +695,7 @@ export const RecommendationCard: React.FC<RecommendationCardProps> = ({
                     onClick={handleDownload}
                     disabled={isPDFLoading}>
                     {isPDFLoading
-                        ? <Loader2 className="h-4 w-4 animate-spin" />
+                        ? <LegoSpinner className="h-4 w-4 animate-spin" />
                         : <Download className="h-4 w-4" />}
                     Download PDF
                 </Button>
@@ -643,7 +712,7 @@ export const RecommendationCard: React.FC<RecommendationCardProps> = ({
                             title="Delete this report"
                         >
                             {isDeleting
-                                ? <Loader2 className="h-4 w-4 animate-spin" />
+                                ? <LegoSpinner className="h-4 w-4 animate-spin" />
                                 : <Trash2 className="h-4 w-4" />}
                         </Button>
 
@@ -698,7 +767,7 @@ export const RecommendationCard: React.FC<RecommendationCardProps> = ({
                                         }}
                                     >
                                         {isDeleting
-                                            ? <Loader2 className="h-4 w-4 animate-spin" />
+                                            ? <LegoSpinner className="h-4 w-4 animate-spin" />
                                             : <Trash2 className="h-4 w-4" />}
                                         Delete
                                     </Button>

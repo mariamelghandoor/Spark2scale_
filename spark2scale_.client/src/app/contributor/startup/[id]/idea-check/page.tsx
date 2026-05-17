@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { ArrowLeft, Loader2, MessageSquare, History } from "lucide-react";
+import { ArrowLeft, MessageSquare, History } from "lucide-react";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { useParams } from "next/navigation";
@@ -14,6 +14,7 @@ import {
     ChatMessage
 } from "@/services/ideaCheckService";
 import ContributorHeader from "@/components/contributor/ContributorHeader";
+import LegoSpinner from "@/components/lego/LegoSpinner";
 
 export default function ContributorIdeaCheckPage() {
     const params = useParams();
@@ -194,7 +195,7 @@ export default function ContributorIdeaCheckPage() {
                             <ScrollArea className="flex-1 p-6">
                                 {isChatLoading ? (
                                     <div className="flex justify-center items-center h-full">
-                                        <Loader2 className="h-6 w-6 animate-spin text-gray-400" />
+                                        <LegoSpinner className="h-6 w-6 animate-spin text-gray-400" />
                                     </div>
                                 ) : messages.length === 0 ? (
                                     <div className="text-center text-gray-400 mt-10">

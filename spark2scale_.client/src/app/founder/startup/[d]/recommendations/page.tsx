@@ -2,13 +2,14 @@
 
 import React, { useState, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, RefreshCw, Sparkles, Bot, Loader2, CheckCircle2 } from "lucide-react";
+import { ArrowLeft, RefreshCw, Sparkles, Bot, CheckCircle2 } from "lucide-react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { recommendationService, DBRecommendation } from "@/services/recommendationService";
 import { startupService } from "@/services/startupService";
 import { evaluationService } from "@/services/evaluationService";
 import { RecommendationCard } from "@/components/recommendations/RecommendationCard";
+import LegoSpinner from "@/components/lego/LegoSpinner";
 
 interface NamedRecommendation {
     rec:  DBRecommendation;
@@ -194,7 +195,7 @@ export default function RecommendationsPage() {
                 {/* ── Loading skeleton ── */}
                 {isLoadingHistory && (
                     <div className="bg-white rounded-xl border shadow-sm p-8 text-center">
-                        <Loader2 className="h-8 w-8 text-[#576238] animate-spin mx-auto mb-3" />
+                        <LegoSpinner className="h-8 w-8 text-[#576238] animate-spin mx-auto mb-3" />
                         <p className="text-sm text-gray-400">Loading your recommendation history…</p>
                     </div>
                 )}
@@ -231,7 +232,7 @@ export default function RecommendationsPage() {
                             disabled={isGenerating}
                         >
                             {isGenerating ? (
-                                <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Analysing…</>
+                                <><LegoSpinner className="mr-2 h-4 w-4 animate-spin" />Analysing…</>
                             ) : (
                                 <><RefreshCw className="mr-2 h-4 w-4" />
                                 {hasItems ? "Regenerate Analysis" : "Generate Analysis"}</>
@@ -279,7 +280,7 @@ export default function RecommendationsPage() {
                     }`}
                 >
                     {isMarkingComplete ? (
-                        <><Loader2 className="mr-2 h-5 w-5 animate-spin" />Saving…</>
+                        <><LegoSpinner className="mr-2 h-5 w-5 animate-spin" />Saving…</>
                     ) : stageIsComplete ? (
                         <><CheckCircle2 className="mr-2 h-5 w-5" />Stage Completed</>
                     ) : (

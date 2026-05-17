@@ -1,10 +1,9 @@
-import { Loader2Icon } from "lucide-react"
-
 import { cn } from "@/lib/utils"
+import LegoSpinner from "@/components/lego/LegoSpinner";
 
 function Spinner({ className, ...props }: React.ComponentProps<"svg">) {
     return (
-        <Loader2Icon
+        <LegoSpinner
             role="status"
             aria-label="Loading"
             className={cn("size-4 animate-spin", className)}

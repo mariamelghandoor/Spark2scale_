@@ -18,7 +18,7 @@
       "environmentVariables": {
         "ASPNETCORE_ENVIRONMENT": "Development",
         "SUPABASE_URL": "https://xdkxbibtoggcjvgtktaf.supabase.co",
-        "SUPABASE_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhka3hiaWJ0b2dnY2p2Z3RrdGFmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQwNzk2NDMsImV4cCI6MjA3OTY1NTY0M30.hT5eaptWjKrhfhxwvp6b5QoZm6SfsKxtJkkPZ7EGxho",
+        "SUPABASE_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhka3hiaWJ0b2dnY2p2Z3RrdGFmIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2NDA3OTY0MywiZXhwIjoyMDc5NjU1NjQzfQ.Cy90Npb42y4xaLkzg5Tjz1z2Qc6XwRxPPos-NAxZqHA",
         "ASPNETCORE_HOSTINGSTARTUPASSEMBLIES": "Microsoft.AspNetCore.SpaProxy",
         "GMAIL_USER": "doha.hemdan7@gmail.com",
         "GMAIL_APP_PASSWORD": "[YOUR_GMAIL_APP_PASSWORD]"
@@ -33,7 +33,7 @@
       "environmentVariables": {
         "ASPNETCORE_ENVIRONMENT": "Development",
         "SUPABASE_URL": "https://xdkxbibtoggcjvgtktaf.supabase.co",
-        "SUPABASE_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhka3hiaWJ0b2dnY2p2Z3RrdGFmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQwNzk2NDMsImV4cCI6MjA3OTY1NTY0M30.hT5eaptWjKrhfhxwvp6b5QoZm6SfsKxtJkkPZ7EGxho",
+        "SUPABASE_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhka3hiaWJ0b2dnY2p2Z3RrdGFmIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2NDA3OTY0MywiZXhwIjoyMDc5NjU1NjQzfQ.Cy90Npb42y4xaLkzg5Tjz1z2Qc6XwRxPPos-NAxZqHA",
         "ASPNETCORE_HOSTINGSTARTUPASSEMBLIES": "Microsoft.AspNetCore.SpaProxy",
         "GMAIL_USER": "doha.hemdan7@gmail.com",
         "GMAIL_APP_PASSWORD": "[YOUR_GMAIL_APP_PASSWORD]"
@@ -46,7 +46,7 @@
       "environmentVariables": {
         "ASPNETCORE_ENVIRONMENT": "Development",
         "SUPABASE_URL": "https://xdkxbibtoggcjvgtktaf.supabase.co",
-        "SUPABASE_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhka3hiaWJ0b2dnY2p2Z3RrdGFmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQwNzk2NDMsImV4cCI6MjA3OTY1NTY0M30.hT5eaptWjKrhfhxwvp6b5QoZm6SfsKxtJkkPZ7EGxho",
+        "SUPABASE_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhka3hiaWJ0b2dnY2p2Z3RrdGFmIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2NDA3OTY0MywiZXhwIjoyMDc5NjU1NjQzfQ.Cy90Npb42y4xaLkzg5Tjz1z2Qc6XwRxPPos-NAxZqHA",
         "ASPNETCORE_HOSTINGSTARTUPASSEMBLIES": "Microsoft.AspNetCore.SpaProxy",
         "GMAIL_USER": "doha.hemdan7@gmail.com",
         "GMAIL_APP_PASSWORD": "[YOUR_GMAIL_APP_PASSWORD]"

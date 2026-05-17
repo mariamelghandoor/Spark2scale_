@@ -10,10 +10,11 @@ import Link from "next/link";
 import LegoIllustration from "@/components/lego/LegoIllustration";
 import { motion } from "framer-motion";
 import { useRouter } from "next/navigation";
-import { Loader2, Eye, EyeOff } from "lucide-react";
+import { Eye, EyeOff } from "lucide-react";
 import { handleAuthSuccess, User, getDashboardRoute, resolveUserType, setCookie } from "@/lib/auth";
 import { useAuth } from "@/context/AuthContext";
 import { createBrowserClient } from "@supabase/auth-helpers-nextjs";
+import LegoSpinner from "@/components/lego/LegoSpinner";
 
 export default function SigninPage() {
     const router = useRouter();
@@ -409,7 +410,7 @@ export default function SigninPage() {
                                 >
                                     {loading ? (
                                         <>
-                                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                            <LegoSpinner className="mr-2 h-4 w-4 animate-spin" />
                                             Signing in...
                                         </>
                                     ) : (

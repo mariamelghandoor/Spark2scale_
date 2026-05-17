@@ -3,7 +3,7 @@
 // Attaches Bearer token from localStorage automatically.
 // Mirrors AxiosResponse shape: { data: T }
 
-type ApiResponse<T> = { data: T };
+type ApiResponse<T> = { data: T; status: number };
 
 function getAuthHeaders(extra?: Record<string, string>): Record<string, string> {
   const headers: Record<string, string> = { ...extra };
@@ -27,11 +27,11 @@ async function handleResponse<T>(res: Response): Promise<ApiResponse<T>> {
     }
     throw new Error(`Request failed (${res.status}): ${JSON.stringify(errBody)}`);
   }
-  if (res.status === 204) return { data: null as unknown as T };
+  if (res.status === 204) return { data: null as unknown as T, status: res.status };
   if (contentType.includes("application/json")) {
-    return { data: (await res.json()) as T };
+    return { data: (await res.json()) as T, status: res.status };
   }
-  return { data: (await res.text()) as unknown as T };
+  return { data: (await res.text()) as unknown as T, status: res.status };
 }
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:5231";

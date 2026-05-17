@@ -1,30 +1,21 @@
-﻿import axios from 'axios';
+﻿import apiClient from '@/lib/apiClient';
 
 export const pdfService = {
     /**
-     * Sends a PDF file to the AI extraction endpoint.
+     * Sends a PDF to the .NET backend, which proxies to the AI server.
+     * Calling the AI server directly from the browser is blocked by CORS,
+     * so we route through /api/Pdf/extract instead.
      */
     extractFromPdf: async (file: File) => {
         const formData = new FormData();
         formData.append('file', file);
 
-        console.log("📤 Sending PDF to AI Server...");
+        console.log("📤 Sending PDF to backend proxy...");
 
-        // Use a clean axios instance to bypass apiClient interceptors
-        const response = await axios.post(
-            'https://spark2scale-ai-api-server.azurewebsites.net/api/v1/pdf/extract-from-pdf',
-            formData,
-            {
-                headers: {
-                    'Content-Type': 'multipart/form-data',
-                    'accept': 'application/json'
-                }
-            }
-        );
+        // Don't pass Content-Type — the browser must add the multipart boundary itself.
+        const response = await apiClient.post('/api/Pdf/extract', formData);
 
-        console.log("📥 AI Server Response Status:", response.status);
-        console.log("📦 AI Server Response Body:", response.data);
-
+        console.log("📦 Extraction response:", response.data);
         return response.data;
     }
 };

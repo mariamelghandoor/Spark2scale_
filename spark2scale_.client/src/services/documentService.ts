@@ -121,8 +121,16 @@ export const documentService = {
      */
     uploadDocument: async (formData: FormData): Promise<{ message: string; version: number }> => {
         const cleanUrl = API_BASE_URL.replace(/\/$/, "").replace(/\/api$/, "");
+        // Backend requires the Bearer token to authorise the founder. Don't set
+        // Content-Type — the browser must add the multipart boundary itself.
+        const headers: Record<string, string> = {};
+        if (typeof window !== "undefined") {
+            const token = localStorage.getItem("auth_token");
+            if (token) headers["Authorization"] = `Bearer ${token}`;
+        }
         const response = await fetch(`${cleanUrl}/api/Documents/upload`, {
             method: "POST",
+            headers,
             body: formData,
         });
 

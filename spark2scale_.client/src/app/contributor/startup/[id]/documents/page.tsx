@@ -3,13 +3,14 @@
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { ArrowLeft, Eye, Loader2 } from "lucide-react";
+import { ArrowLeft, Eye } from "lucide-react";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { useParams } from "next/navigation";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import ContributorHeader from "@/components/contributor/ContributorHeader";
+import LegoSpinner from "@/components/lego/LegoSpinner";
 
 // --- Interfaces ---
 interface DocumentVersion {
@@ -151,7 +152,7 @@ export default function ContributorDocumentsPage() {
           <div className="grid md:grid-cols-1 gap-6">
             {loading ? (
               <div className="flex justify-center py-10">
-                <Loader2 className="h-8 w-8 animate-spin text-[#576238]" />
+                <LegoSpinner className="h-8 w-8 animate-spin text-[#576238]" />
               </div>
             ) : documents.length === 0 ? (
               <div className="text-center py-10">

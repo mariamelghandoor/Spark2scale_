@@ -2,7 +2,7 @@
 
 import { type ComponentProps, useEffect, useRef, useState } from 'react';
 import { Track } from 'livekit-client';
-import { Loader, MessageSquareTextIcon, SendHorizontal } from 'lucide-react';
+import { MessageSquareTextIcon, SendHorizontal } from 'lucide-react';
 import { type MotionProps, motion } from 'motion/react';
 import { useChat } from '@livekit/components-react';
 import { AgentDisconnectButton } from '@/components/agents-ui/agent-disconnect-button';
@@ -19,6 +19,7 @@ import {
   usePublishPermissions,
 } from '@/hooks/agents-ui/use-agent-control-bar';
 import { cn } from '@/lib/shadcn/utils';
+import LegoSpinner from "@/components/lego/LegoSpinner";
 
 const LK_TOGGLE_VARIANT_1 = [
   'data-[state=off]:bg-accent data-[state=off]:hover:bg-foreground/10',
@@ -128,7 +129,7 @@ function AgentChatInput({ chatOpen, onSend = async () => {}, className }: AgentC
         onClick={handleButtonClick}
         className="self-end disabled:cursor-not-allowed"
       >
-        {isSending ? <Loader className="animate-spin" /> : <SendHorizontal />}
+        {isSending ? <LegoSpinner className="animate-spin" /> : <SendHorizontal />}
       </Button>
     </div>
   );

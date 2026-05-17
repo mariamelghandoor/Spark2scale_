@@ -4,8 +4,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import {
-    ArrowLeft, Edit3, Save, Send, Loader2,
-    MessageSquare, Plus, History, Trash2, CheckSquare, Square, X
+    ArrowLeft, Edit3, Save, Send, MessageSquare, Plus, History, Trash2, CheckSquare, Square, X
 } from "lucide-react";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
@@ -18,6 +17,7 @@ import {
     WorkflowUpdatePayload
 } from "@/services/ideaCheckService";
 import { startupService } from "@/services/startupService";
+import LegoSpinner from "@/components/lego/LegoSpinner";
 
 export default function IdeaCheckPage() {
     const params = useParams();
@@ -448,7 +448,7 @@ export default function IdeaCheckPage() {
                                             disabled={selectedSessionIds.size === 0 || isDeletingSessions}
                                         >
                                             {isDeletingSessions
-                                                ? <Loader2 className="h-3 w-3 animate-spin" />
+                                                ? <LegoSpinner className="h-3 w-3 animate-spin" />
                                                 : `Delete (${selectedSessionIds.size})`
                                             }
                                         </Button>
@@ -527,7 +527,7 @@ export default function IdeaCheckPage() {
                                     className={isEditing ? "bg-[#576238] hover:bg-[#464f2d] text-white" : ""}
                                 >
                                     {isSaving ? (
-                                        <><Loader2 className="h-3 w-3 mr-1 animate-spin" /> Saving...</>
+                                        <><LegoSpinner className="h-3 w-3 mr-1 animate-spin" /> Saving...</>
                                     ) : isEditing ? (
                                         <><Save className="h-3 w-3 mr-1" /> Save & Reset</>
                                     ) : (
@@ -582,7 +582,7 @@ export default function IdeaCheckPage() {
 
                                 {isChatLoading ? (
                                     <div className="flex justify-center items-center h-full">
-                                        <Loader2 className="h-6 w-6 animate-spin text-gray-300" />
+                                        <LegoSpinner className="h-6 w-6 animate-spin text-gray-300" />
                                     </div>
                                 ) : messages.length === 0 ? (
                                     <div className="flex flex-col items-center justify-center h-full gap-2 text-center">
@@ -666,7 +666,7 @@ export default function IdeaCheckPage() {
                                             disabled={!currentSessionId || userRole !== 'Founder' || isSendingMessage || !newMessage.trim()}
                                         >
                                             {isSendingMessage
-                                                ? <Loader2 className="h-4 w-4 animate-spin" />
+                                                ? <LegoSpinner className="h-4 w-4 animate-spin" />
                                                 : <Send className="h-4 w-4" />
                                             }
                                         </Button>
@@ -689,7 +689,7 @@ export default function IdeaCheckPage() {
                                 disabled={isMarkingComplete || userRole !== 'Founder'}
                             >
                                 {isMarkingComplete
-                                    ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Processing...</>
+                                    ? <><LegoSpinner className="h-4 w-4 mr-2 animate-spin" /> Processing...</>
                                     : "Mark as Complete & Continue →"
                                 }
                             </Button>
