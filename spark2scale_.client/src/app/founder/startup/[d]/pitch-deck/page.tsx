@@ -5,8 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
     ArrowLeft, Upload, FileText, Mic, Eye, Download, X,
-    Maximize2, Brain, CheckCircle2, AlertTriangle, Loader2,
-    Presentation, RefreshCw
+    Maximize2, Brain, CheckCircle2, AlertTriangle, Presentation, RefreshCw
 } from "lucide-react";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
@@ -16,6 +15,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { APP_CONFIG_DEFAULTS } from "@/app-config";
 import { App } from "@/components/livekit-app/app";
 import { pitchDeckService } from "@/services/pitchDeckService";
+import LegoSpinner from "@/components/lego/LegoSpinner";
 
 const PYTHON_API_URL = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'https://spark2scale-ai-api-server.azurewebsites.net';
 
@@ -301,7 +301,7 @@ export default function PitchDeckPage() {
     if (phase === "fetching_report") {
         return (
             <div className="min-h-screen bg-[#576238] flex flex-col items-center justify-center gap-6 text-white">
-                <Loader2 className="h-12 w-12 animate-spin text-[#FFD95D]" />
+                <LegoSpinner className="h-12 w-12 animate-spin text-[#FFD95D]" />
                 <div className="text-center">
                     <h2 className="text-2xl font-black">Generating Your Report</h2>
                     <p className="text-white/70 mt-2 text-sm">The AI is compiling your Investment Readiness Review…</p>
@@ -420,7 +420,7 @@ export default function PitchDeckPage() {
                                         onChange={e => e.target.files && handleFiles(e.target.files)} />
                                     {isUploading ? (
                                         <div className="flex flex-col items-center gap-3">
-                                            <Loader2 className="h-10 w-10 animate-spin text-[#576238]" />
+                                            <LegoSpinner className="h-10 w-10 animate-spin text-[#576238]" />
                                             <p className="text-[#576238] font-semibold">Uploading...</p>
                                         </div>
                                     ) : (
@@ -496,7 +496,7 @@ export default function PitchDeckPage() {
                                 disabled={isMarkingComplete}
                             >
                                 {isMarkingComplete
-                                    ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Processing...</>
+                                    ? <><LegoSpinner className="h-4 w-4 mr-2 animate-spin" />Processing...</>
                                     : "Mark as Complete & Continue →"
                                 }
                             </Button>
@@ -533,7 +533,7 @@ export default function PitchDeckPage() {
                             </div>
                             {isExtracting && (
                                 <div className="flex items-center gap-1.5 text-xs text-[#FFD95D]/80 font-medium">
-                                    <Loader2 className="h-3 w-3 animate-spin" />
+                                    <LegoSpinner className="h-3 w-3 animate-spin" />
                                     Preparing AI context...
                                 </div>
                             )}
@@ -746,7 +746,7 @@ export default function PitchDeckPage() {
                             <Button size="lg" className="bg-[#FFD95D] hover:bg-[#ffe07a] text-black font-semibold px-8 shadow-md"
                                 onClick={handleMarkComplete} disabled={isMarkingComplete}>
                                 {isMarkingComplete
-                                    ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Processing...</>
+                                    ? <><LegoSpinner className="h-4 w-4 mr-2 animate-spin" />Processing...</>
                                     : "Mark as Complete & Continue →"}
                             </Button>
                         ) : (

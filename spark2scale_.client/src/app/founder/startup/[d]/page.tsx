@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
@@ -12,6 +12,8 @@ import {
 import Link from "next/link";
 import { motion } from "framer-motion";
 import LegoProgress from "@/components/lego/LegoProgress";
+import LegoSpinner from "@/components/lego/LegoSpinner";
+import LegoLoader from "@/components/lego/LegoLoader";
 import { useParams, useRouter } from "next/navigation";
 import {
     Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
@@ -67,21 +69,54 @@ export default function StartupDashboard() {
         const init = async () => {
             if (!cleanId || loading || !user?.id) return;
 
+            const cacheKey = `startup_data_${cleanId}_${user.id}`;
+            const cachedDataStr = sessionStorage.getItem(cacheKey);
+
+            if (cachedDataStr) {
+                try {
+                    const cachedData = JSON.parse(cachedDataStr);
+                    setWorkflowData(cachedData.workflow);
+                    setStartupName(cachedData.startupName);
+                    if (cachedData.logoPath !== undefined) setLogoPath(cachedData.logoPath);
+                    setUserRole(cachedData.role);
+                    setDocCount(cachedData.docCount);
+                    setVideoCount(cachedData.videoCount);
+                    setMeetings(cachedData.meetings);
+                    setIsLoading(false);
+                } catch (e) {
+                    console.error("Cache parsing error", e);
+                }
+            }
+
             try {
                 const data = await startupDashboardService.getDashboardData(cleanId, user.id);
-                setWorkflowData(data.workflow);
-                setStartupName(data.startupName);
-
+                
                 // Fetch logo_path from the startup detail
                 const startupDetail = await fetch(
                     `${(process.env.NEXT_PUBLIC_API_URL || "http://localhost:5231").replace(/\/$/, "").replace(/\/api$/, "")}/api/Startups/${cleanId}`
                 ).then(r => r.ok ? r.json() : null);
-                if (startupDetail?.logo_path) setLogoPath(startupDetail.logo_path);
-
+                
+                const finalLogoPath = startupDetail?.logo_path || null;
+                
+                if (finalLogoPath) setLogoPath(finalLogoPath);
+                
+                setWorkflowData(data.workflow);
+                setStartupName(data.startupName);
                 setUserRole(data.role); // Set Role
                 setDocCount(data.docCount);
                 setVideoCount(data.videoCount);
                 setMeetings(data.meetings);
+
+                // Save to Cache
+                sessionStorage.setItem(cacheKey, JSON.stringify({
+                    workflow: data.workflow,
+                    startupName: data.startupName,
+                    logoPath: finalLogoPath,
+                    role: data.role,
+                    docCount: data.docCount,
+                    videoCount: data.videoCount,
+                    meetings: data.meetings,
+                }));
             } catch (error) {
                 console.error("Dashboard load failed", error);
             } finally {
@@ -192,6 +227,14 @@ export default function StartupDashboard() {
     // ---------------------------------------------------------
     // 3. Render
     // ---------------------------------------------------------
+    if (loading || isLoading) {
+        return (
+            <div className="h-screen w-full flex items-center justify-center bg-[#F0EADC]">
+                <LegoLoader />
+            </div>
+        );
+    }
+
     return (
         <div className="min-h-screen bg-gradient-to-br from-[#F0EADC] via-[#fff] to-[#FFD95D]/20">
             {/* Top Navigation Bar */}
@@ -210,7 +253,7 @@ export default function StartupDashboard() {
                                 ) : (
                                     <div className="h-11 w-11 rounded-full bg-[#576238]/10 border-2 border-dashed border-[#576238]/30 group-hover:border-[#576238] flex items-center justify-center transition-all">
                                         {isUploadingLogo
-                                            ? <div className="h-4 w-4 border-2 border-[#576238] border-t-transparent rounded-full animate-spin" />
+                                            ? <LegoSpinner className="h-4 w-4 animate-spin text-[#576238]" />
                                             : <span className="text-[#576238] font-bold text-sm">{startupName?.[0]?.toUpperCase()}</span>
                                         }
                                     </div>

@@ -5,13 +5,15 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import {
     ArrowLeft, Brain, Trophy, CheckCircle, XCircle, AlertTriangle,
-    RefreshCw, Download, Star, Loader2, AlertCircle, Mic
+    RefreshCw, Download, Star, AlertCircle, Mic
 } from "lucide-react";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { useParams, useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { pitchDeckService } from "@/services/pitchDeckService";
+import LegoSpinner from "@/components/lego/LegoSpinner";
+import LegoLoader from "@/components/lego/LegoLoader";
 
 const PYTHON_API_URL =
     (typeof process !== "undefined" && process.env?.NEXT_PUBLIC_PYTHON_API_URL) ||
@@ -148,9 +150,8 @@ export default function PitchSessionReportPage() {
     if (loading) {
         return (
             <div className="min-h-screen bg-gradient-to-br from-[#F0EADC] via-white to-[#FFD95D]/10 flex flex-col items-center justify-center gap-6">
-                <div className="relative">
-                    <div className="w-20 h-20 rounded-full border-4 border-[#576238]/20 border-t-[#576238] animate-spin" />
-                    <Brain className="absolute inset-0 m-auto h-8 w-8 text-[#576238]" />
+                <div className="mb-6 flex justify-center">
+                    <LegoLoader />
                 </div>
                 <div className="text-center">
                     <h2 className="text-2xl font-black text-[#576238]">Loading Your Report</h2>

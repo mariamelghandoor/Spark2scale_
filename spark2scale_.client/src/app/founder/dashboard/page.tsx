@@ -15,6 +15,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { startupService } from "@/services/startupService";
 import { pdfService } from "@/services/pdfService";
 import LegoLoader from "@/components/lego/LegoLoader";
+import LegoSpinner from "@/components/lego/LegoSpinner";
 import LegoAddTrigger from "@/components/lego/LegoAddTrigger";
 import NotificationsDropdown from "@/components/shared/NotificationsDropdown";
 import { useAuth } from "@/context/AuthContext";
@@ -333,7 +334,7 @@ export default function FounderDashboard() {
         const loaderTimer = setTimeout(() => setShowLoader(true), 200);
 
         const loadData = async () => {
-            const cached = localStorage.getItem(CACHE_KEY);
+            const cached = sessionStorage.getItem(CACHE_KEY);
             if (cached) {
                 try {
                     const parsed = JSON.parse(cached);
@@ -387,7 +388,7 @@ export default function FounderDashboard() {
                     })
                 );
                 setStartups(enriched);
-                localStorage.setItem(CACHE_KEY, JSON.stringify(enriched));
+                sessionStorage.setItem(CACHE_KEY, JSON.stringify(enriched));
                 clearTimeout(loaderTimer);
             } catch (error) {
                 console.error("Failed to load startups", error);
@@ -621,7 +622,7 @@ export default function FounderDashboard() {
 
             const updatedList = [...startups, newStartupUI];
             setStartups(updatedList);
-            localStorage.setItem(`dashboard_data_${user.id}`, JSON.stringify(updatedList));
+            sessionStorage.setItem(`dashboard_data_${user.id}`, JSON.stringify(updatedList));
             resetForm();
             setOpen(false);
         } catch (error) { console.error("Error creating startup:", error); alert("Failed. Check console."); }
@@ -637,7 +638,7 @@ export default function FounderDashboard() {
             await startupService.delete(id);
             const updatedList = startups.filter(s => s.id !== id);
             setStartups(updatedList);
-            if (user?.id) localStorage.setItem(`dashboard_data_${user.id}`, JSON.stringify(updatedList));
+            if (user?.id) sessionStorage.setItem(`dashboard_data_${user.id}`, JSON.stringify(updatedList));
             setConfirmDeleteId(null);
         } catch (error) {
             console.error("Error deleting startup:", error);
@@ -647,7 +648,13 @@ export default function FounderDashboard() {
         }
     };
 
-    if (authLoading) return <div className="h-screen w-full flex items-center justify-center bg-[#F0EADC]"><LegoLoader /></div>;
+    if (authLoading || isFetching) {
+        return (
+            <div className="h-screen w-full flex items-center justify-center bg-[#F0EADC]">
+                <LegoLoader />
+            </div>
+        );
+    }
 
     return (
         <div className="h-screen w-full overflow-y-auto bg-gradient-to-br from-[#F0EADC] via-[#fff] to-[#FFD95D]/20 relative">
@@ -748,7 +755,7 @@ export default function FounderDashboard() {
                                         <AnimatePresence mode="wait">
                                             {isExtracting ? (
                                                 <motion.div key="loading" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex flex-col items-center gap-2">
-                                                    <div className="h-7 w-7 rounded-full border-[3px] border-[#FFD95D] border-t-transparent animate-spin" />
+                                                    <LegoSpinner className="h-7 w-7 animate-spin text-[#FFD95D]" />
                                                     <p className="text-[#FFD95D] text-sm font-semibold">Analysing your pitch deck…</p>
                                                 </motion.div>
                                             ) : extractionSuccess ? (
@@ -789,9 +796,7 @@ export default function FounderDashboard() {
 
                 {/* Rest of the startup list grid */}
                 <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6 min-h-[300px]">
-                    {isFetching && showLoader ? (
-                        <div className="col-span-full flex justify-center items-center"><LegoLoader /></div>
-                    ) : startups.length === 0 && !isFetching ? (
+                    {startups.length === 0 ? (
                         <>
                             <LegoAddTrigger isDropped={isBlockDropped} onTrigger={handleTriggerClick} />
                             <Dialog open={open} onOpenChange={handleOpenChange}>
@@ -812,7 +817,7 @@ export default function FounderDashboard() {
                                             <AnimatePresence mode="wait">
                                                 {isExtracting ? (
                                                     <motion.div key="loading" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex flex-col items-center gap-2">
-                                                        <div className="h-7 w-7 rounded-full border-[3px] border-[#FFD95D] border-t-transparent animate-spin" />
+                                                        <LegoSpinner className="h-7 w-7 animate-spin text-[#FFD95D]" />
                                                         <p className="text-[#FFD95D] text-sm font-semibold">Analysing your pitch deck…</p>
                                                     </motion.div>
                                                 ) : extractionSuccess ? (

@@ -7,13 +7,14 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { ArrowLeft, Save, Trash2, Camera, Loader2 } from "lucide-react";
+import { ArrowLeft, Save, Trash2, Camera } from "lucide-react";
 // Link import removed since we are using router.back()
 import { motion } from "framer-motion";
 import { useRouter } from "next/navigation";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { userService } from "@/services/userService";
 import { useAuth } from "@/context/AuthContext";
+import LegoSpinner from "@/components/lego/LegoSpinner";
 
 interface ProfileData {
     fname: string;
@@ -217,7 +218,7 @@ export default function ProfilePage() {
 
                                 <div className="flex flex-col sm:flex-row gap-4 pt-4 border-t">
                                     <Button onClick={handleSave} disabled={isLoading} className="flex-1 bg-[#576238] hover:bg-[#6b7c3f]">
-                                        {isLoading ? (<><Loader2 className="mr-2 h-4 w-4 animate-spin" />Saving...</>) : (<><Save className="mr-2 h-4 w-4" />Save Changes</>)}
+                                        {isLoading ? (<><LegoSpinner className="mr-2 h-4 w-4 animate-spin" />Saving...</>) : (<><Save className="mr-2 h-4 w-4" />Save Changes</>)}
                                     </Button>
                                     <AlertDialog>
                                         <AlertDialogTrigger asChild>

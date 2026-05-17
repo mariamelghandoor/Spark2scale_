@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
     ArrowLeft, Calendar, Download, FileText, Lock, Clock,
-    Loader2, Ban, AlertTriangle, RefreshCw, Briefcase,
+    Ban, AlertTriangle, RefreshCw, Briefcase,
     ShieldAlert, HelpCircle, ArrowRight, CheckCircle, Target
 } from "lucide-react";
 import Link from "next/link";
@@ -25,6 +25,7 @@ import { evaluationService, EvaluationDocument } from "@/services/evaluationServ
 
 // --- Use React-to-Print for Native, High-Quality PDFs ---
 import { useReactToPrint } from 'react-to-print';
+import LegoSpinner from "@/components/lego/LegoSpinner";
 
 interface Startup {
     sid: string;
@@ -435,7 +436,7 @@ export default function InvestorStartupProfile() {
     const hasLockedDocs = documents.some(d => d.access_status === "locked");
     const hasPendingDocs = documents.some(d => d.access_status === "pending");
 
-    if (loading) return <div className="min-h-screen flex items-center justify-center"><Loader2 className="animate-spin text-[#576238] w-8 h-8" /></div>;
+    if (loading) return <div className="min-h-screen flex items-center justify-center"><LegoSpinner className="animate-spin text-[#576238] w-8 h-8" /></div>;
     if (error || !startup) return <div className="p-20 text-center text-red-500 font-bold">{error}</div>;
 
     return (
@@ -489,7 +490,7 @@ export default function InvestorStartupProfile() {
                                             disabled={requestLoading}
                                             className="flex-1 bg-[#576238] hover:bg-[#6b7c3f] transition-all text-white shadow-sm"
                                         >
-                                            {requestLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Lock className="mr-2 h-4 w-4" />}
+                                            {requestLoading ? <LegoSpinner className="mr-2 h-4 w-4 animate-spin" /> : <Lock className="mr-2 h-4 w-4" />}
                                             Request Full Access
                                         </Button>
                                     ) : hasPendingDocs ? (
@@ -581,7 +582,7 @@ export default function InvestorStartupProfile() {
                                                 disabled={isScheduling || !founderEmail}
                                                 className="w-full bg-[#576238] hover:bg-[#6b7c3f] text-white"
                                             >
-                                                {isScheduling ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                                                {isScheduling ? <LegoSpinner className="h-4 w-4 animate-spin mr-2" /> : null}
                                                 {isScheduling ? "Sending Invite..." : "Send Invite"}
                                             </Button>
                                         </DialogContent>

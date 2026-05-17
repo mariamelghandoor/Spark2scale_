@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import {
-    ArrowLeft, Eye, Users, Loader2, Globe, Lock, Download, X,
+    ArrowLeft, Eye, Users, Globe, Lock, Download, X,
     TrendingUp, TrendingDown, Lightbulb, AlertTriangle
 } from "lucide-react";
 import Link from "next/link";
@@ -19,6 +19,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 
 import JSZip from "jszip";
 import { documentService } from "@/services/documentService";
+import LegoSpinner from "@/components/lego/LegoSpinner";
 
 // ---------------------------------------------------------------------------
 // Viewer Modal
@@ -519,7 +520,7 @@ export default function DocumentsHistoryPage() {
                     <div className="grid md:grid-cols-1 gap-6">
                         {loading ? (
                             <div className="flex justify-center py-10">
-                                <Loader2 className="h-8 w-8 animate-spin text-[#576238]" />
+                                <LegoSpinner className="h-8 w-8 animate-spin text-[#576238]" />
                             </div>
                         ) : documents.length === 0 ? (
                             <div className="text-center py-12 text-gray-500">
@@ -601,7 +602,7 @@ export default function DocumentsHistoryPage() {
                                                         disabled={isGenerating}
                                                         className="flex-1 md:flex-none"
                                                     >
-                                                        {isGenerating ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Eye className="h-4 w-4 mr-2" />}
+                                                        {isGenerating ? <LegoSpinner className="h-4 w-4 mr-2 animate-spin" /> : <Eye className="h-4 w-4 mr-2" />}
                                                         {isGenerating ? "Generating..." : (jsonOnly && !isAIEvaluation ? "View Analysis" : "View File")}
                                                     </Button>
                                                     <Button
@@ -611,7 +612,7 @@ export default function DocumentsHistoryPage() {
                                                         disabled={isGenerating}
                                                         className="flex-1 md:flex-none"
                                                     >
-                                                        {isGenerating ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Download className="h-4 w-4 mr-2" />}
+                                                        {isGenerating ? <LegoSpinner className="h-4 w-4 mr-2 animate-spin" /> : <Download className="h-4 w-4 mr-2" />}
                                                         Download
                                                     </Button>
                                                     <Button variant="outline" size="sm" disabled={!activeVersion} className="flex-1 md:flex-none">

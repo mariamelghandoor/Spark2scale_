@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import {
     Presentation, ArrowLeft, Upload, FileText, Plus, Eye, Send, Star, Users, Edit,
-    Loader2, Trash2, Sparkles, RefreshCw, Bot, History, X, User, Maximize2, Minimize2,
+    Trash2, Sparkles, RefreshCw, Bot, History, X, User, Maximize2, Minimize2,
     TrendingUp, TrendingDown, Lightbulb, AlertTriangle, Download,
     CheckCircle2, XCircle, Info,
 } from "lucide-react";
@@ -18,6 +18,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useAuth } from "@/context/AuthContext";
+import LegoSpinner from "@/components/lego/LegoSpinner";
 
 import {
     documentsService,
@@ -554,34 +555,19 @@ function DocumentViewerModal({
     onClose: () => void;
 }) {
     const swot = payload.type === "swot" ? parseSwot(payload.data) : null;
-<<<<<<< HEAD
-    const competitors = payload.type === "competitor_matrix" ? parseCompetitorMatrix(payload.data) : null;
+const competitors = payload.type === "competitor_matrix" ? parseCompetitorMatrix(payload.data) : null;
     const bmc = payload.type === "bmc" ? parseBmc(payload.data) : null;
 
     const isStructured = payload.type === "competitor_matrix" || payload.type === "swot" || payload.type === "bmc";
-=======
-    const competitors =
-        payload.type === "competitor_matrix" ? parseCompetitorMatrix(payload.data) : null;
->>>>>>> 850e1fe6b540b3fad57b55956662cb73b9d7c0b5
 
     return (
         <Dialog open onOpenChange={onClose}>
             <DialogContent
                 aria-describedby={undefined}
-<<<<<<< HEAD
-                style={isStructured ? { width: "95vw", maxWidth: "95vw", height: "94vh" } : undefined}
-                className={isStructured ? "p-0 bg-[#F4F1EA] overflow-hidden flex flex-col" : "max-w-[90vw] w-[90vw] h-[90vh] p-0 overflow-hidden flex flex-col"}
+style={isStructured ? { width: "95vw", maxWidth: "95vw", height: "94vh" } : undefined}
+                className={isStructured ? "p-0 bg-[#F4F1EA] overflow-hidden flex flex-col [&>button]:hidden" : "max-w-[90vw] w-[90vw] h-[90vh] p-0 overflow-hidden flex flex-col [&>button]:hidden"}
             >
                 {isStructured && (competitors || swot || bmc) ? (
-=======
-                // 1. Force the large size for ALL views to bypass Shadcn's max-w limit
-                style={{ width: "95vw", maxWidth: "95vw", height: "94vh" }}
-                // 2. Add [&>button]:hidden to remove the default Shadcn Close "X"
-                className="p-0 bg-[#F4F1EA] overflow-hidden flex flex-col [&>button]:hidden"
-            >
-                {(payload.type === "competitor_matrix" || payload.type === "swot") &&
-                    (competitors || swot) ? (
->>>>>>> 850e1fe6b540b3fad57b55956662cb73b9d7c0b5
                     <>
                         <DialogHeader className="sr-only">
                             <DialogTitle>{payload.name}</DialogTitle>
@@ -603,13 +589,9 @@ function DocumentViewerModal({
                                     <h1 className="text-xl font-bold font-sans">
                                         {payload.type === "swot"
                                             ? "SWOT Analysis"
-<<<<<<< HEAD
-                                            : payload.type === "bmc"
+: payload.type === "bmc"
                                                 ? "Business Model Canvas"
                                                 : "Competitor Matrix Analysis"}
-=======
-                                            : "Competitor Matrix Analysis"}
->>>>>>> 850e1fe6b540b3fad57b55956662cb73b9d7c0b5
                                     </h1>
                                     <p className="text-sm opacity-75 mt-1">{payload.name}</p>
                                 </div>
@@ -687,8 +669,7 @@ function DocumentViewerModal({
                                         </div>
                                     )}
 
-<<<<<<< HEAD
-                                    {/* Business Model Canvas — Osterwalder 9-block grid */}
+{/* Business Model Canvas — Osterwalder 9-block grid */}
                                     {payload.type === "bmc" && bmc && (
                                         <div
                                             className="pb-6"
@@ -741,8 +722,6 @@ function DocumentViewerModal({
                                     )}
 
                                     {/* SWOT Analysis Content */}
-=======
->>>>>>> 850e1fe6b540b3fad57b55956662cb73b9d7c0b5
                                     {payload.type === "swot" && swot && (
                                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pb-6">
                                             {SWOT_QUADRANTS.map(
@@ -1144,7 +1123,6 @@ export default function DocumentsPage() {
                 throw new Error("No data found for this document.");
             }
 
-<<<<<<< HEAD
             // Call Python FastAPI Endpoint
             const aiResponse = await fetch("https://spark2scale-ai-api-server.azurewebsites.net/api/v1/document-chat/test-document-qa", {
                 method: "POST",
@@ -1159,21 +1137,6 @@ export default function DocumentsPage() {
                     chat_history: messages.slice(-5)
                 })
             });
-=======
-            const aiResponse = await fetch(
-                "https://spark2scale-ai-api-server.azurewebsites.net/api/v1/document-chat/test-document-qa",
-                {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                        file_path: fileData,
-                        query: contentToSend,
-                        provider: "gemini",
-                        chat_history: messages.slice(-5),
-                    }),
-                }
-            );
->>>>>>> 850e1fe6b540b3fad57b55956662cb73b9d7c0b5
 
             if (!aiResponse.ok) throw new Error("AI Server Error");
 
@@ -1196,7 +1159,6 @@ export default function DocumentsPage() {
         }
     };
 
-<<<<<<< HEAD
     // --- NEW: Handle Enhance Message ---
     const [isEnhancing, setIsEnhancing] = useState(false);
     const [isApplyingBmc, setIsApplyingBmc] = useState(false);
@@ -1274,100 +1236,6 @@ export default function DocumentsPage() {
             setMessages(prev => [...prev, { role: "assistant", content: "Error: Enhance failed." }]);
         } finally {
             setIsEnhancing(false);
-=======
-    const handleEnhanceMessage = async (messageContent: string) => {
-        if (!cleanId) return;
-
-        if (chatContext !== "swot" && chatContext !== "competitor_matrix") {
-            toast("warning", "Not Supported", "Enhancement is only available for SWOT Analysis and Competitor Matrix.");
-            return;
-        }
-
-        const docName = getCurrentContextName();
-        setIsGeneratingDoc(true);
-        setIsTyping(true);
-
-        const enhanceRequestMsg = `Please enhance the ${docName} based on our discussion.`;
-        setMessages((prev) => [...prev, { role: "user", content: enhanceRequestMsg }]);
-        if (chatSessionId) {
-            await documentsService.sendMessage(chatSessionId, enhanceRequestMsg, "user");
-        }
-
-        try {
-            let summaryComment = messages
-                .map((m) => `${m.role.toUpperCase()}: ${m.content}`)
-                .join("\n");
-
-            try {
-                const selectedDoc = docStates.find((d) => d.configId === chatContext);
-                let fileData = "";
-                if (selectedDoc?.jsonResponse) {
-                    fileData =
-                        typeof selectedDoc.jsonResponse === "string"
-                            ? selectedDoc.jsonResponse
-                            : JSON.stringify(selectedDoc.jsonResponse);
-                } else if (selectedDoc?.path) {
-                    fileData = selectedDoc.path;
-                }
-
-                if (fileData) {
-                    const aiResponse = await fetch(
-                        "https://spark2scale-ai-api-server.azurewebsites.net/api/v1/document-chat/test-document-qa",
-                        {
-                            method: "POST",
-                            headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify({
-                                file_path: fileData,
-                                query: "Please provide a concise summary of the key feedback, ideas, and changes discussed in our chat history. This summary will be used to enhance and regenerate the document.",
-                                provider: "gemini",
-                                chat_history: messages.slice(-10),
-                            }),
-                        }
-                    );
-
-                    if (aiResponse.ok) {
-                        const aiData = await aiResponse.json();
-                        if (aiData.answer) summaryComment = aiData.answer;
-                    }
-                }
-            } catch (error) {
-                console.error("Could not summarize chat, falling back to raw chat history:", error);
-            }
-
-            let success = false;
-            if (chatContext === "swot") {
-                success = await documentsService.generateSwot(cleanId, summaryComment);
-            } else if (chatContext === "competitor_matrix") {
-                success = await documentsService.generateCompetitorMatrix(cleanId, summaryComment);
-            }
-
-            if (success) {
-                await fetchData();
-                const successMsg = `Successfully enhanced the ${docName} using your feedback! The updated document is now available.`;
-                setMessages((prev) => [...prev, { role: "assistant", content: successMsg }]);
-                if (chatSessionId) {
-                    await documentsService.sendMessage(chatSessionId, successMsg, "assistant");
-                }
-                toast("success", "Document Enhanced", `Your ${docName} has been updated with the latest feedback.`);
-            } else {
-                const failMsg = `Error: Could not enhance ${docName}.`;
-                setMessages((prev) => [...prev, { role: "assistant", content: failMsg }]);
-                if (chatSessionId) {
-                    await documentsService.sendMessage(chatSessionId, failMsg, "assistant");
-                }
-                toast("error", "Enhancement Failed", `Could not enhance ${docName}. Please try again.`);
-            }
-        } catch (error) {
-            console.error(error);
-            setMessages((prev) => [
-                ...prev,
-                { role: "assistant", content: "Connection error during enhancement." },
-            ]);
-            toast("error", "Connection Error", "Could not reach the server. Please try again.");
-        } finally {
-            setIsGeneratingDoc(false);
-            setIsTyping(false);
->>>>>>> 850e1fe6b540b3fad57b55956662cb73b9d7c0b5
         }
     };
 
@@ -1512,7 +1380,6 @@ export default function DocumentsPage() {
         toast("warning", "Nothing to Preview", "This document has no file or data to view yet.");
     };
 
-<<<<<<< HEAD
     const handleDownloadBmc = (state: DocState) => {
         if (!state.jsonResponse) {
             alert("Nothing to download yet.");
@@ -1546,14 +1413,6 @@ export default function DocumentsPage() {
 
     const handleEvaluate = (dbId?: string) => { if (dbId) router.push(`/founder/startup/${cleanId}/documents/${dbId}/evaluate`); };
     const handleRecommend = (dbId?: string) => { if (dbId) router.push(`/founder/startup/${cleanId}/documents/${dbId}/recommend`); };
-=======
-    const handleEvaluate = (dbId?: string) => {
-        if (dbId) router.push(`/founder/startup/${cleanId}/documents/${dbId}/evaluate`);
-    };
-    const handleRecommend = (dbId?: string) => {
-        if (dbId) router.push(`/founder/startup/${cleanId}/documents/${dbId}/recommend`);
-    };
->>>>>>> 850e1fe6b540b3fad57b55956662cb73b9d7c0b5
 
     // -----------------------------------------------------------------------
     // Complete Stage
@@ -1770,7 +1629,7 @@ export default function DocumentsPage() {
                                                     >
                                                         {isPptEditing ? (
                                                             <>
-                                                                <Loader2 className="h-3 w-3 mr-1.5 animate-spin" />{" "}
+                                                                <LegoSpinner className="h-3 w-3 mr-1.5 animate-spin" />{" "}
                                                                 Enhancing…
                                                             </>
                                                         ) : (
@@ -1788,7 +1647,7 @@ export default function DocumentsPage() {
                                                             disabled={isPptGenerating}
                                                         >
                                                             {isPptGenerating ? (
-                                                                <Loader2 className="h-3 w-3 animate-spin" />
+                                                                <LegoSpinner className="h-3 w-3 animate-spin" />
                                                             ) : (
                                                                 <RefreshCw className="h-3 w-3" />
                                                             )}
@@ -1809,7 +1668,7 @@ export default function DocumentsPage() {
                                                         disabled={uploadingId === "ppt_generation"}
                                                     >
                                                         {uploadingId === "ppt_generation" ? (
-                                                            <Loader2 className="h-3 w-3 animate-spin mr-1.5" />
+                                                            <LegoSpinner className="h-3 w-3 animate-spin mr-1.5" />
                                                         ) : (
                                                             <Upload className="h-3 w-3 mr-1.5" />
                                                         )}{" "}
@@ -1822,7 +1681,7 @@ export default function DocumentsPage() {
                                                         disabled={isPptGenerating}
                                                     >
                                                         {isPptGenerating ? (
-                                                            <Loader2 className="h-3 w-3 animate-spin mr-1.5" />
+                                                            <LegoSpinner className="h-3 w-3 animate-spin mr-1.5" />
                                                         ) : (
                                                             <>
                                                                 <Sparkles className="h-3 w-3 mr-1.5" /> AI
@@ -1838,7 +1697,7 @@ export default function DocumentsPage() {
                                                         disabled={isPptEditing}
                                                     >
                                                         {isPptEditing ? (
-                                                            <Loader2 className="h-3 w-3 animate-spin mr-1.5" />
+                                                            <LegoSpinner className="h-3 w-3 animate-spin mr-1.5" />
                                                         ) : (
                                                             <>
                                                                 <Sparkles className="h-3 w-3 mr-1.5" /> Enhance
@@ -1855,7 +1714,7 @@ export default function DocumentsPage() {
 
                         {isLoadingData ? (
                             <div className="text-center py-20">
-                                <Loader2 className="h-10 w-10 animate-spin mx-auto text-[#576238] opacity-50" />
+                                <LegoSpinner className="h-10 w-10 animate-spin mx-auto text-[#576238] opacity-50" />
                             </div>
                         ) : (
                             <div className="space-y-4">
@@ -1892,7 +1751,6 @@ export default function DocumentsPage() {
                                                         >
                                                             <config.icon className="h-6 w-6" />
                                                         </div>
-<<<<<<< HEAD
                                                         <p className="text-xs text-muted-foreground mb-4 line-clamp-2">{config.desc}</p>
                                                         <div className="flex flex-wrap items-center gap-2">
                                                             <input
@@ -1924,156 +1782,19 @@ export default function DocumentsPage() {
                                                                         </>
                                                                     )}
                                                                     <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-400 hover:text-red-500 hover:bg-red-50 ml-auto" onClick={() => handleDelete(state?.dbId)}>
-                                                                        {deletingId === state?.dbId ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
+                                                                        {deletingId === state?.dbId ? <LegoSpinner className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
                                                                     </Button>
                                                                 </>
                                                             ) : (
                                                                 <>
                                                                     <Button variant="outline" size="sm" className={`h-8 text-xs ${outlineBtn}`} onClick={() => triggerUpload(config.id)} disabled={uploadingId === config.id}>
-                                                                        {uploadingId === config.id ? <Loader2 className="h-3 w-3 mr-1.5 animate-spin" /> : <Upload className="h-3 w-3 mr-1.5" />} Upload
+                                                                        {uploadingId === config.id ? <LegoSpinner className="h-3 w-3 mr-1.5 animate-spin" /> : <Upload className="h-3 w-3 mr-1.5" />} Upload
                                                                     </Button>
                                                                     <Button size="sm" className={`h-8 text-xs ${primaryBtn}`} onClick={() => handleSimulateGeneration(config.id)} disabled={isGeneratingDoc}>
-                                                                        {isGeneratingDoc ? <Loader2 className="h-3 w-3 mr-1.5 animate-spin" /> : <Sparkles className="h-3 w-3 mr-1.5" />} Generate
+                                                                        {isGeneratingDoc ? <LegoSpinner className="h-3 w-3 mr-1.5 animate-spin" /> : <Sparkles className="h-3 w-3 mr-1.5" />} Generate
                                                                     </Button>
                                                                 </>
                                                             )}
-=======
-                                                        <div className="flex-1 min-w-0">
-                                                            <div className="flex items-center justify-between mb-1">
-                                                                <h3 className="font-bold text-[#576238] truncate">
-                                                                    {config.name}
-                                                                </h3>
-                                                                {isUploaded ? (
-                                                                    <span className="text-[10px] bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium flex items-center gap-1">
-                                                                        <Users className="h-3 w-3" /> V
-                                                                        {state?.version}
-                                                                    </span>
-                                                                ) : (
-                                                                    <span className="text-[10px] bg-red-50 text-red-600 px-2 py-0.5 rounded-full font-medium">
-                                                                        Required
-                                                                    </span>
-                                                                )}
-                                                            </div>
-                                                            <p className="text-xs text-muted-foreground mb-4 line-clamp-2">
-                                                                {config.desc}
-                                                            </p>
-                                                            <div className="flex flex-wrap items-center gap-2">
-                                                                <input
-                                                                    type="file"
-                                                                    ref={(el) => {
-                                                                        fileInputRefs.current[
-                                                                            config.id
-                                                                        ] = el;
-                                                                    }}
-                                                                    className="hidden"
-                                                                    accept={config.accept}
-                                                                    onChange={(e) =>
-                                                                        handleFileChange(e, config)
-                                                                    }
-                                                                />
-                                                                {isUploaded ? (
-                                                                    <>
-                                                                        <Button
-                                                                            variant="outline"
-                                                                            size="sm"
-                                                                            className={`h-8 text-xs ${outlineBtn}`}
-                                                                            onClick={() =>
-                                                                                state && handleView(state)
-                                                                            }
-                                                                        >
-                                                                            <Eye className="h-3 w-3 mr-1.5" />
-                                                                            {isJsonOnly
-                                                                                ? "View Analysis"
-                                                                                : "View"}
-                                                                        </Button>
-                                                                        <Button
-                                                                            variant="outline"
-                                                                            size="sm"
-                                                                            className={`h-8 text-xs ${outlineBtn}`}
-                                                                            onClick={() =>
-                                                                                handleEvaluate(state?.dbId)
-                                                                            }
-                                                                        >
-                                                                            <Star className="h-3 w-3 mr-1.5" />{" "}
-                                                                            Evaluate
-                                                                        </Button>
-                                                                        <Button
-                                                                            variant="outline"
-                                                                            size="sm"
-                                                                            className={`h-8 text-xs ${outlineBtn}`}
-                                                                            onClick={() =>
-                                                                                handleRecommend(state?.dbId)
-                                                                            }
-                                                                        >
-                                                                            <Edit className="h-3 w-3 mr-1.5" />{" "}
-                                                                            Recommend
-                                                                        </Button>
-                                                                        <Button
-                                                                            variant="ghost"
-                                                                            size="icon"
-                                                                            className="h-8 w-8 text-gray-400 hover:text-red-500 hover:bg-red-50 ml-auto"
-                                                                            onClick={() =>
-                                                                                handleDelete(state?.dbId)
-                                                                            }
-                                                                        >
-                                                                            {deletingId === state?.dbId ? (
-                                                                                <Loader2 className="h-3 w-3 animate-spin" />
-                                                                            ) : (
-                                                                                <Trash2 className="h-3 w-3" />
-                                                                            )}
-                                                                        </Button>
-                                                                        <Button
-                                                                            variant="ghost"
-                                                                            size="icon"
-                                                                            className="h-8 w-8 text-gray-400 hover:text-[#576238]"
-                                                                            onClick={() =>
-                                                                                triggerUpload(config.id)
-                                                                            }
-                                                                        >
-                                                                            <RefreshCw className="h-3 w-3" />
-                                                                        </Button>
-                                                                    </>
-                                                                ) : (
-                                                                    <>
-                                                                        <Button
-                                                                            variant="outline"
-                                                                            size="sm"
-                                                                            className={`h-8 text-xs ${outlineBtn}`}
-                                                                            onClick={() =>
-                                                                                triggerUpload(config.id)
-                                                                            }
-                                                                            disabled={
-                                                                                uploadingId === config.id
-                                                                            }
-                                                                        >
-                                                                            {uploadingId === config.id ? (
-                                                                                <Loader2 className="h-3 w-3 mr-1.5 animate-spin" />
-                                                                            ) : (
-                                                                                <Upload className="h-3 w-3 mr-1.5" />
-                                                                            )}{" "}
-                                                                            Upload
-                                                                        </Button>
-                                                                        <Button
-                                                                            size="sm"
-                                                                            className={`h-8 text-xs ${primaryBtn}`}
-                                                                            onClick={() =>
-                                                                                handleSimulateGeneration(
-                                                                                    config.id
-                                                                                )
-                                                                            }
-                                                                            disabled={isGeneratingDoc}
-                                                                        >
-                                                                            {isGeneratingDoc ? (
-                                                                                <Loader2 className="h-3 w-3 mr-1.5 animate-spin" />
-                                                                            ) : (
-                                                                                <Sparkles className="h-3 w-3 mr-1.5" />
-                                                                            )}{" "}
-                                                                            Generate
-                                                                        </Button>
-                                                                    </>
-                                                                )}
-                                                            </div>
->>>>>>> 850e1fe6b540b3fad57b55956662cb73b9d7c0b5
                                                         </div>
                                                     </div>
                                                 </Card>
@@ -2099,7 +1820,7 @@ export default function DocumentsPage() {
                                     disabled={isCompleting}
                                 >
                                     {isCompleting ? (
-                                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                        <LegoSpinner className="mr-2 h-4 w-4 animate-spin" />
                                     ) : (
                                         "Mark as Complete & Continue"
                                     )}
@@ -2230,7 +1951,7 @@ export default function DocumentsPage() {
                                     <ScrollArea className="h-full p-4">
                                         {isChatLoading ? (
                                             <div className="flex justify-center items-center h-full opacity-50">
-                                                <Loader2 className="h-6 w-6 animate-spin" />
+                                                <LegoSpinner className="h-6 w-6 animate-spin" />
                                             </div>
                                         ) : (
                                             <div className="space-y-6 pb-4">
@@ -2303,7 +2024,7 @@ export default function DocumentsPage() {
                                                                                 {(chatContext === "pitch_deck"
                                                                                     ? isPptGenerating
                                                                                     : isGeneratingDoc) ? (
-                                                                                    <Loader2 className="h-3 w-3 mr-1.5 animate-spin" />
+                                                                                    <LegoSpinner className="h-3 w-3 mr-1.5 animate-spin" />
                                                                                 ) : (
                                                                                     <Sparkles className="h-3 w-3 mr-1.5" />
                                                                                 )}
@@ -2329,7 +2050,7 @@ export default function DocumentsPage() {
                                                                             }
                                                                         >
                                                                             {isEnhancing ? (
-                                                                                <Loader2 className="h-3 w-3 mr-1.5 animate-spin" />
+                                                                                <LegoSpinner className="h-3 w-3 mr-1.5 animate-spin" />
                                                                             ) : (
                                                                                 <Sparkles className="h-3 w-3 mr-1.5" />
                                                                             )}
@@ -2352,7 +2073,7 @@ export default function DocumentsPage() {
                                                                             onClick={handleApplyBmcChanges}
                                                                         >
                                                                             {isApplyingBmc ? (
-                                                                                <Loader2 className="h-3 w-3 mr-1.5 animate-spin" />
+                                                                                <LegoSpinner className="h-3 w-3 mr-1.5 animate-spin" />
                                                                             ) : (
                                                                                 <Sparkles className="h-3 w-3 mr-1.5" />
                                                                             )}
