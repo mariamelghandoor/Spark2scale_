@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Button } from "@/components/ui/button";
@@ -185,11 +185,14 @@ export default function IdeaCheckPage() {
             if (assistantReply) {
                 setMessages(prev => [...prev, { role: "assistant", content: assistantReply }]);
             }
-        } catch (err) {
+        } catch (err: any) {
             console.error("Send error:", err);
+            const isRateLimited = err?.message === "RATE_LIMITED";
             setMessages(prev => [...prev, {
                 role: "assistant",
-                content: "Sorry, something went wrong. Please try again."
+                content: isRateLimited
+                    ? "You're sending messages a bit too fast — please wait a moment before trying again."
+                    : "Sorry, something went wrong. Please try again."
             }]);
         } finally {
             setIsSendingMessage(false);

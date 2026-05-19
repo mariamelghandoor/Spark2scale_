@@ -1130,10 +1130,10 @@ export default function DocumentsPage() {
                 body: JSON.stringify({
                     file_path: fileData,
                     query: contentToSend,
-                    provider: "groq",
+                    provider: "modal",
                     // Pass the chat context type so the AI knows what document it's discussing
                     document_type: chatContext,
-                    // ADD THIS LINE: Pass the last few messages so the AI remembers context
+                    // Pass the last few messages so the AI remembers context
                     chat_history: messages.slice(-5)
                 })
             });
@@ -1147,6 +1147,7 @@ export default function DocumentsPage() {
             await documentsService.sendMessage(chatSessionId, finalAnswer, "assistant");
         } catch (error) {
             console.error(error);
+            toast("error", "AI Assistant Error", "Could not connect to the AI Assistant. Please try again.");
             setMessages((prev) => [
                 ...prev,
                 {
