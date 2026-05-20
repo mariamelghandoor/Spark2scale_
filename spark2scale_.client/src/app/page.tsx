@@ -29,7 +29,8 @@ import {
     Layers3, 
     Coins, 
     ArrowUpRight, 
-    Plus 
+    Plus,
+    CheckCircle2
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 
@@ -37,7 +38,7 @@ export default function Home() {
     const router = useRouter();
     const [currentStep, setCurrentStep] = useState(0);
     const [activeSection, setActiveSection] = useState("hero");
-    const [billingPeriod, setBillingPeriod] = useState<"monthly" | "yearly">("monthly");
+    const [currency, setCurrency] = useState<"EGP" | "USD">("EGP");
     
     // Dialog State for Feature Modules
     const [selectedModule, setSelectedModule] = useState<{
@@ -290,54 +291,35 @@ export default function Home() {
 
     const plans = [
         {
-            name: "Starter",
-            priceMonthly: 0,
-            priceYearly: 0,
-            period: "forever",
-            features: [
-                "1 Startup Project",
-                "Basic Idea Check",
-                "Limited Documents (3)",
-                "Community Support",
-                "Progress Tracking",
-            ],
-            cta: "Start Free",
-            highlighted: false,
+            name: "Basic",
+            description: "Perfect for early-stage validation.",
+            monthly: { EGP: 0, USD: 0 },
+            features: ["1 Startup Profile", "Basic AI Idea Check", "Standard Export"],
+            popular: false,
         },
         {
-            name: "Growth",
-            priceMonthly: 29,
-            priceYearly: 23,
-            period: "/month",
+            name: "Founder Pro",
+            description: "Everything you need to get investor-ready.",
+            monthly: { EGP: 850, USD: 19 },
             features: [
-                "5 Startup Projects",
-                "AI-Powered Idea Check",
-                "Unlimited Documents",
-                "Market Research Tools",
-                "Pitch Deck Analyzer",
-                "Priority Support",
-                "Team Collaboration (up to 3)",
+                "Unlimited Pitch Deck Generations",
+                "Deep Competitor Analysis",
+                "Advanced SWOT Matrix",
+                "Priority AI Processing",
             ],
-            cta: "Start Growing",
-            highlighted: true,
+            popular: true,
         },
         {
-            name: "Scale",
-            priceMonthly: 99,
-            priceYearly: 79,
-            period: "/month",
+            name: "Investor",
+            description: "For screening and managing deal flow.",
+            monthly: { EGP: 2500, USD: 49 },
             features: [
-                "Unlimited Startup Projects",
-                "Advanced AI Analysis",
-                "Unlimited Everything",
-                "Investor Matching",
-                "White-label Options",
-                "Dedicated Account Manager",
-                "Unlimited Team Members",
-                "API Access",
+                "Access to Verified Deal Flow",
+                "Automated Startup Screening",
+                "Custom Evaluation Criteria",
+                "Team Collaboration",
             ],
-            cta: "Scale Now",
-            highlighted: false,
+            popular: false,
         },
     ];
 
@@ -551,15 +533,14 @@ export default function Home() {
                                 <ArrowRight className="ml-2 w-5 h-5" />
                             </Button>
                         </Link>
-                        <button onClick={() => scrollToSection(builderRef)}>
-                            <Button
-                                size="lg"
-                                variant="outline"
-                                className="font-bold text-[#576238] border-2 border-[#576238]/30 hover:border-[#576238] hover:bg-[#F0EADC]/40 hover:scale-105 active:scale-95 text-lg px-10 py-7 rounded-2xl transition-all"
-                            >
-                                Watch Stacking Demo
-                            </Button>
-                        </button>
+                        <Button
+                            onClick={() => scrollToSection(builderRef)}
+                            size="lg"
+                            variant="outline"
+                            className="font-bold text-[#576238] border-2 border-[#576238]/30 hover:border-[#576238] hover:bg-[#F0EADC]/40 hover:scale-105 active:scale-95 text-lg px-10 py-7 rounded-2xl transition-all"
+                        >
+                            Watch Stacking Demo
+                        </Button>
                     </motion.div>
                 </motion.div>
             </header>
@@ -788,8 +769,12 @@ export default function Home() {
             {/* FREEMIUM PLANS SECTION (UPGRADED pricing card visual design + toggle) */}
             <section 
                 ref={pricingRef}
-                className="container mx-auto px-6 py-28 border-t border-[#d4cbb8]/40 relative overflow-hidden"
+                id="pricing"
+                className="relative py-24 bg-[#Fdfbf7] overflow-hidden border-t border-[#d4cbb8]/40"
             >
+                {/* Subtle Background Glows */}
+                <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[400px] bg-[#FFD95D]/10 rounded-full blur-[100px] pointer-events-none" />
+
                 {/* 3D-styled Parallax Lego Bricks Floating in Background for Pricing */}
                 <motion.div 
                     style={{ y: pricingLego1Y, x: pricingLego1X, rotate: pricingLego1Rotate }}
@@ -834,139 +819,99 @@ export default function Home() {
                     </motion.div>
                 </motion.div>
 
-                {/* Background accents */}
-                <div className="absolute top-1/4 right-0 w-80 h-80 bg-[#FFD95D]/5 rounded-full blur-3xl -z-10" />
-                <div className="absolute bottom-1/4 left-0 w-80 h-80 bg-[#576238]/5 rounded-full blur-3xl -z-10" />
+                <div className="container mx-auto px-4 relative z-10">
+                    <div className="text-center max-w-2xl mx-auto mb-16">
+                        <h2 className="text-4xl font-extrabold text-slate-900 tracking-tight mb-4">
+                            Simple, transparent pricing
+                        </h2>
+                        <p className="text-lg text-slate-600 mb-8">
+                            Choose the plan that fits your growth stage. Switch currencies to see local or global rates.
+                        </p>
 
-                <div className="text-center mb-16 flex flex-col items-center">
-                    <motion.div
-                        initial={{ opacity: 0, scale: 0.9 }}
-                        whileInView={{ opacity: 1, scale: 1 }}
-                        viewport={{ once: true }}
-                        className="inline-flex items-center gap-2 bg-[#FFD95D]/20 text-[#576238] font-black text-xs uppercase tracking-widest px-4 py-2 rounded-full mb-6 border border-[#FFD95D]/30"
-                    >
-                        Transparent Pricing
-                    </motion.div>
-                    <h2 className="text-4xl md:text-6xl font-black text-[#576238] mb-4">
-                        Choose Your Plan
-                    </h2>
-                    <p className="text-lg text-muted-foreground max-w-md mb-10">
-                        Start free and scale your workspace features as your startup tower grows.
-                    </p>
-
-                    {/* Interactive Billing Period Toggle */}
-                    <div className="relative flex items-center bg-gray-100/80 p-1.5 rounded-2xl border border-gray-200 w-fit gap-2">
-                        <button
-                            onClick={() => setBillingPeriod("monthly")}
-                            className={`relative px-6 py-2 rounded-xl text-sm font-bold transition-all cursor-pointer ${
-                                billingPeriod === "monthly"
-                                    ? "bg-[#576238] text-white shadow-md"
-                                    : "text-gray-600 hover:text-gray-900"
-                            }`}
-                        >
-                            Monthly
-                        </button>
-                        <button
-                            onClick={() => setBillingPeriod("yearly")}
-                            className={`relative px-6 py-2 rounded-xl text-sm font-bold transition-all cursor-pointer ${
-                                billingPeriod === "yearly"
-                                    ? "bg-[#576238] text-white shadow-md"
-                                    : "text-gray-600 hover:text-gray-900"
-                            }`}
-                        >
-                            Yearly
-                            {/* Save Discount badge */}
-                            <span className="absolute -top-3 -right-6 bg-[#FFD95D] text-[#576238] text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full shadow-md animate-pulse">
-                                -20%
-                            </span>
-                        </button>
-                    </div>
-                </div>
-
-                {/* Grid of upgraded pricing cards */}
-                <div className="grid md:grid-cols-3 gap-8 max-w-6xl mx-auto items-stretch">
-                    {plans.map((plan, index) => {
-                        const price = billingPeriod === "monthly" ? plan.priceMonthly : plan.priceYearly;
-                        
-                        return (
-                            <motion.div
-                                key={index}
-                                initial={{ opacity: 0, y: 40 }}
-                                whileInView={{ opacity: 1, y: 0 }}
-                                viewport={{ once: true, margin: "-50px" }}
-                                transition={{ duration: 0.6, delay: index * 0.15 }}
-                                className="relative h-full flex"
+                        {/* Currency Toggle */}
+                        <div className="inline-flex items-center p-1 bg-slate-100 rounded-full border border-slate-200 shadow-inner">
+                            <button
+                                onClick={() => setCurrency("EGP")}
+                                className={`px-6 py-2 rounded-full text-sm font-bold transition-all duration-300 ${currency === "EGP"
+                                        ? "bg-white text-[#576238] shadow-sm"
+                                        : "text-slate-500 hover:text-slate-700"
+                                    }`}
                             >
-                                {plan.highlighted && (
-                                    <div className="absolute -top-4 left-1/2 -translate-x-1/2 bg-[#FFD95D] text-[#576238] px-5 py-1.5 rounded-full text-[10px] font-black tracking-widest uppercase shadow-xl z-20">
-                                        ⭐ Most Popular
+                                EGP (Egypt)
+                            </button>
+                            <button
+                                onClick={() => setCurrency("USD")}
+                                className={`px-6 py-2 rounded-full text-sm font-bold transition-all duration-300 ${currency === "USD"
+                                        ? "bg-white text-[#576238] shadow-sm"
+                                        : "text-slate-500 hover:text-slate-700"
+                                    }`}
+                            >
+                                USD (Global)
+                            </button>
+                        </div>
+                    </div>
+
+                    <div className="grid md:grid-cols-3 gap-8 max-w-6xl mx-auto items-center">
+                        {plans.map((plan, i) => (
+                            <motion.div
+                                key={plan.name}
+                                initial={{ opacity: 0, y: 20 }}
+                                whileInView={{ opacity: 1, y: 0 }}
+                                viewport={{ once: true }}
+                                transition={{ delay: i * 0.1 }}
+                                className={`relative rounded-3xl p-8 transition-all duration-300 ${plan.popular
+                                        ? "bg-[#576238] text-white shadow-2xl scale-105 border-none"
+                                        : "bg-white text-slate-900 border border-slate-200 shadow-lg hover:shadow-xl"
+                                    }`}
+                            >
+                                {plan.popular && (
+                                    <div className="absolute -top-4 left-1/2 -translate-x-1/2 bg-[#FFD95D] text-slate-900 text-xs font-black uppercase tracking-wider py-1 px-4 rounded-full flex items-center gap-1 shadow-sm">
+                                        <Sparkles className="w-3 h-3" /> Most Popular
                                     </div>
                                 )}
-                                
-                                <TiltCard 
-                                    maxRotation={8} 
-                                    className={`w-full bg-white rounded-3xl border-2 flex flex-col justify-between overflow-hidden shadow-lg hover:shadow-2xl transition-all duration-300 ${
-                                        plan.highlighted 
-                                            ? "border-[#FFD95D] ring-4 ring-[#FFD95D]/20" 
-                                            : "border-[#d4cbb8]/60"
-                                    }`}
-                                >
-                                    {/* Lego decorative header block */}
-                                    <div 
-                                        className="h-4 w-full"
-                                        style={{ backgroundColor: plan.highlighted ? "#FFD95D" : "#576238" }}
-                                    />
-                                    
-                                    <Card className="p-8 md:p-10 h-full flex flex-col justify-between rounded-none bg-transparent border-0 shadow-none">
-                                        <div>
-                                            <div className="text-center mb-6">
-                                                <h3 className="text-2xl font-black text-[#576238] mb-2">
-                                                    {plan.name}
-                                                </h3>
-                                                <div className="flex items-baseline justify-center gap-1.5">
-                                                    <span className="text-5xl font-black text-[#576238]">
-                                                        ${price}
-                                                    </span>
-                                                    <span className="text-muted-foreground text-sm font-bold uppercase tracking-wider">
-                                                        {plan.period}
-                                                    </span>
-                                                </div>
-                                                {billingPeriod === "yearly" && price > 0 && (
-                                                    <span className="text-[11px] font-extrabold text-[#576238]/80 bg-[#576238]/5 px-2.5 py-1 rounded-md mt-2 inline-block">
-                                                        Billed annually (${price * 12}/yr)
-                                                    </span>
-                                                )}
-                                            </div>
 
-                                            <ul className="space-y-4 mb-8 border-t border-[#d4cbb8]/30 pt-6">
-                                                {plan.features.map((feature, idx) => (
-                                                    <li key={idx} className="flex items-start gap-3">
-                                                        <div className="w-5 h-5 rounded-full bg-[#576238]/10 flex items-center justify-center mt-0.5 shrink-0">
-                                                            <Check className="h-3 w-3 text-[#576238]" />
-                                                        </div>
-                                                        <span className="text-sm font-medium text-gray-700">{feature}</span>
-                                                    </li>
-                                                ))}
-                                            </ul>
-                                        </div>
+                                <h3 className={`text-xl font-bold mb-2 ${plan.popular ? "text-white" : "text-slate-900"}`}>
+                                    {plan.name}
+                                </h3>
+                                <p className={`text-sm mb-6 h-10 ${plan.popular ? "text-white/80" : "text-slate-500"}`}>
+                                    {plan.description}
+                                </p>
 
-                                        <Link href="/signup" className="w-full mt-auto block">
-                                            <Button
-                                                className={`w-full py-6 font-bold text-md rounded-xl transition-all cursor-pointer ${
-                                                    plan.highlighted
-                                                        ? "bg-[#576238] hover:bg-[#6b7c3f] text-white shadow-xl hover:scale-102"
-                                                        : "bg-[#F0EADC] hover:bg-[#FFD95D] text-[#576238] border border-[#d4cbb8]/40 hover:scale-102"
-                                                }`}
-                                                size="lg"
-                                            >
-                                                {plan.cta}
-                                            </Button>
-                                        </Link>
-                                    </Card>
-                                </TiltCard>
+                                <div className="mb-8 flex items-baseline gap-1">
+                                    <span className="text-4xl font-extrabold tracking-tight">
+                                        {currency === "USD" ? "$" : "E£"}
+                                        {plan.monthly[currency]}
+                                    </span>
+                                    <span className={`text-sm font-medium ${plan.popular ? "text-white/70" : "text-slate-500"}`}>
+                                        /month
+                                    </span>
+                                </div>
+
+                                <ul className="space-y-4 mb-8">
+                                    {plan.features.map((feature, idx) => (
+                                        <li key={idx} className="flex items-start gap-3 text-sm font-medium">
+                                            <CheckCircle2
+                                                className={`w-5 h-5 flex-shrink-0 ${plan.popular ? "text-[#FFD95D]" : "text-[#576238]"
+                                                    }`}
+                                            />
+                                            <span>{feature}</span>
+                                        </li>
+                                    ))}
+                                </ul>
+
+                                <Link href="/signup" className="w-full mt-auto block">
+                                    <Button
+                                        className={`w-full h-12 rounded-xl text-base font-bold transition-all ${plan.popular
+                                                ? "bg-[#FFD95D] hover:bg-[#f5cf53] text-slate-900"
+                                                : "bg-slate-900 hover:bg-slate-800 text-white"
+                                            }`}
+                                    >
+                                        {plan.monthly[currency] === 0 ? "Get Started for Free" : "Subscribe Now"}
+                                    </Button>
+                                </Link>
                             </motion.div>
-                        );
-                    })}
+                        ))}
+                    </div>
                 </div>
             </section>
 
