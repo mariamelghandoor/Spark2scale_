@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Calendar, Plus, User, ArrowLeft, ArrowRight, Info, Sparkles, FileUp, CheckCircle2, Trash2, AlertCircle } from "lucide-react";
+import { Calendar, Plus, User, ArrowLeft, ArrowRight, Info, Sparkles, FileUp, CheckCircle2, Trash2, AlertCircle, Search, BarChart2, Heart, AlertTriangle, Lightbulb, Settings, Compass, Trophy } from "lucide-react";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -282,6 +282,29 @@ const REQUIRED_FIELDS = [
     { id: "pricing_model", name: "Pricing model", step: 7 },
 ];
 
+const TIPS = [
+    {
+        title: "Pitch Deck Speedup",
+        desc: "Startups that upload high-fidelity pitch decks complete evaluation stages 45% faster."
+    },
+    {
+        title: "Financial Validation",
+        desc: "Validate your financial model early to increase investor interest by up to 60%."
+    },
+    {
+        title: "Market Sizing TAM/SAM",
+        desc: "Add clear market size metrics (TAM, SAM, SOM) in Step 2 to stand out to VCs."
+    },
+    {
+        title: "Synergy & Experience",
+        desc: "Keep your team profiles up to date. Backers look for synergy and domain experience."
+    },
+    {
+        title: "Resolve Validation Gaps",
+        desc: "Fix validation gaps promptly. Investors filter out startups with incomplete workspaces."
+    }
+];
+
 export default function FounderDashboard() {
     const { user, loading: authLoading } = useAuth();
     const [userName, setUserName] = useState("");
@@ -306,6 +329,76 @@ export default function FounderDashboard() {
     const [pendingLogoFile, setPendingLogoFile] = useState<File | null>(null);
     const [pendingLogoPreview, setPendingLogoPreview] = useState<string | null>(null);
 
+    const [searchQuery, setSearchQuery] = useState("");
+    const [stageFilter, setStageFilter] = useState("all");
+    const [currentTipIndex, setCurrentTipIndex] = useState(0);
+
+    // Computed metrics
+    const totalStartups = startups.length;
+    const avgProgress = startups.length
+        ? Math.round((startups.reduce((acc, s) => acc + (s.progress || 0), 0) / (startups.length * 6)) * 100)
+        : 0;
+    const totalLikes = startups.reduce((acc, s) => acc + (s.likes || 0), 0);
+    const startupsWithGaps = startups.filter(s => s.isBroken).length;
+
+    const filteredStartups = startups.filter(s => {
+        const matchesSearch = s.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
+                             s.field.toLowerCase().includes(searchQuery.toLowerCase());
+        const matchesStage = stageFilter === "all" || s.stage.toLowerCase() === stageFilter.toLowerCase();
+        return matchesSearch && matchesStage;
+    });
+
+    const getAiRecommendations = () => {
+        const recs = [];
+        if (startups.length === 0) {
+            recs.push({
+                title: "Initialize your first project",
+                desc: "Get started by building your first startup workspace. You can upload a pitch deck to auto-fill details!",
+                action: "Add Startup",
+                type: "info"
+            });
+        } else {
+            const lowProgress = startups.find(s => s.progress < 4);
+            if (lowProgress) {
+                recs.push({
+                    title: `Complete Evaluation for ${lowProgress.name}`,
+                    desc: `[[${lowProgress.name}]] has completed ${lowProgress.progress} out of 6 stages. Complete stage 4 to increase investor engagement.`,
+                    action: `Open ${lowProgress.name}`,
+                    link: `/founder/startup/${lowProgress.id}`,
+                    type: "progress"
+                });
+            }
+            const hasGaps = startups.find(s => s.isBroken);
+            if (hasGaps) {
+                recs.push({
+                    title: `Resolve validation gaps in ${hasGaps.name}`,
+                    desc: `[[${hasGaps.name}]] has active verification gaps. Resolve them to boost its investment readiness score.`,
+                    action: `Fix ${hasGaps.name} Gaps`,
+                    link: `/founder/startup/${hasGaps.id}`,
+                    type: "warning"
+                });
+            }
+            const noLikes = startups.find(s => s.likes === 0);
+            if (noLikes) {
+                recs.push({
+                    title: `Share ${noLikes.name} Profile`,
+                    desc: `Share [[${noLikes.name}]] with investors to start receiving feedback and tracking likes.`,
+                    action: `Get ${noLikes.name} Link`,
+                    link: `/founder/startup/${noLikes.id}`,
+                    type: "share"
+                });
+            }
+        }
+        recs.push({
+            title: "Schedule a mock review",
+            desc: "Book a 1-on-1 session with a mentor to dry-run your evaluation and deck.",
+            action: "Schedule Mock",
+            link: "/schedule",
+            type: "calendar"
+        });
+        return recs;
+    };
+
     const [newStartup, setNewStartup] = useState<Record<string, any>>({
         name: "", field: "Technology", region: "MENA", stage: "Pre-Seed", description: "",
         website_url: "", hq_location: "", date_founded: "", raised_to_date: "0",
@@ -327,6 +420,13 @@ export default function FounderDashboard() {
         if (!authLoading && !user) { router.push('/signin'); return; }
         if (user) setUserName(user.fname || "User");
     }, [user, authLoading, router]);
+
+    useEffect(() => {
+        const interval = setInterval(() => {
+            setCurrentTipIndex((prev) => (prev + 1) % TIPS.length);
+        }, 5000);
+        return () => clearInterval(interval);
+    }, []);
 
     useEffect(() => {
         if (!user?.id) return;
@@ -410,7 +510,7 @@ export default function FounderDashboard() {
 
         try {
             console.log("🚀 Starting extraction flow...");
-            const response = await pdfService.extractFromPdf(file);
+            const response = (await pdfService.extractFromPdf(file)) as any;
             const evaluation = response?.data?.startup_evaluation ?? response?.startup_evaluation ?? response?.data ?? response;
 
             if (!evaluation || Object.keys(evaluation).length === 0) {
@@ -720,207 +820,444 @@ export default function FounderDashboard() {
                 </DialogContent>
             </Dialog>
 
+            {/* MAIN WIZARD DIALOG DEFINED ONCE */}
+            <Dialog open={open} onOpenChange={handleOpenChange}>
+                <DialogContent className="sm:max-w-[850px] w-[95vw] h-[90vh] p-0 flex flex-col overflow-hidden bg-white border-none shadow-2xl rounded-2xl"
+                    onInteractOutside={(e) => {
+                        e.preventDefault();
+                        if (validationErrors.length === 0) {
+                            handleOpenChange(false);
+                        }
+                    }}>
+                    <div className="bg-[#576238] px-6 py-5 shrink-0">
+                        <div className="flex items-center gap-2 mb-3">
+                            <Sparkles className="h-5 w-5 text-[#FFD95D]" />
+                            <h3 className="font-bold text-white text-base tracking-tight">AI Startup Builder</h3>
+                        </div>
+                        <label htmlFor="pdf-upload-main" className={`group relative flex flex-col items-center justify-center gap-2 w-full rounded-xl border-2 border-dashed cursor-pointer transition-all duration-200 py-5 px-4 text-center ${isExtracting ? "border-[#FFD95D]/60 bg-[#FFD95D]/10 cursor-wait" : extractionSuccess ? "border-green-400/70 bg-green-500/10" : "border-white/30 bg-white/10 hover:bg-white/20 hover:border-[#FFD95D]/60"}`}>
+                            <input id="pdf-upload-main" type="file" accept=".pdf" className="hidden" onChange={handlePdfUpload} disabled={isExtracting} />
+                            <AnimatePresence mode="wait">
+                                {isExtracting ? (
+                                    <motion.div key="loading" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex flex-col items-center gap-2">
+                                        <LegoSpinner className="h-7 w-7 animate-spin text-[#FFD95D]" />
+                                        <p className="text-[#FFD95D] text-sm font-semibold">Analysing your pitch deck…</p>
+                                    </motion.div>
+                                ) : extractionSuccess ? (
+                                    <motion.div key="success" initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }} className="flex flex-col items-center gap-1">
+                                        <CheckCircle2 className="h-7 w-7 text-green-400" />
+                                        <p className="text-green-300 font-semibold text-sm">Fields auto-filled from your deck!</p>
+                                    </motion.div>
+                                ) : (
+                                    <motion.div key="idle" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex flex-row items-center gap-3">
+                                        <FileUp className="h-6 w-6 text-white" />
+                                        <div>
+                                            <p className="text-white font-semibold text-sm">Upload pitch deck to auto-fill</p>
+                                        </div>
+                                    </motion.div>
+                                )}
+                            </AnimatePresence>
+                        </label>
+                    </div>
+                    <div className="flex-1 overflow-hidden relative">
+                        <EvaluationWizard
+                            data={newStartup}
+                            setData={setNewStartup}
+                            loading={isCreating}
+                            onSubmit={handleAddStartup}
+                            step={formStep}
+                            setStep={setFormStep}
+                            pendingLogoPreview={pendingLogoPreview}
+                            onLogoChange={(f: File) => {
+                                setPendingLogoFile(f);
+                                setPendingLogoPreview(URL.createObjectURL(f));
+                            }}
+                        />
+                    </div>
+                </DialogContent>
+            </Dialog>
+
+            {/* Header bar */}
             <div className="border-b bg-white/80 backdrop-blur-lg sticky top-0 z-40 shadow-sm">
                 <div className="flex w-full items-center justify-between px-6 md:px-12 py-4">
-                    <h1 className="text-xl font-bold text-[#576238] leading-tight">Hello {userName} 👋</h1>
+                    <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#576238] to-[#6b7c3f] flex items-center justify-center text-white shadow-md font-bold">
+                            {userName[0]?.toUpperCase() || "U"}
+                        </div>
+                        <div>
+                            <h1 className="text-lg font-bold text-[#576238] leading-tight">Hello, {userName} 👋</h1>
+                            <p className="text-xs text-muted-foreground">Founder Space</p>
+                        </div>
+                    </div>
                     <div className="flex items-center gap-2">
-                        <Link href="/schedule"><Button variant="ghost" size="icon" className="hover:bg-[#576238]/10 hover:text-[#576238]"><Calendar className="h-5 w-5" /></Button></Link>
+                        <Link href="/schedule">
+                            <Button variant="ghost" size="icon" className="hover:bg-[#576238]/10 hover:text-[#576238] transition-colors rounded-xl">
+                                <Calendar className="h-5 w-5" />
+                            </Button>
+                        </Link>
                         <NotificationsDropdown />
-                        <Link href="/profile"><Button variant="ghost" size="icon" className="hover:bg-[#576238]/10 hover:text-[#576238]"><User className="h-5 w-5" /></Button></Link>
+                        <Link href="/profile">
+                            <Button variant="ghost" size="icon" className="hover:bg-[#576238]/10 hover:text-[#576238] transition-colors rounded-xl">
+                                <User className="h-5 w-5" />
+                            </Button>
+                        </Link>
                     </div>
                 </div>
             </div>
 
             <main className="container mx-auto px-4 py-8 pb-20">
-                <div className="flex justify-between items-center mb-6">
-                    <h2 className="text-3xl font-bold text-[#576238]">Startup Projects</h2>
-                    {startups.length > 0 && (
-                        <Dialog open={open} onOpenChange={handleOpenChange}>
-                            <DialogTrigger asChild><Button className="bg-[#576238] hover:bg-[#6b7c3f]"><Plus className="mr-2 h-4 w-4" /> Add Startup</Button></DialogTrigger>
+                {/* DYNAMIC ANALYTICS STATS ROW */}
+                <motion.div 
+                    initial={{ opacity: 0, y: -20 }} 
+                    animate={{ opacity: 1, y: 0 }} 
+                    className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8"
+                >
+                    {/* Stat Card 1: Active Projects */}
+                    <div className="bg-white/50 backdrop-blur-md border border-white/40 p-5 rounded-2xl shadow-sm hover:shadow-md transition-all flex items-center justify-between group">
+                        <div className="space-y-1">
+                            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block">Startup Projects</span>
+                            <span className="text-2xl font-black text-[#576238] block">{totalStartups}</span>
+                        </div>
+                        <div className="w-12 h-12 rounded-xl bg-[#576238]/10 text-[#576238] flex items-center justify-center group-hover:scale-110 transition-transform">
+                            <Compass className="h-6 w-6" />
+                        </div>
+                    </div>
 
-                            <DialogContent className="sm:max-w-[850px] w-[95vw] h-[90vh] p-0 flex flex-col overflow-hidden bg-white border-none shadow-2xl rounded-2xl"
-                                onInteractOutside={(e) => {
-                                    e.preventDefault();
-                                    if (validationErrors.length === 0) {
-                                        handleOpenChange(false);
-                                    }
-                                }}>
-                                <div className="bg-[#576238] px-6 py-5 shrink-0">
-                                    <div className="flex items-center gap-2 mb-3">
-                                        <Sparkles className="h-5 w-5 text-[#FFD95D]" />
-                                        <h3 className="font-bold text-white text-base tracking-tight">AI Startup Builder</h3>
-                                    </div>
-                                    <label htmlFor="pdf-upload-main" className={`group relative flex flex-col items-center justify-center gap-2 w-full rounded-xl border-2 border-dashed cursor-pointer transition-all duration-200 py-5 px-4 text-center ${isExtracting ? "border-[#FFD95D]/60 bg-[#FFD95D]/10 cursor-wait" : extractionSuccess ? "border-green-400/70 bg-green-500/10" : "border-white/30 bg-white/10 hover:bg-white/20 hover:border-[#FFD95D]/60"}`}>
-                                        <input id="pdf-upload-main" type="file" accept=".pdf" className="hidden" onChange={handlePdfUpload} disabled={isExtracting} />
-                                        <AnimatePresence mode="wait">
-                                            {isExtracting ? (
-                                                <motion.div key="loading" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex flex-col items-center gap-2">
-                                                    <LegoSpinner className="h-7 w-7 animate-spin text-[#FFD95D]" />
-                                                    <p className="text-[#FFD95D] text-sm font-semibold">Analysing your pitch deck…</p>
-                                                </motion.div>
-                                            ) : extractionSuccess ? (
-                                                <motion.div key="success" initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }} className="flex flex-col items-center gap-1">
-                                                    <CheckCircle2 className="h-7 w-7 text-green-400" />
-                                                    <p className="text-green-300 font-semibold text-sm">Fields auto-filled from your deck!</p>
-                                                </motion.div>
-                                            ) : (
-                                                <motion.div key="idle" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex flex-row items-center gap-3">
-                                                    <FileUp className="h-6 w-6 text-white" />
-                                                    <div>
-                                                        <p className="text-white font-semibold text-sm">Upload pitch deck to auto-fill</p>
-                                                    </div>
-                                                </motion.div>
-                                            )}
-                                        </AnimatePresence>
-                                    </label>
-                                </div>
-                                <div className="flex-1 overflow-hidden relative">
-                                    <EvaluationWizard
-                                        data={newStartup}
-                                        setData={setNewStartup}
-                                        loading={isCreating}
-                                        onSubmit={handleAddStartup}
-                                        step={formStep}
-                                        setStep={setFormStep}
-                                        pendingLogoPreview={pendingLogoPreview}
-                                        onLogoChange={(f: File) => {
-                                            setPendingLogoFile(f);
-                                            setPendingLogoPreview(URL.createObjectURL(f));
-                                        }}
-                                    />
-                                </div>
-                            </DialogContent>
-                        </Dialog>
-                    )}
+                    {/* Stat Card 2: Average Completion */}
+                    <div className="bg-white/50 backdrop-blur-md border border-white/40 p-5 rounded-2xl shadow-sm hover:shadow-md transition-all flex items-center justify-between group">
+                        <div className="space-y-1">
+                            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block">Average Progress</span>
+                            <span className="text-2xl font-black text-[#576238] block">{avgProgress}%</span>
+                        </div>
+                        <div className="relative w-12 h-12 flex items-center justify-center">
+                            <svg className="w-full h-full transform -rotate-90">
+                                <circle cx="24" cy="24" r="20" className="text-gray-200" strokeWidth="3.5" stroke="currentColor" fill="transparent" />
+                                <circle cx="24" cy="24" r="20" className="text-[#576238] transition-all duration-700 ease-out" strokeWidth="3.5" strokeDasharray={2 * Math.PI * 20} strokeDashoffset={2 * Math.PI * 20 * (1 - avgProgress / 100)} strokeLinecap="round" stroke="currentColor" fill="transparent" />
+                            </svg>
+                            <span className="absolute text-[10px] font-black text-[#576238]">{avgProgress}%</span>
+                        </div>
+                    </div>
+
+                    {/* Stat Card 3: Total Investor Likes */}
+                    <div className="bg-white/50 backdrop-blur-md border border-white/40 p-5 rounded-2xl shadow-sm hover:shadow-md transition-all flex items-center justify-between group">
+                        <div className="space-y-1">
+                            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block">Investor Likes</span>
+                            <span className="text-2xl font-black text-[#576238] block">{totalLikes}</span>
+                        </div>
+                        <div className="w-12 h-12 rounded-xl bg-red-50 text-red-500 flex items-center justify-center relative">
+                            <Heart className={`h-6 w-6 ${totalLikes > 0 ? "animate-pulse" : ""} group-hover:scale-110 transition-transform`} fill={totalLikes > 0 ? "currentColor" : "none"} />
+                        </div>
+                    </div>
+
+                    {/* Stat Card 4: Validation Gaps */}
+                    <div className="bg-white/50 backdrop-blur-md border border-white/40 p-5 rounded-2xl shadow-sm hover:shadow-md transition-all flex items-center justify-between group">
+                        <div className="space-y-1">
+                            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block">Action Items</span>
+                            <span className={`text-2xl font-black block ${startupsWithGaps > 0 ? "text-amber-600" : "text-[#576238]"}`}>{startupsWithGaps}</span>
+                        </div>
+                        <div className={`w-12 h-12 rounded-xl flex items-center justify-center transition-all ${startupsWithGaps > 0 ? "bg-amber-50 text-amber-600 animate-bounce" : "bg-green-50 text-green-600"}`}>
+                            {startupsWithGaps > 0 ? <AlertTriangle className="h-6 w-6" /> : <CheckCircle2 className="h-6 w-6" />}
+                        </div>
+                    </div>
+                </motion.div>
+
+                {/* SEARCH AND FILTER BAR */}
+                <div className="flex flex-col sm:flex-row gap-4 items-center justify-between mb-8 bg-white/40 backdrop-blur-sm border border-white/20 p-4 rounded-2xl shadow-sm">
+                    {/* Search Field */}
+                    <div className="relative w-full sm:max-w-md">
+                        <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-5 w-5 text-[#576238]/60" />
+                        <Input 
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                            placeholder="Search startup projects..." 
+                            className="pl-10 h-11 border-[#576238]/20 bg-white/80 rounded-xl focus-visible:ring-[#576238]"
+                        />
+                    </div>
+
+                    {/* Filters and Add Button */}
+                    <div className="flex w-full sm:w-auto items-center justify-between sm:justify-end gap-3 self-stretch sm:self-auto">
+                        <div className="bg-white/80 border border-[#576238]/10 p-1 rounded-xl flex gap-1 shadow-inner">
+                            {(["all", "pre-seed", "seed"] as const).map(stage => (
+                                <button
+                                    key={stage}
+                                    onClick={() => setStageFilter(stage)}
+                                    className={`px-4 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider transition-all duration-200 ${stageFilter === stage ? "bg-[#576238] text-white shadow-sm" : "text-gray-500 hover:text-gray-800 hover:bg-gray-100"}`}
+                                >
+                                    {stage}
+                                </button>
+                            ))}
+                        </div>
+                        <Button 
+                            onClick={handleTriggerClick}
+                            className="bg-[#576238] hover:bg-[#6b7c3f] font-bold h-11 px-5 rounded-xl text-white shadow-md hover:shadow-lg transition-all"
+                        >
+                            <Plus className="mr-1.5 h-5 w-5" strokeWidth={2.5} /> Add Startup
+                        </Button>
+                    </div>
                 </div>
 
-                {/* Rest of the startup list grid */}
-                <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6 min-h-[300px]">
-                    {startups.length === 0 ? (
-                        <>
-                            <LegoAddTrigger isDropped={isBlockDropped} onTrigger={handleTriggerClick} />
-                            <Dialog open={open} onOpenChange={handleOpenChange}>
-                                <DialogContent className="sm:max-w-[850px] w-[95vw] h-[90vh] p-0 flex flex-col overflow-hidden bg-white border-none shadow-2xl rounded-2xl"
-                                    onInteractOutside={(e) => {
-                                        e.preventDefault();
-                                        if (validationErrors.length === 0) {
-                                            handleOpenChange(false);
-                                        }
-                                    }}>
-                                    <div className="bg-[#576238] px-6 py-5 shrink-0">
-                                        <div className="flex items-center gap-2 mb-3">
-                                            <Sparkles className="h-5 w-5 text-[#FFD95D]" />
-                                            <h3 className="font-bold text-white text-base tracking-tight">AI Startup Builder</h3>
-                                        </div>
-                                        <label htmlFor="pdf-upload-main-empty" className={`group relative flex flex-col items-center justify-center gap-2 w-full rounded-xl border-2 border-dashed cursor-pointer transition-all duration-200 py-5 px-4 text-center ${isExtracting ? "border-[#FFD95D]/60 bg-[#FFD95D]/10 cursor-wait" : extractionSuccess ? "border-green-400/70 bg-green-500/10" : "border-white/30 bg-white/10 hover:bg-white/20 hover:border-[#FFD95D]/60"}`}>
-                                            <input id="pdf-upload-main-empty" type="file" accept=".pdf" className="hidden" onChange={handlePdfUpload} disabled={isExtracting} />
+                {/* DASHBOARD CONTENT GRID */}
+                <div className="grid lg:grid-cols-3 gap-8 items-start">
+                    
+                    {/* Left Column: Startup Grid */}
+                    <div className="lg:col-span-2 space-y-6">
+                        <div className="flex items-center gap-2">
+                            <Trophy className="h-5 w-5 text-[#FFD95D]" />
+                            <h2 className="text-xl font-bold text-[#576238]">Active Workspaces</h2>
+                        </div>
+
+                        {filteredStartups.length === 0 ? (
+                            <div className="bg-white/30 backdrop-blur-md border-2 border-dashed border-[#576238]/20 rounded-3xl p-12 text-center min-h-[350px] flex flex-col justify-center items-center">
+                                {startups.length === 0 ? (
+                                    <>
+                                        <LegoAddTrigger isDropped={isBlockDropped} onTrigger={handleTriggerClick} />
+                                        <p className="text-[#576238] font-bold text-lg mt-6 mb-2">Build your first startup</p>
+                                        <p className="text-gray-600 text-sm max-w-sm mb-6">Drop the block to initialize Spark2Scale's AI evaluation modules and start building.</p>
+                                        <Button onClick={handleTriggerClick} className="bg-[#576238] hover:bg-[#6b7c3f] text-white rounded-xl py-5 px-6 font-bold">
+                                            Initialize Builder Workspace
+                                        </Button>
+                                    </>
+                                ) : (
+                                    <>
+                                        <AlertCircle className="h-12 w-12 text-[#576238]/40 mb-4" />
+                                        <p className="text-[#576238] font-bold text-lg">No matches found</p>
+                                        <p className="text-gray-600 text-sm max-w-sm">No projects match "{searchQuery}" or selected stage filter.</p>
+                                        <Button variant="outline" onClick={() => { setSearchQuery(""); setStageFilter("all"); }} className="mt-4 border-[#576238]/30">
+                                            Clear Filters
+                                        </Button>
+                                    </>
+                                )}
+                            </div>
+                        ) : (
+                            <div className="grid sm:grid-cols-2 gap-6">
+                                {filteredStartups.map((startup, index) => {
+                                    const stageAccent = startup.stage === "Seed" ? "from-[#FFD95D]/10 to-amber-500/5" : "from-[#576238]/10 to-green-500/5";
+                                    return (
+                                        <motion.div 
+                                            key={startup.id || index} 
+                                            initial={{ opacity: 0, y: 20 }} 
+                                            animate={{ opacity: 1, y: 0 }} 
+                                            transition={{ delay: index * 0.05 }} 
+                                            whileHover={{ y: -6, scale: 1.01 }}
+                                            className="relative group h-full"
+                                        >
+                                            <Link href={`/founder/startup/${startup.id}`} className="block h-full">
+                                                <Card className={`h-full border border-white/40 bg-gradient-to-br ${stageAccent} backdrop-blur-md shadow-sm hover:shadow-xl hover:border-[#FFD95D]/75 transition-all overflow-hidden flex flex-col justify-between rounded-2xl`}>
+                                                    <CardHeader className="pb-4">
+                                                        <div className="flex items-center gap-3">
+                                                            {startup.logo_path ? (
+                                                                <img src={startup.logo_path} alt={startup.name} className="h-12 w-12 rounded-2xl object-cover border-2 border-white/60 shadow-inner shrink-0" />
+                                                            ) : (
+                                                                <div className="h-12 w-12 rounded-2xl bg-[#576238] text-white flex items-center justify-center font-bold text-lg shadow-md shrink-0">
+                                                                    {startup.name?.[0]?.toUpperCase()}
+                                                                </div>
+                                                            )}
+                                                            <div className="min-w-0 flex-1">
+                                                                <CardTitle className="text-lg font-black text-[#576238] truncate">{startup.name}</CardTitle>
+                                                                <span className="inline-block mt-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide bg-white/80 text-gray-700 border border-gray-100">
+                                                                    {startup.stage}
+                                                                </span>
+                                                            </div>
+                                                        </div>
+                                                    </CardHeader>
+                                                    
+                                                    <CardContent className="space-y-4 pt-0">
+                                                        <div className="space-y-2">
+                                                            <div className="flex justify-between items-center text-xs">
+                                                                <span className="font-semibold text-muted-foreground">Evaluation Process</span>
+                                                                <span className={`font-bold ${startup.isBroken ? 'text-amber-600' : 'text-[#576238]'}`}>
+                                                                    {startup.progress}/6 stages {startup.isBroken && "(Gaps)"}
+                                                                </span>
+                                                            </div>
+                                                            {/* Custom glowing progress bar */}
+                                                            <div className="w-full bg-gray-100 rounded-full h-2.5 overflow-hidden border border-gray-200/50">
+                                                                <div 
+                                                                    className={`h-2.5 rounded-full transition-all duration-500 shadow-sm ${startup.isBroken ? 'bg-amber-500 shadow-amber-500/50' : 'bg-[#576238] shadow-green-900/40'}`} 
+                                                                    style={{ width: `${(startup.progress / 6) * 100}%` }} 
+                                                                />
+                                                            </div>
+                                                        </div>
+
+                                                        {/* Stage Tracker Indicators */}
+                                                        <div className="flex items-center justify-between bg-white/40 p-2.5 rounded-xl border border-white/50">
+                                                            <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Stages:</span>
+                                                            <div className="flex gap-1.5">
+                                                                {Array.from({ length: 6 }).map((_, i) => (
+                                                                    <div 
+                                                                        key={i} 
+                                                                        title={`Stage ${i+1}`}
+                                                                        className={`w-3.5 h-3.5 rounded-md transition-colors ${
+                                                                            i < startup.progress 
+                                                                                ? (startup.isBroken && i === startup.progress - 1 ? "bg-amber-500 animate-pulse" : "bg-[#576238]")
+                                                                                : "bg-gray-200"
+                                                                        }`} 
+                                                                    />
+                                                                ))}
+                                                            </div>
+                                                        </div>
+
+                                                        <div className="flex items-center justify-between pt-2 border-t border-[#576238]/10 text-xs font-bold">
+                                                            <span className="text-gray-500 flex items-center gap-1">
+                                                                <Heart className="h-4.5 w-4.5 text-red-500" fill={startup.likes > 0 ? "currentColor" : "none"} /> 
+                                                                {startup.likes} likes
+                                                            </span>
+                                                            <span className="text-[#576238] group-hover:translate-x-1 transition-transform flex items-center gap-1">
+                                                                Workspace Open →
+                                                            </span>
+                                                        </div>
+                                                    </CardContent>
+                                                </Card>
+                                            </Link>
+                                            
+                                            {/* Confirmation Delete Popover Overlay */}
                                             <AnimatePresence mode="wait">
-                                                {isExtracting ? (
-                                                    <motion.div key="loading" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex flex-col items-center gap-2">
-                                                        <LegoSpinner className="h-7 w-7 animate-spin text-[#FFD95D]" />
-                                                        <p className="text-[#FFD95D] text-sm font-semibold">Analysing your pitch deck…</p>
-                                                    </motion.div>
-                                                ) : extractionSuccess ? (
-                                                    <motion.div key="success" initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }} className="flex flex-col items-center gap-1">
-                                                        <CheckCircle2 className="h-7 w-7 text-green-400" />
-                                                        <p className="text-green-300 font-semibold text-sm">Fields auto-filled from your deck!</p>
-                                                    </motion.div>
-                                                ) : (
-                                                    <motion.div key="idle" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex flex-row items-center gap-3">
-                                                        <FileUp className="h-6 w-6 text-white" />
+                                                {confirmDeleteId === startup.id ? (
+                                                    <motion.div
+                                                        key="confirm"
+                                                        initial={{ opacity: 0, scale: 0.95 }}
+                                                        animate={{ opacity: 1, scale: 1 }}
+                                                        exit={{ opacity: 0, scale: 0.95 }}
+                                                        className="absolute inset-0 bg-[#F0EADC]/95 backdrop-blur-sm rounded-2xl p-6 z-20 flex flex-col justify-center items-center text-center gap-4 border border-[#576238]/20"
+                                                    >
                                                         <div>
-                                                            <p className="text-white font-semibold text-sm">Upload pitch deck to auto-fill</p>
+                                                            <h4 className="font-black text-red-700 text-sm">Delete {startup.name}?</h4>
+                                                            <p className="text-xs text-gray-600 mt-1">This action cannot be undone. All evaluation data will be removed.</p>
+                                                        </div>
+                                                        <div className="flex gap-2">
+                                                            <Button size="sm" variant="outline" className="px-4 py-2 text-xs bg-white hover:bg-gray-100 border-[#576238]/20 rounded-lg" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setConfirmDeleteId(null); }}>
+                                                                Cancel
+                                                            </Button>
+                                                            <Button size="sm" className="px-4 py-2 text-xs bg-red-600 hover:bg-red-700 text-white rounded-lg font-bold" onClick={(e) => handleDeleteStartup(e, startup.id)} disabled={isDeleting}>
+                                                                {isDeleting ? "Deleting..." : "Delete Project"}
+                                                            </Button>
                                                         </div>
                                                     </motion.div>
+                                                ) : (
+                                                    <button
+                                                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); setConfirmDeleteId(startup.id); }}
+                                                        className="absolute top-4 right-4 p-2 bg-white/80 hover:bg-red-50 text-gray-400 hover:text-red-600 rounded-xl opacity-0 group-hover:opacity-100 transition-all z-10 shadow-sm border border-gray-100"
+                                                        title="Delete Startup Workspace"
+                                                    >
+                                                        <Trash2 className="h-4 w-4" />
+                                                    </button>
                                                 )}
                                             </AnimatePresence>
-                                        </label>
-                                    </div>
-                                    <div className="flex-1 overflow-hidden relative">
-                                        <EvaluationWizard
-                                            data={newStartup}
-                                            setData={setNewStartup}
-                                            loading={isCreating}
-                                            onSubmit={handleAddStartup}
-                                            step={formStep}
-                                            setStep={setFormStep}
-                                            pendingLogoPreview={pendingLogoPreview}
-                                            onLogoChange={(f: File) => {
-                                                setPendingLogoFile(f);
-                                                setPendingLogoPreview(URL.createObjectURL(f));
-                                            }}
-                                        />
-                                    </div>
-                                </DialogContent>
-                            </Dialog>
-                        </>
-                    ) : (
-                        startups.map((startup, index) => (
-                            <motion.div key={startup.id || index} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.1 }} className="relative group">
-                                <Link href={`/founder/startup/${startup.id}`} className="block h-full">
-                                    <Card className="hover:shadow-xl transition-all cursor-pointer border-2 hover:border-[#FFD95D] h-full">
-                                        <CardHeader>
-                                            <div className="flex items-center gap-3">
-                                                {startup.logo_path ? (
-                                                    <img src={startup.logo_path} alt={startup.name} className="h-10 w-10 rounded-full object-cover border border-gray-200 shrink-0" />
-                                                ) : (
-                                                    <div className="h-10 w-10 rounded-full bg-[#576238]/10 flex items-center justify-center shrink-0">
-                                                        <span className="text-[#576238] font-bold text-sm">{startup.name?.[0]?.toUpperCase()}</span>
-                                                    </div>
-                                                )}
-                                                <div>
-                                                    <CardTitle className="text-[#576238]">{startup.name}</CardTitle>
-                                                    <CardDescription>{startup.field} • {startup.region}</CardDescription>
-                                                </div>
-                                            </div>
-                                        </CardHeader>
-                                        <CardContent>
-                                            <div className="space-y-3">
-                                                <div className="flex justify-between items-center">
-                                                    <span className="text-sm text-muted-foreground">Progress</span>
-                                                    <span className={`text-sm font-semibold ${startup.isBroken ? 'text-red-600' : 'text-[#576238]'}`}>
-                                                        {startup.progress}/6 stages {startup.isBroken && "(Gaps!)"}
-                                                    </span>
-                                                </div>
-                                                <div className="w-full bg-gray-200 rounded-full h-2">
-                                                    <div className={`${startup.isBroken ? 'bg-red-500' : 'bg-[#576238]'} h-2 rounded-full transition-all`} style={{ width: `${(startup.progress / 6) * 100}%` }} />
-                                                </div>
-                                                <div className="flex items-center justify-between pt-2">
-                                                    <span className="text-sm text-muted-foreground">❤️ {startup.likes} likes</span>
-                                                    <Button size="sm" className="bg-[#FFD95D] hover:bg-[#ffe89a] text-black">Open →</Button>
-                                                </div>
-                                            </div>
-                                        </CardContent>
-                                    </Card>
-                                </Link>
-                                <AnimatePresence mode="wait">
-                                    {confirmDeleteId === startup.id ? (
-                                        <motion.div
-                                            key="confirm"
-                                            initial={{ opacity: 0, scale: 0.95 }}
-                                            animate={{ opacity: 1, scale: 1 }}
-                                            exit={{ opacity: 0, scale: 0.95 }}
-                                            className="absolute top-4 right-4 bg-red-50 p-3 rounded-xl border-2 border-red-200 shadow-lg z-20 flex flex-col items-end gap-2"
-                                        >
-                                            <p className="text-xs text-red-700 font-bold mb-1">Delete startup?</p>
-                                            <div className="flex gap-2">
-                                                <Button size="sm" variant="outline" className="h-7 text-xs bg-white hover:bg-gray-100 border-red-200" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setConfirmDeleteId(null); }}>No</Button>
-                                                <Button size="sm" className="h-7 text-xs bg-red-600 hover:bg-red-700 text-white" onClick={(e) => handleDeleteStartup(e, startup.id)} disabled={isDeleting}>{isDeleting ? "..." : "Yes"}</Button>
-                                            </div>
                                         </motion.div>
-                                    ) : (
-                                        <button
-                                            onClick={(e) => { e.preventDefault(); e.stopPropagation(); setConfirmDeleteId(startup.id); }}
-                                            className="absolute top-4 right-4 p-2 bg-white/90 hover:bg-red-100 text-gray-400 hover:text-red-600 rounded-full opacity-0 group-hover:opacity-100 transition-all z-10 shadow-sm border border-gray-200"
-                                            title="Delete Startup"
+                                    );
+                                })}
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Right Column: AI Suggestions Sidebar */}
+                    <div className="space-y-6">
+                        <div className="flex items-center gap-2">
+                            <Lightbulb className="h-5 w-5 text-[#FFD95D]" />
+                            <h2 className="text-xl font-bold text-[#576238]">AI Insights & Tasks</h2>
+                        </div>
+
+                        <div className="bg-white/40 backdrop-blur-md border border-white/40 rounded-2xl p-5 shadow-sm space-y-4">
+                            <h3 className="text-sm font-black text-[#576238] uppercase tracking-wider pb-2 border-b border-[#576238]/10">
+                                Next Steps Recommendations
+                            </h3>
+
+                            <div className="space-y-4">
+                                {getAiRecommendations().map((rec, i) => {
+                                    let icon = <Lightbulb className="h-5 w-5 text-[#FFD95D]" />;
+                                    let borderStyle = "border-gray-200/50 bg-white/60";
+                                    
+                                    if (rec.type === "warning") {
+                                        icon = <AlertTriangle className="h-5 w-5 text-amber-500 animate-bounce" />;
+                                        borderStyle = "border-amber-200/50 bg-amber-50/40";
+                                    } else if (rec.type === "progress") {
+                                        icon = <Compass className="h-5 w-5 text-blue-500" />;
+                                        borderStyle = "border-blue-200/50 bg-blue-50/40";
+                                    } else if (rec.type === "share") {
+                                        icon = <Trophy className="h-5 w-5 text-[#576238]" />;
+                                        borderStyle = "border-[#576238]/20 bg-green-50/40";
+                                    } else if (rec.type === "calendar") {
+                                        icon = <Calendar className="h-5 w-5 text-indigo-500" />;
+                                        borderStyle = "border-indigo-200/50 bg-indigo-50/40";
+                                    }
+
+                                    return (
+                                        <motion.div 
+                                            key={i} 
+                                            whileHover={{ x: 4 }}
+                                            className={`p-4 rounded-xl border ${borderStyle} shadow-sm space-y-3 flex flex-col justify-between`}
                                         >
-                                            <Trash2 className="h-4 w-4" />
-                                        </button>
-                                    )}
-                                </AnimatePresence>
-                            </motion.div>
-                        ))
-                    )}
+                                            <div className="flex gap-3">
+                                                <div className="shrink-0 mt-0.5">{icon}</div>
+                                                <div className="min-w-0">
+                                                    <h4 className="text-sm font-bold text-[#576238] leading-tight">{rec.title}</h4>
+                                                    <p className="text-xs text-gray-500 mt-1 leading-normal">
+                                                        {rec.desc.split(/(\[\[.*?\]\])/g).map((part: string, pi: number) => {
+                                                            const match = part.match(/^\[\[(.*?)\]\]$/);
+                                                            return match
+                                                                ? <strong key={pi} className="font-bold text-[#576238]">{match[1]}</strong>
+                                                                : <span key={pi}>{part}</span>;
+                                                        })}
+                                                    </p>
+                                                </div>
+                                            </div>
+                                            <Button 
+                                                size="sm"
+                                                variant="outline"
+                                                onClick={() => {
+                                                    if (rec.action === "Add Startup") {
+                                                        handleTriggerClick();
+                                                    } else if (rec.link) {
+                                                        router.push(rec.link);
+                                                    }
+                                                }}
+                                                className="self-end text-xs font-bold border-[#576238]/30 hover:bg-[#576238] hover:text-white rounded-lg h-8 cursor-pointer transition-all"
+                                            >
+                                                {rec.action}
+                                            </Button>
+                                        </motion.div>
+                                    );
+                                })}
+                            </div>
+
+                            {/* Animated Tips Carousel */}
+                            <div className="bg-[#576238] text-white rounded-xl p-5 shadow-sm relative overflow-hidden min-h-[130px] flex flex-col justify-between">
+                                {/* Decorative blobs */}
+                                <div className="absolute -right-8 -bottom-8 w-28 h-28 rounded-full bg-white/10" />
+                                <div className="absolute -left-4 -top-4 w-16 h-16 rounded-full bg-white/5" />
+
+                                <div className="relative z-10">
+                                    <div className="flex items-center gap-1.5 mb-3">
+                                        <Sparkles className="h-4 w-4 text-[#FFD95D] shrink-0" />
+                                        <span className="text-[10px] font-bold uppercase tracking-widest text-[#FFD95D]">Pro Tip</span>
+                                    </div>
+
+                                    <AnimatePresence mode="wait">
+                                        <motion.div
+                                            key={currentTipIndex}
+                                            initial={{ opacity: 0, y: 10 }}
+                                            animate={{ opacity: 1, y: 0 }}
+                                            exit={{ opacity: 0, y: -10 }}
+                                            transition={{ duration: 0.35, ease: "easeInOut" }}
+                                        >
+                                            <h4 className="text-sm font-black mb-1 leading-tight">{TIPS[currentTipIndex].title}</h4>
+                                            <p className="text-[11px] text-white/80 leading-relaxed">{TIPS[currentTipIndex].desc}</p>
+                                        </motion.div>
+                                    </AnimatePresence>
+                                </div>
+
+                                {/* Dot navigation */}
+                                <div className="flex items-center justify-center gap-1.5 mt-4 relative z-10">
+                                    {TIPS.map((_, i) => (
+                                        <button
+                                            key={i}
+                                            onClick={() => setCurrentTipIndex(i)}
+                                            className={`rounded-full transition-all duration-300 ${i === currentTipIndex ? "w-5 h-1.5 bg-[#FFD95D]" : "w-1.5 h-1.5 bg-white/40 hover:bg-white/70"}`}
+                                        />
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
                 </div>
             </main>
         </div>
