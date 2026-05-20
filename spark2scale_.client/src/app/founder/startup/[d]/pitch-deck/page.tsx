@@ -206,30 +206,25 @@ export default function PitchDeckPage() {
 
     // Trigger extraction when entering session
     useEffect(() => {
-        if (phase === "session" && !extractionDone) {
-            setIsExtracting(true);
-            const pythonApiUrl = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'https://spark2scale-ai-api-server.azurewebsites.net';
-            fetch(`${pythonApiUrl}/api/v1/pitch-analyzer/extract`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                // Pass pitchdeckid so the backend can link this session to the Supabase row.
-                // If null (no pitch deck uploaded yet), the backend still runs extraction
-                // but will set _supabase_linked: false when generating the report.
-                body: JSON.stringify({
-                    pitchdeckid: pitchDeckId ?? null,
-                    startup_id: startupId ?? null,
-                }),
-            })
-                .then(async (res) => {
-                    if (!res.ok) throw new Error(`Server returned ${res.status}`);
-                })
-                .catch(e => console.error('Extraction failed:', e))
-                .finally(() => {
-                    setIsExtracting(false);
-                    setExtractionDone(true);
-                });
-        }
-    }, [phase, extractionDone, pitchDeckId, startupId]);
+        if (!startupId) return;
+        pitchDeckService.getPitches(startupId).then((decks) => {
+            const current = decks.find((d) => d.is_current) ?? decks[0] ?? null;
+            if (current?.pitchdeckid) {
+                setPitchDeckId(current.pitchdeckid);
+                setPitchBlockMsg(null);
+
+                // CRITICAL FIX: Add the fetched video to the UI state so it survives refreshes
+                setUploadedFiles([{
+                    name: current.pitchname !== "Untitled Pitch" ? current.pitchname : "Saved Pitch Video",
+                    size: 0, // Size isn't stored in your DB model, so we fallback to 0
+                    url: current.video_url,
+                    uploadedAt: new Date(current.created_at).toLocaleString(),
+                }]);
+            }
+        }).catch(() => {
+            console.warn("[PitchDeck] Could not fetch pitchdeckid — report won't be saved to Supabase.");
+        });
+    }, [startupId]);
 
     // File Handlers — Video only, upload to Supabase via C# backend
     const handleFiles = useCallback(async (files: FileList | File[]) => {
