@@ -1421,14 +1421,26 @@ export default function DocumentsPage() {
     const handleCompleteStage = async () => {
         setIsCompleting(true);
         if (!cleanId) return;
+
         try {
             const checkData = await documentsService.checkCompletion(cleanId);
-            if (!checkData || !checkData.isComplete) {
-                const missingList: string[] = checkData?.missingDocs || ["documents"];
+
+            // 1. If checkData is null, the API request failed entirely
+            if (!checkData) {
+                toast("error", "Server Error", "Could not verify documents with the server. Please try again.");
+                setIsCompleting(false);
+                return;
+            }
+
+            // 2. If the API succeeded but documents are actually missing
+            if (!checkData.isComplete) {
+                const missingList: string[] = checkData.missingDocs || ["Unknown documents"];
                 setMissingDocsDialog({ open: true, docs: missingList });
                 setIsCompleting(false);
                 return;
             }
+
+            // 3. If complete, proceed to update the workflow
             const currentWorkflow = await documentsService.getWorkflow(cleanId);
             const success = await documentsService.updateWorkflow({
                 StartupId: cleanId,
@@ -1439,6 +1451,7 @@ export default function DocumentsPage() {
                 Documents: true,
                 PitchDeck: currentWorkflow.pitchDeck || currentWorkflow.PitchDeck,
             });
+
             if (success) {
                 setIsWorkflowComplete(true);
                 toast("success", "Stage Complete!", "All documents submitted. Moving to the next stage.");
@@ -1446,6 +1459,8 @@ export default function DocumentsPage() {
             } else {
                 toast("error", "Update Failed", "Could not mark the stage as complete. Please try again.");
             }
+        } catch (error) {
+            toast("error", "Error", "An unexpected error occurred.");
         } finally {
             setIsCompleting(false);
         }

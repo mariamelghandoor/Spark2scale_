@@ -1350,6 +1350,56 @@ namespace Spark2Scale_.Server.Controllers
                 return StatusCode(500, $"Error grouping docs: {ex.Message}");
             }
         }
+        [HttpGet("check-completion/{startupId}")]
+        public async Task<IActionResult> CheckCompletion(string startupId)
+        {
+            if (!Guid.TryParse(startupId, out Guid sId)) return BadRequest("Invalid ID");
+
+            try
+            {
+                // 1. Fetch all current documents for this startup
+                var docsResult = await _supabase.From<Document>()
+                    .Where(x => x.StartupId == sId)
+                    .Where(x => x.IsCurrent == true)
+                    .Get();
+
+                var currentDocs = docsResult.Models;
+
+                // Convert existing types to lowercase for easy comparison
+                var existingTypes = currentDocs
+                    .Where(d => !string.IsNullOrEmpty(d.Type))
+                    .Select(d => d.Type.ToLower())
+                    .ToList();
+
+                // 2. Define the required document types (matching your DB 'type' column)
+                var requiredTypes = new List<string>
+        {
+            "pitch deck (ppt)",
+            "swot analysis",
+            "competitor matrix",
+            "business model canvas"
+        };
+
+                // 3. Find which required types are not in the database
+                var missingDocs = requiredTypes
+                    .Where(req => !existingTypes.Contains(req))
+                    // Capitalize for a prettier UI display
+                    .Select(req => System.Globalization.CultureInfo.CurrentCulture.TextInfo.ToTitleCase(req))
+                    .ToList();
+
+                // 4. Return the result
+                return Ok(new
+                {
+                    isComplete = missingDocs.Count == 0,
+                    missingDocs = missingDocs
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError($"[CheckCompletion] Error: {ex.Message}");
+                return StatusCode(500, new { message = "Error checking completion status" });
+            }
+        }
     }
 
     public class SaveAIResponseDto
