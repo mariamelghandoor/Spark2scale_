@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useState, useEffect, useMemo, useRef } from "react";
 import { Button } from "@/components/ui/button";
@@ -6,10 +6,11 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
     ArrowLeft, Calendar, Download, FileText, Lock, Clock,
     Ban, AlertTriangle, RefreshCw, Briefcase,
-    ShieldAlert, HelpCircle, ArrowRight, CheckCircle, Target
+    ShieldAlert, HelpCircle, ArrowRight, CheckCircle, Target, User
 } from "lucide-react";
 import Link from "next/link";
 import { motion } from "framer-motion";
+import NotificationsDropdown from "@/components/shared/NotificationsDropdown";
 import { useParams } from "next/navigation";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import apiClient from "@/lib/apiClient";
@@ -26,6 +27,7 @@ import { evaluationService, EvaluationDocument } from "@/services/evaluationServ
 // --- Use React-to-Print for Native, High-Quality PDFs ---
 import { useReactToPrint } from 'react-to-print';
 import LegoSpinner from "@/components/lego/LegoSpinner";
+import LegoLoader from "@/components/lego/LegoLoader";
 
 interface Startup {
     sid: string;
@@ -329,7 +331,7 @@ export default function InvestorStartupProfile() {
 
     // --- ONE-CLICK PDF GENERATION LOGIC (NATIVE) ---
     const handleDownloadPdf = useReactToPrint({
-        content: () => reportRef.current,
+        contentRef: reportRef,
         documentTitle: `${startup?.startupname?.replace(/\s+/g, '_') || 'Startup'}_Investment_Memo`,
         onAfterPrint: () => toast.success("PDF Downloaded successfully!"),
     });
@@ -436,19 +438,46 @@ export default function InvestorStartupProfile() {
     const hasLockedDocs = documents.some(d => d.access_status === "locked");
     const hasPendingDocs = documents.some(d => d.access_status === "pending");
 
-    if (loading) return <div className="min-h-screen flex items-center justify-center"><LegoSpinner className="animate-spin text-[#576238] w-8 h-8" /></div>;
+    if (loading) {
+        return (
+            <div className="min-h-screen bg-gradient-to-br from-[#F0EADC] via-[#fff] to-[#FFD95D]/20 flex items-center justify-center p-6">
+                <div className="w-full max-w-md">
+                    <LegoLoader />
+                </div>
+            </div>
+        );
+    }
     if (error || !startup) return <div className="p-20 text-center text-red-500 font-bold">{error}</div>;
 
     return (
         <div className="min-h-screen bg-gradient-to-br from-[#F0EADC] via-[#fff] to-[#FFD95D]/20">
-            <div className="border-b bg-white/80 backdrop-blur-lg sticky top-0 z-20 shadow-sm">
-                <div className="container mx-auto px-4 py-4 flex items-center gap-4">
-                    <Link href="/investor/feed">
-                        <Button variant="ghost" size="icon" className="hover:bg-[#576238]/10 hover:text-[#576238]">
-                            <ArrowLeft className="h-5 w-5" />
-                        </Button>
-                    </Link>
-                    <h1 className="text-xl font-bold text-[#576238]">Startup Profile</h1>
+            {/* Header Navigation (Spreaded to full width to match feed navbar style) */}
+            <div className="border-b bg-white/80 backdrop-blur-lg sticky top-0 z-50 shadow-sm flex-shrink-0">
+                <div className="flex w-full items-center justify-between px-6 md:px-12 py-4">
+                    <div className="flex items-center gap-3">
+                        <Link href="/investor/feed">
+                            <Button variant="ghost" size="icon" className="hover:bg-[#576238]/10 hover:text-[#576238] transition-colors rounded-xl">
+                                <ArrowLeft className="h-5 w-5" />
+                            </Button>
+                        </Link>
+                        <div>
+                            <h1 className="text-lg font-bold text-[#576238] leading-tight">{startup.startupname}</h1>
+                            <p className="text-xs text-muted-foreground">Startup Profile</p>
+                        </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <Link href="/schedule">
+                            <Button variant="ghost" size="icon" className="hover:bg-[#576238]/10 hover:text-[#576238] transition-colors rounded-xl">
+                                <Calendar className="h-5 w-5" />
+                            </Button>
+                        </Link>
+                        <NotificationsDropdown />
+                        <Link href="/profile">
+                            <Button variant="ghost" size="icon" className="hover:bg-[#576238]/10 hover:text-[#576238] transition-colors rounded-xl">
+                                <User className="h-5 w-5" />
+                            </Button>
+                        </Link>
+                    </div>
                 </div>
             </div>
 
