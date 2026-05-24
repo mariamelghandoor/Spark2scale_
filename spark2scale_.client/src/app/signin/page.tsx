@@ -16,6 +16,40 @@ import { useAuth } from "@/context/AuthContext";
 import { createBrowserClient } from "@supabase/auth-helpers-nextjs";
 import LegoSpinner from "@/components/lego/LegoSpinner";
 
+function extractCleanErrorMessage(inputMsg: string): string {
+    if (!inputMsg) return '';
+    const trimmed = inputMsg.trim();
+    
+    // Check if it is a JSON string
+    if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+        try {
+            const parsed = JSON.parse(trimmed);
+            if (parsed.msg) return extractCleanErrorMessage(parsed.msg);
+            if (parsed.message) return extractCleanErrorMessage(parsed.message);
+            if (parsed.error_description) return extractCleanErrorMessage(parsed.error_description);
+            if (parsed.error) return extractCleanErrorMessage(parsed.error);
+        } catch {
+            // Ignore parse errors
+        }
+    }
+    
+    // Sometimes it's a JSON string nested inside a wrapper like: "Request failed (400): {"code":400,...}"
+    const jsonMatch = trimmed.match(/\{.*\}/);
+    if (jsonMatch) {
+        try {
+            const parsed = JSON.parse(jsonMatch[0]);
+            if (parsed.msg) return extractCleanErrorMessage(parsed.msg);
+            if (parsed.message) return extractCleanErrorMessage(parsed.message);
+            if (parsed.error_description) return extractCleanErrorMessage(parsed.error_description);
+            if (parsed.error) return extractCleanErrorMessage(parsed.error);
+        } catch {
+            // Ignore parse errors
+        }
+    }
+    
+    return inputMsg;
+}
+
 export default function SigninPage() {
     const router = useRouter();
     const { login } = useAuth();
@@ -151,6 +185,8 @@ export default function SigninPage() {
                             data.message = Object.values(data.errors).flat().join(" ");
                         } else if (data.title && !data.message) {
                             data.message = data.title as string;
+                        } else if (data.msg && !data.message) {
+                            data.message = data.msg as string;
                         }
                     } catch (parseError) {
                         console.error('JSON parse error:', parseError);
@@ -166,8 +202,9 @@ export default function SigninPage() {
                     responseText = await clonedResponse.text().catch(() => '');
                     if (responseText && !data.message && !data.detail) {
                         try {
-                            const parsedText = JSON.parse(responseText) as { message?: string; detail?: string; title?: string; errors?: Record<string, string[]>; [key: string]: unknown };
+                            const parsedText = JSON.parse(responseText) as { message?: string; detail?: string; title?: string; msg?: string; errors?: Record<string, string[]>; [key: string]: unknown };
                             if (parsedText.message) data.message = parsedText.message;
+                            if (parsedText.msg) data.message = parsedText.msg;
                             if (parsedText.detail) data.detail = parsedText.detail;
                             if (parsedText.errors) {
                                 data.message = Object.values(parsedText.errors).flat().join(" ");
@@ -182,9 +219,11 @@ export default function SigninPage() {
                     // Ignore if we can't read response
                 }
 
-                const errorMsg = (typeof data.message === 'string' ? data.message : '') ||
+                let errorMsg = (typeof data.message === 'string' ? data.message : '') ||
                     (typeof data.detail === 'string' ? data.detail : '') ||
                     `Sign in failed (${response.status}). Please check your credentials.`;
+
+                errorMsg = extractCleanErrorMessage(errorMsg);
 
                 if (response.status === 404) {
                     throw new Error(`404 Not Found\n\nRequested URL: ${url}\n\nThis usually means:\n1. Backend is not running on ${cleanApiUrl}\n2. Endpoint route doesn't match (expected: /api/Auth/signin)\n3. Backend route is different from what frontend expects\n\nTroubleshooting:\n1. Verify backend: Open ${cleanApiUrl}/swagger in browser\n2. Check if POST /api/Auth/signin appears in Swagger\n3. Verify backend is running: Check console for "Now listening on: http://localhost:5231"\n4. Check Network tab in DevTools to see the actual request URL\n5. Rebuild backend: cd Spark2Scale/Spark2scale_/Spark2Scale_.Server && dotnet build\n\nResponse: ${responseText || errorMsg || 'No details available'}`);
@@ -282,7 +321,8 @@ export default function SigninPage() {
             if (error.message?.includes('JSON') || error.message?.includes('fetch')) {
                 setError('Server connection error. Please check if the backend is running and try again.');
             } else {
-                setError(error.message || 'An error occurred during sign in. Please try again.');
+                const cleanMsg = extractCleanErrorMessage(error.message);
+                setError(cleanMsg || 'An error occurred during sign in. Please try again.');
             }
         } finally {
             setLoading(false);

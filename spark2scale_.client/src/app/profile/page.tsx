@@ -84,6 +84,28 @@ export default function ProfilePage() {
     };
 
     const handleSave = async () => {
+        if (!profile.phoneNumber.trim()) {
+            setStatusMessage("Error: Phone number is required.");
+            return;
+        }
+
+        const validCharsRegex = /^[+]?[0-9\s\-()]+$/;
+        if (!validCharsRegex.test(profile.phoneNumber)) {
+            setStatusMessage("Error: Phone number can only contain numbers, spaces, hyphens, parentheses, and a leading +");
+            return;
+        }
+
+        const digits = profile.phoneNumber.replace(/\D/g, "");
+        if (digits.length < 7) {
+            setStatusMessage("Error: Phone number must contain at least 7 digits.");
+            return;
+        }
+
+        if (digits.length > 15) {
+            setStatusMessage("Error: Phone number cannot exceed 15 digits.");
+            return;
+        }
+
         setIsLoading(true);
         setStatusMessage(null);
 

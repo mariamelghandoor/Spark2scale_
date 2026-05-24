@@ -171,6 +171,18 @@ function SignupContent() {
 
         if (!formData.phone.trim()) {
             errors.phone = "Phone number is required";
+        } else {
+            const validCharsRegex = /^[+]?[0-9\s\-()]+$/;
+            if (!validCharsRegex.test(formData.phone)) {
+                errors.phone = "Phone number can only contain numbers, spaces, hyphens, parentheses, and a leading +";
+            } else {
+                const digits = formData.phone.replace(/\D/g, "");
+                if (digits.length < 7) {
+                    errors.phone = "Phone number must contain at least 7 digits";
+                } else if (digits.length > 15) {
+                    errors.phone = "Phone number cannot exceed 15 digits";
+                }
+            }
         }
 
         if (!formData.addressRegion && formData.userType !== "investor") {

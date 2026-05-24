@@ -489,7 +489,7 @@ export default function Home() {
                         transition={{ duration: 0.6 }}
                         className="inline-flex items-center gap-2 bg-[#576238]/10 text-[#576238] font-bold text-xs uppercase tracking-widest px-4 py-2 rounded-full mb-8 border border-[#576238]/20"
                     >
-                        <Sparkles className="w-3.5 h-3.5" /> Gamified Founder Platform
+                        <Sparkles className="w-3.5 h-3.5" /> From Spark to Scale
                     </motion.div>
 
                     <motion.h1

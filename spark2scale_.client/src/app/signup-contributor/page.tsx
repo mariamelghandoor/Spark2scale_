@@ -69,6 +69,32 @@ function SignUpForm() {
             return;
         }
 
+        if (!formData.phone.trim()) {
+            setError("Phone number is required");
+            setLoading(false);
+            return;
+        }
+
+        const validCharsRegex = /^[+]?[0-9\s\-()]+$/;
+        if (!validCharsRegex.test(formData.phone)) {
+            setError("Phone number can only contain numbers, spaces, hyphens, parentheses, and a leading +");
+            setLoading(false);
+            return;
+        }
+
+        const digits = formData.phone.replace(/\D/g, "");
+        if (digits.length < 7) {
+            setError("Phone number must contain at least 7 digits");
+            setLoading(false);
+            return;
+        }
+
+        if (digits.length > 15) {
+            setError("Phone number cannot exceed 15 digits");
+            setLoading(false);
+            return;
+        }
+
         try {
             console.log("Signup Debug - Invitation Context:", invitationContext);
 
@@ -95,7 +121,7 @@ function SignUpForm() {
             console.log("Sending Payload:", payload);
 
             const response = await apiClient.post('/api/Auth/signup', payload);
-            const data = response.data;
+            const data = response.data as { token?: string; user?: User; [key: string]: unknown };
 
             // 2. CHECK FOR AUTO-LOGIN (If Supabase Auto-Confirm is ON)
             if (data.token && data.user) {
@@ -206,6 +232,7 @@ function SignUpForm() {
                     <input
                         type="tel"
                         name="phone"
+                        required
                         value={formData.phone}
                         onChange={handleChange}
                         className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#576238] focus:border-transparent outline-none transition-all"
