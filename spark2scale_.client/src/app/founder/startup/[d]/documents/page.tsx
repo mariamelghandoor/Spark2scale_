@@ -27,6 +27,7 @@ import {
     SessionSummary,
     ChatMessage,
 } from "@/services/documentsService";
+import { generateSwotPDF } from "@/pdf-formats/swotPdf";
 
 // ---------------------------------------------------------------------------
 // Toast System
@@ -937,6 +938,38 @@ export default function DocumentsPage() {
     const handleEvaluate = (dbId?: string) => { if (dbId) router.push(`/founder/startup/${cleanId}/documents/${dbId}/evaluate`); };
     const handleRecommend = (dbId?: string) => { if (dbId) router.push(`/founder/startup/${cleanId}/documents/${dbId}/recommend`); };
 
+    const handleDownload = (state: DocState) => {
+        if (state.path && state.path.trim() !== "") {
+            const a = document.createElement("a");
+            a.href = state.path;
+            a.download = state.name;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            return;
+        }
+
+        if (state.jsonResponse) {
+            if (state.configId === "swot") {
+                generateSwotPDF(state.jsonResponse);
+                return;
+            }
+            if (state.configId === "competitor_matrix") {
+                const jsonString = `data:text/json;charset=utf-8,${encodeURIComponent(
+                    JSON.stringify(state.jsonResponse, null, 2)
+                )}`;
+                const a = document.createElement("a");
+                a.href = jsonString;
+                a.download = `${state.name.replace(/\s+/g, "_")}.json`;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                return;
+            }
+        }
+        alert("Nothing to download yet.");
+    };
+
     const handleCompleteStage = async () => {
         setIsCompleting(true);
         if (!cleanId) return;
@@ -1119,11 +1152,8 @@ export default function DocumentsPage() {
                                                                     )}
                                                                     {config.id !== "bmc" && (
                                                                         <>
-                                                                            <Button variant="outline" size="sm" className={`h-8 text-xs ${outlineBtn}`} onClick={() => handleEvaluate(state?.dbId)}>
-                                                                                <Star className="h-3 w-3 mr-1.5" /> Evaluate
-                                                                            </Button>
-                                                                            <Button variant="outline" size="sm" className={`h-8 text-xs ${outlineBtn}`} onClick={() => handleRecommend(state?.dbId)}>
-                                                                                <Edit className="h-3 w-3 mr-1.5" /> Recommend
+                                                                            <Button variant="outline" size="sm" className={`h-8 text-xs ${outlineBtn}`} onClick={() => state && handleDownload(state)}>
+                                                                                <Download className="h-3 w-3 mr-1.5" /> Download
                                                                             </Button>
                                                                         </>
                                                                     )}

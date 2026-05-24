@@ -32,6 +32,7 @@ export interface DashboardData {
     docCount: number;
     meetings: Meeting[];
     videoCount: number;
+    logoPath: string | null;
 }
 
 export const startupDashboardService = {
@@ -45,7 +46,8 @@ export const startupDashboardService = {
             role: "Viewer",
             docCount: 0,
             meetings: [],
-            videoCount: 0
+            videoCount: 0,
+            logoPath: null
         };
 
         try {
@@ -57,6 +59,7 @@ export const startupDashboardService = {
                 if (startupRes.data) {
                     result.startupName = startupRes.data.startupname;
                     result.role = startupRes.data.current_role || "Viewer";
+                    result.logoPath = startupRes.data.logo_path || null;
 
                     // FRONTEND FALLBACK: If backend misses the role mapping, 
                     // we strictly check the founder_id against your logged-in user ID!
@@ -64,8 +67,12 @@ export const startupDashboardService = {
                         result.role = "Founder";
                     }
                 }
-            } catch (e) {
+            } catch (e: any) {
                 console.error("Failed to load startup details", e);
+                const msg = e.message || "";
+                if (msg.includes("403") || msg.includes("401")) {
+                    throw e;
+                }
             }
 
             // ---------------------------------------------------------
@@ -126,8 +133,12 @@ export const startupDashboardService = {
 
             return result;
 
-        } catch (error) {
+        } catch (error: any) {
             console.error("Fatal error assembling dashboard data:", error);
+            const msg = error.message || "";
+            if (msg.includes("403") || msg.includes("401")) {
+                throw error;
+            }
             return result; // Returns whatever parts successfully loaded instead of crashing!
         }
     },

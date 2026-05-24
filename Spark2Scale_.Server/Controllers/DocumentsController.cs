@@ -316,7 +316,7 @@ namespace Spark2Scale_.Server.Controllers
                 var doc = docRes.Models.FirstOrDefault();
                 if (doc == null) return NotFound();
 
-                if (!await _access.IsFounderOrOwner(GetToken(), doc.StartupId)) return Forbid();
+                if (!await _access.IsFounderOrOwner(GetToken(), doc.StartupId)) return StatusCode(403, "Forbidden");
 
                 await _supabase.From<DocumentVersion>().Where(x => x.DocumentId == dId).Delete();
                 await _supabase.From<Document>().Where(x => x.Did == dId).Delete();
