@@ -79,7 +79,7 @@ function EvaluationWizard({ data, setData, loading, onSubmit, step, setStep, pen
                             <div className="grid grid-cols-2 gap-6">
                                 <div className="col-span-2"><SectionHeader num="1" title="Company Snapshot" /></div>
                                 <FormField label="Company Name *"><Input value={data.name} onChange={e => updateField('name', e.target.value)} placeholder="e.g. Spark2Scale" /></FormField>
-                                <FormField label="HQ Location"><Input value={data.hq_location} onChange={e => updateField('hq_location', e.target.value)} placeholder="e.g. Egypt" /></FormField>
+                                <FormField label="HQ Location *"><Input value={data.hq_location} onChange={e => updateField('hq_location', e.target.value)} placeholder="e.g. Egypt" /></FormField>
                                 <FormField label="Website / Demo Link"><Input value={data.website_url} onChange={e => updateField('website_url', e.target.value)} placeholder="https://..." /></FormField>
                                 <FormField label="Date Founded"><Input type="date" value={data.date_founded} onChange={e => updateField('date_founded', e.target.value)} /></FormField>
                                 <FormField label="Current Stage *">
@@ -129,7 +129,7 @@ function EvaluationWizard({ data, setData, loading, onSubmit, step, setStep, pen
                             <div className="space-y-6">
                                 <SectionHeader num="3" title="Problem Definition" subtitle="Who is the customer and why is their pain urgent?" />
                                 <div className="grid grid-cols-2 gap-6">
-                                    <FormField label="Primary Customer Profile"><Input value={data.customer_profile} onChange={e => updateField('customer_profile', e.target.value)} placeholder="Role, Company Size, Industry" /></FormField>
+                                    <FormField label="Primary Customer Profile *"><Input value={data.customer_profile} onChange={e => updateField('customer_profile', e.target.value)} placeholder="Role, Company Size, Industry" /></FormField>
                                     <FormField label="Problem Frequency">
                                         <Select value={data.problem_frequency} onValueChange={v => updateField('problem_frequency', v)}>
                                             <SelectTrigger><SelectValue /></SelectTrigger>
@@ -144,7 +144,7 @@ function EvaluationWizard({ data, setData, loading, onSubmit, step, setStep, pen
                                 </div>
                                 <FormField label="Specific Problem (1-2 sentences) *"><Textarea value={data.problem_statement} onChange={e => updateField('problem_statement', e.target.value)} /></FormField>
                                 <FormField label="What is broken about current solutions? *"><Textarea value={data.gap_analysis} onChange={e => updateField('gap_analysis', e.target.value)} /></FormField>
-                                <FormField label="Cost of NOT solving this problem"><Input value={data.cost_of_not_solving} onChange={e => updateField('cost_of_not_solving', e.target.value)} placeholder="Time, Money, or Risk" /></FormField>
+                                <FormField label="Cost of NOT solving this problem *"><Input value={data.cost_of_not_solving} onChange={e => updateField('cost_of_not_solving', e.target.value)} placeholder="Time, Money, or Risk" /></FormField>
                                 <div className="grid grid-cols-2 gap-6">
                                     <FormField label="Interviews Conducted"><Input type="number" value={data.interviews_conducted} onChange={e => updateField('interviews_conducted', Number(e.target.value))} /></FormField>
                                     <FormField label="Verbatim Quotes (Top 3)"><Textarea value={data.customer_quotes} onChange={e => updateField('customer_quotes', e.target.value)} placeholder={"Quote 1...\nQuote 2..."} /></FormField>
@@ -169,7 +169,7 @@ function EvaluationWizard({ data, setData, loading, onSubmit, step, setStep, pen
                                     </FormField>
                                     <FormField label="Demo Link / Screenshots"><Input value={data.demo_link} onChange={e => updateField('demo_link', e.target.value)} /></FormField>
                                 </div>
-                                <FormField label="Core use case users come back for"><Input value={data.core_use_case} onChange={e => updateField('core_use_case', e.target.value)} /></FormField>
+                                <FormField label="Core use case users come back for *"><Input value={data.core_use_case} onChange={e => updateField('core_use_case', e.target.value)} /></FormField>
                                 <FormField label="Meaningful Differentiation *"><Textarea value={data.differentiation} onChange={e => updateField('differentiation', e.target.value)} placeholder="Why are you better than alternatives?" /></FormField>
                                 <FormField label="Hardest part to replicate (Moat)"><Input value={data.defensibility} onChange={e => updateField('defensibility', e.target.value)} /></FormField>
                             </div>
@@ -180,7 +180,7 @@ function EvaluationWizard({ data, setData, loading, onSubmit, step, setStep, pen
                                 <SectionHeader num="5" title="Market & Scope" />
                                 <FormField label="Beachhead Market *"><Input value={data.beachhead_market} onChange={e => updateField('beachhead_market', e.target.value)} /></FormField>
                                 <FormField label="Estimated Market Size (USD)"><Input value={data.market_size} onChange={e => updateField('market_size', e.target.value)} /></FormField>
-                                <FormField label="Long-term Vision"><Textarea value={data.vision} onChange={e => updateField('vision', e.target.value)} placeholder="How this becomes big..." /></FormField>
+                                <FormField label="Long-term Vision *"><Textarea value={data.vision} onChange={e => updateField('vision', e.target.value)} placeholder="How this becomes big..." /></FormField>
                                 <FormField label="Expansion Strategy"><Textarea value={data.expansion_strategy} onChange={e => updateField('expansion_strategy', e.target.value)} placeholder="New users, products, or segments" /></FormField>
                             </div>
                         )}
@@ -230,8 +230,8 @@ function EvaluationWizard({ data, setData, loading, onSubmit, step, setStep, pen
                                     <div className="grid grid-cols-2 gap-4">
                                         <FormField label="Pricing Model *"><Input value={data.pricing_model} onChange={e => updateField('pricing_model', e.target.value)} /></FormField>
                                         <FormField label="Gross Margin %"><Input value={data.gross_margin} onChange={e => updateField('gross_margin', e.target.value)} /></FormField>
-                                        <FormField label="Monthly Burn ($)"><Input value={data.monthly_burn} onChange={e => updateField('monthly_burn', e.target.value)} /></FormField>
-                                        <FormField label="Runway (Months)"><Input value={data.runway} onChange={e => updateField('runway', e.target.value)} /></FormField>
+                                        <FormField label="Monthly Burn ($) *"><Input value={data.monthly_burn} onChange={e => updateField('monthly_burn', e.target.value)} /></FormField>
+                                        <FormField label="Runway (Months) *"><Input value={data.runway} onChange={e => updateField('runway', e.target.value)} /></FormField>
                                     </div>
                                 </div>
                             </div>
@@ -241,7 +241,7 @@ function EvaluationWizard({ data, setData, loading, onSubmit, step, setStep, pen
                             <div className="space-y-6">
                                 <SectionHeader num="9" title="Vision & Strategy" />
                                 <FormField label="Category Creating/Redefining"><Input value={data.category_definition} onChange={e => updateField('category_definition', e.target.value)} /></FormField>
-                                <FormField label="Biggest Risk to Success"><Textarea value={data.primary_risk} onChange={e => updateField('primary_risk', e.target.value)} /></FormField>
+                                <FormField label="Biggest Risk to Success *"><Textarea value={data.primary_risk} onChange={e => updateField('primary_risk', e.target.value)} /></FormField>
                                 <SectionHeader num="10" title="Fundraising" />
                                 <FormField label="Key Round Milestones"><Textarea value={data.round_milestones} onChange={e => updateField('round_milestones', e.target.value)} /></FormField>
                                 <FormField label="Existing Investors"><Input value={data.existing_investors} onChange={e => updateField('existing_investors', e.target.value)} /></FormField>
@@ -268,17 +268,40 @@ function EvaluationWizard({ data, setData, loading, onSubmit, step, setStep, pen
 // 3. MAIN DASHBOARD PAGE
 // ============================================================================
 
+// Required fields drive both the wizard's submit-time validation and the *
+// markers shown next to each label. Every field listed here is an AI-critical
+// input — if it's blank, downstream agents (evaluation, recommendation, BMC,
+// SWOT) start producing "Unknown" cells and shallow reports.
 const REQUIRED_FIELDS = [
-    { id: "name", name: "Company Name", step: 1 },
-    { id: "stage", name: "Current Stage", step: 1 },
-    { id: "problem_statement", name: "Specific Problem (1-2 sentences)", step: 3 },
-    { id: "gap_analysis", name: "What is broken about current solutions?", step: 3 },
-    { id: "product_status", name: "Product Status", step: 4 },
-    { id: "differentiation", name: "Meaningful differentiation", step: 4 },
-    { id: "beachhead_market", name: "Beachhead market", step: 5 },
-    { id: "acquisition_channel", name: "Primary acquisition channel", step: 7 },
-    { id: "sales_motion", name: "Sales motion", step: 7 },
-    { id: "pricing_model", name: "Pricing model", step: 7 },
+    // Step 1 — Company Snapshot
+    { id: "name",                 name: "Company Name",                              step: 1 },
+    { id: "hq_location",          name: "HQ Location",                               step: 1 },
+    { id: "stage",                name: "Current Stage",                             step: 1 },
+
+    // Step 3 — Problem Definition
+    { id: "customer_profile",     name: "Primary Customer Profile",                  step: 3 },
+    { id: "problem_statement",    name: "Specific Problem (1-2 sentences)",          step: 3 },
+    { id: "gap_analysis",         name: "What is broken about current solutions?",   step: 3 },
+    { id: "cost_of_not_solving",  name: "Cost of NOT solving this problem",          step: 3 },
+
+    // Step 4 — Product & Solution
+    { id: "product_status",       name: "Product Status",                            step: 4 },
+    { id: "core_use_case",        name: "Core use case users come back for",         step: 4 },
+    { id: "differentiation",      name: "Meaningful differentiation",                step: 4 },
+
+    // Step 5 — Market & Scope
+    { id: "beachhead_market",     name: "Beachhead market",                          step: 5 },
+    { id: "vision",               name: "Long-term Vision",                          step: 5 },
+
+    // Step 7 — GTM Strategy + Business Model
+    { id: "acquisition_channel",  name: "Primary acquisition channel",               step: 7 },
+    { id: "sales_motion",         name: "Sales motion",                              step: 7 },
+    { id: "pricing_model",        name: "Pricing model",                             step: 7 },
+    { id: "monthly_burn",         name: "Monthly Burn ($)",                          step: 7 },
+    { id: "runway",               name: "Runway (Months)",                           step: 7 },
+
+    // Step 8 — Vision & Strategy
+    { id: "primary_risk",         name: "Biggest Risk to Success",                   step: 8 },
 ];
 
 export default function FounderDashboard() {
