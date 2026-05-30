@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
+import { clearStaleStage } from "@/lib/refinementState";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -287,6 +288,7 @@ export default function PitchDeckPage() {
             // TODO: connect to real workflow update service
             await new Promise(res => setTimeout(res, 1000));
             setIsStageCompleted(true);
+            if (startupId) clearStaleStage(startupId, "pitchDeck");
             router.push(`/founder/startup/${startupId}`);
         } catch (err) {
             console.error("Mark complete failed:", err);

@@ -28,6 +28,7 @@ import {
     ChatMessage,
 } from "@/services/documentsService";
 import { generateSwotPDF } from "@/pdf-formats/swotPdf";
+import { clearStaleStage } from "@/lib/refinementState";
 
 // ---------------------------------------------------------------------------
 // Friendly error mapping
@@ -761,6 +762,9 @@ export default function DocumentsPage() {
 
             if (success) {
                 await fetchData();
+                // Regenerating any doc clears the "refresh suggested" hint on
+                // the Documents stage in the dashboard.
+                if (cleanId) clearStaleStage(cleanId, "documents");
                 // 3. AI responds with success in the chat
                 const assistantMsg = `Successfully generated the ${docConfig.name}. It is now available in your documents list.`;
                 setMessages((prev) => [...prev, { role: "assistant", content: assistantMsg }]);

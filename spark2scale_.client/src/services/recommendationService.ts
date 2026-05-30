@@ -1,6 +1,7 @@
 // services/recommendationService.ts
 
 import apiClient from "@/lib/apiClient";
+import { addStaleStages, type StageId } from "@/lib/refinementState";
 
 // --- MOCK DATA FOR TESTING ---
 const MOCK_STARTUP_DATA = {
@@ -849,26 +850,23 @@ ${Object.entries(evaluation_output.scores)
         }
     },
 
-    // Reset the workflow flags for stages downstream of recommendation so the
-    // founder sees those stages as "needs refresh" and can regenerate against
-    // the refined startup data.
-    async markDownstreamStale(startupId: string): Promise<boolean> {
+    // Flag downstream stages as "needs refresh" without unmarking them as
+    // complete in the database. The hint is per-browser (localStorage) and is
+    // cleared by each stage when the founder regenerates it. Returns the list
+    // of stage IDs that were flagged, so the UI can describe what's changed.
+    async markDownstreamStale(startupId: string): Promise<StageId[]> {
         try {
             const current = await this._getWorkflowState(startupId);
-            const payload: WorkflowUpdatePayload = {
-                StartupId: startupId,
-                IdeaCheck: current.ideaCheck,
-                MarketResearch: false,
-                Evaluation: false,
-                Recommendation: current.recommendation,
-                Documents: false,
-                PitchDeck: false,
-            };
-            await this._updateWorkflow(payload);
-            return true;
+            const flagged: StageId[] = [];
+            if (current.marketResearch) flagged.push("marketResearch");
+            if (current.evaluation) flagged.push("evaluation");
+            if (current.documents) flagged.push("documents");
+            if (current.pitchDeck) flagged.push("pitchDeck");
+            if (flagged.length > 0) addStaleStages(startupId, flagged);
+            return flagged;
         } catch (error) {
             console.error("Error marking downstream stale:", error);
-            return false;
+            return [];
         }
     },
 };

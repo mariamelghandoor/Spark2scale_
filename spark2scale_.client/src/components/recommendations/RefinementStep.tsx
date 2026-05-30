@@ -79,7 +79,7 @@ export default function RefinementStep({
     const [error, setError] = useState<string | null>(null);
     const [appliedResult, setAppliedResult] =
         useState<{ applied: string[]; skipped: string[] } | null>(null);
-    const [downstreamReset, setDownstreamReset] = useState(false);
+    const [staleStageCount, setStaleStageCount] = useState(0);
 
     if (entries.length === 0) return null;
 
@@ -119,8 +119,8 @@ export default function RefinementStep({
             return;
         }
 
-        const stale = await recommendationService.markDownstreamStale(startupId);
-        setDownstreamReset(stale);
+        const flagged = await recommendationService.markDownstreamStale(startupId);
+        setStaleStageCount(flagged.length);
         const summary = { applied: result.applied, skipped: result.skipped };
         setAppliedResult(summary);
         setIsApplying(false);
@@ -170,18 +170,19 @@ export default function RefinementStep({
                             </ul>
                         )}
 
-                        {downstreamReset && (
+                        {staleStageCount > 0 && (
                             <div className="rounded-lg border border-[#FFD95D]/60 bg-[#FFD95D]/15 p-4 flex items-start gap-3">
                                 <AlertTriangle className="h-5 w-5 text-[#576238] mt-0.5 flex-shrink-0" />
                                 <div className="space-y-1">
                                     <p className="text-sm font-semibold text-[#576238]">
-                                        Downstream stages now show a refresh prompt
+                                        {staleStageCount} completed stage{staleStageCount === 1 ? "" : "s"} now show a refresh hint
                                     </p>
                                     <p className="text-xs leading-relaxed text-[#576238]/80">
-                                        Market Research, Evaluation, Documents, and Pitch Deck
-                                        have been marked for regeneration so their next outputs
-                                        use the refined inputs. Visit each stage when you're
-                                        ready and click <em>Regenerate</em>.
+                                        Your existing outputs are still saved and the stages
+                                        remain marked complete. From the startup dashboard you'll
+                                        see a yellow accent on each affected stage — visit it and
+                                        click <em>Regenerate</em> whenever you'd like that stage
+                                        rebuilt with the refined inputs. This is optional.
                                     </p>
                                 </div>
                             </div>

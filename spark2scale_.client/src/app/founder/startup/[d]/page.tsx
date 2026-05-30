@@ -7,8 +7,9 @@ import {
     ArrowLeft, Share2, FolderOpen, Video, Calendar as CalendarIcon,
     ChevronLeft, ChevronRight, User, Lightbulb, FileText,
     BarChart3, Target, RefreshCw, Presentation, Check, AlertCircle,
-    Link as LinkIcon, AlertOctagon, Timer, Info, Clock, Lock
+    Link as LinkIcon, AlertOctagon, Timer, Info, Clock, Lock, Sparkles
 } from "lucide-react";
+import { getStaleStages, type StageId } from "@/lib/refinementState";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import LegoProgress from "@/components/lego/LegoProgress";
@@ -42,6 +43,7 @@ export default function StartupDashboard() {
 
     const [logoPath, setLogoPath] = useState<string | null>(null);
     const [isUploadingLogo, setIsUploadingLogo] = useState(false);
+    const [staleStages, setStaleStages] = useState<Set<StageId>>(new Set());
 
     // Meeting & Calendar State
     const [currentMonthDate, setCurrentMonthDate] = useState(new Date());
@@ -86,6 +88,22 @@ export default function StartupDashboard() {
         init();
     }, [cleanId, user, loading]);
 
+    // Re-read the refinement "needs refresh" hints whenever the page becomes
+    // visible. This lets the yellow accent disappear automatically after the
+    // founder regenerates a stage on another tab/page and returns here.
+    useEffect(() => {
+        if (!cleanId) return;
+        const refresh = () => setStaleStages(getStaleStages(cleanId));
+        refresh();
+        const onVisible = () => { if (document.visibilityState === "visible") refresh(); };
+        window.addEventListener("focus", refresh);
+        document.addEventListener("visibilitychange", onVisible);
+        return () => {
+            window.removeEventListener("focus", refresh);
+            document.removeEventListener("visibilitychange", onVisible);
+        };
+    }, [cleanId]);
+
     // Derived User Name
     const userName = user?.fname || "Founder";
 
@@ -100,13 +118,13 @@ export default function StartupDashboard() {
     };
 
     const stages = [
-        { id: 1, name: "Idea Check", icon: Lightbulb, completed: currentData.ideaCheck, hasError: false, path: `/founder/startup/${cleanId}/idea-check` },
-        { id: 2, name: "Market Research", icon: BarChart3, completed: currentData.marketResearch, hasError: false, errorMessage: "Missing required data", path: `/founder/startup/${cleanId}/market-research` },
-        { id: 3, name: "Evaluation", icon: Target, completed: currentData.evaluation, hasError: false, path: `/founder/startup/${cleanId}/evaluate` },
-        { id: 4, name: "Recommendation", icon: RefreshCw, completed: currentData.recommendation, hasError: false, path: `/founder/startup/${cleanId}/recommendations` },
-        { id: 5, name: "Documents", icon: FileText, completed: currentData.documents, hasError: false, path: `/founder/startup/${cleanId}/documents` },
-        { id: 6, name: "Pitch Deck", icon: Presentation, completed: currentData.pitchDeck, hasError: false, path: `/founder/startup/${cleanId}/pitch-deck` },
-    ];
+        { id: 1, stageId: "ideaCheck"      as StageId, name: "Idea Check",      icon: Lightbulb,    completed: currentData.ideaCheck,      hasError: false, path: `/founder/startup/${cleanId}/idea-check` },
+        { id: 2, stageId: "marketResearch" as StageId, name: "Market Research", icon: BarChart3,    completed: currentData.marketResearch, hasError: false, errorMessage: "Missing required data", path: `/founder/startup/${cleanId}/market-research` },
+        { id: 3, stageId: "evaluation"     as StageId, name: "Evaluation",      icon: Target,       completed: currentData.evaluation,     hasError: false, path: `/founder/startup/${cleanId}/evaluate` },
+        { id: 4, stageId: "recommendation" as StageId, name: "Recommendation",  icon: RefreshCw,    completed: currentData.recommendation, hasError: false, path: `/founder/startup/${cleanId}/recommendations` },
+        { id: 5, stageId: "documents"      as StageId, name: "Documents",       icon: FileText,     completed: currentData.documents,      hasError: false, path: `/founder/startup/${cleanId}/documents` },
+        { id: 6, stageId: "pitchDeck"      as StageId, name: "Pitch Deck",      icon: Presentation, completed: currentData.pitchDeck,      hasError: false, path: `/founder/startup/${cleanId}/pitch-deck` },
+    ].map(s => ({ ...s, needsRefresh: s.completed && staleStages.has(s.stageId) }));
 
     const completedCount = stages.filter(stage => stage.completed).length;
     const stageErrors = stages.map(stage => stage.hasError || false);
@@ -305,9 +323,11 @@ export default function StartupDashboard() {
                                                                         ? "bg-gray-50/80 border-gray-200 cursor-not-allowed" // Professional Locked Look
                                                                         : stage.hasError
                                                                             ? "bg-red-50 hover:bg-red-100 border-red-400 cursor-pointer"
-                                                                            : stage.completed
-                                                                                ? "bg-[#F0EADC] hover:bg-[#e8e2d4] border-[#d4cbb8] cursor-pointer"
-                                                                                : "bg-white hover:border-[#d4cbb8] cursor-pointer hover:-translate-y-1 hover:shadow-md"
+                                                                            : stage.needsRefresh
+                                                                                ? "bg-[#FFD95D]/25 hover:bg-[#FFD95D]/40 border-[#FFD95D] cursor-pointer ring-2 ring-[#FFD95D]/40 ring-offset-1"
+                                                                                : stage.completed
+                                                                                    ? "bg-[#F0EADC] hover:bg-[#e8e2d4] border-[#d4cbb8] cursor-pointer"
+                                                                                    : "bg-white hover:border-[#d4cbb8] cursor-pointer hover:-translate-y-1 hover:shadow-md"
                                                                     }
                                                                 `}
                                                                 onClick={() => {
@@ -324,16 +344,18 @@ export default function StartupDashboard() {
                                                                                 ? "bg-white border border-gray-100" // Locked Icon Bg
                                                                                 : stage.hasError
                                                                                     ? "bg-red-500"
-                                                                                    : stage.completed
+                                                                                    : stage.needsRefresh
                                                                                         ? "bg-[#576238]"
-                                                                                        : "bg-gray-100 group-hover:bg-[#576238]/10"
+                                                                                        : stage.completed
+                                                                                            ? "bg-[#576238]"
+                                                                                            : "bg-gray-100 group-hover:bg-[#576238]/10"
                                                                             }`}
                                                                         >
                                                                             <IconComponent
-                                                                                className={`w-6 h-6 
+                                                                                className={`w-6 h-6
                                                                                     ${isLocked
                                                                                         ? "text-gray-300" // Faded icon when locked
-                                                                                        : stage.hasError || stage.completed
+                                                                                        : stage.hasError || stage.completed || stage.needsRefresh
                                                                                             ? "text-white"
                                                                                             : "text-gray-500 group-hover:text-[#576238]"
                                                                                     }`}
@@ -346,21 +368,37 @@ export default function StartupDashboard() {
                                                                                 <Lock className="w-3 h-3 text-gray-400" />
                                                                             </div>
                                                                         )}
+
+                                                                        {/* REFRESH HINT BADGE — appears for completed stages
+                                                                            after the founder applied recommendation refinements.
+                                                                            The card stays clickable & "completed" — this is just
+                                                                            a nudge to optionally regenerate. */}
+                                                                        {stage.needsRefresh && (
+                                                                            <div className="absolute -bottom-1 -right-1 bg-white rounded-full p-1 shadow-sm border border-[#FFD95D]">
+                                                                                <Sparkles className="w-3 h-3 text-[#576238]" />
+                                                                            </div>
+                                                                        )}
                                                                     </div>
 
                                                                     {/* NAME - Readable but Styled as Inactive */}
-                                                                    <h3 className={`font-semibold text-xs leading-tight 
+                                                                    <h3 className={`font-semibold text-xs leading-tight
                                                                         ${isLocked
                                                                             ? "text-slate-500 font-medium" // Readable slate color
                                                                             : stage.hasError
                                                                                 ? "text-red-700"
-                                                                                : stage.completed
+                                                                                : stage.completed || stage.needsRefresh
                                                                                     ? "text-[#576238]"
                                                                                     : "text-gray-600"
                                                                         }`}
                                                                     >
                                                                         {stage.name}
                                                                     </h3>
+
+                                                                    {stage.needsRefresh && (
+                                                                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-[#576238] text-white text-[10px] font-bold uppercase tracking-wider">
+                                                                            Refresh suggested
+                                                                        </span>
+                                                                    )}
                                                                 </div>
 
                                                                 {/* BOTTOM INDICATOR */}

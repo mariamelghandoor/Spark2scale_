@@ -12,6 +12,7 @@ import { motion } from "framer-motion";
 import { useParams } from "next/navigation";
 import { evaluationService, EvaluationDocument } from "@/services/evaluationService";
 import { startupService } from "@/services/startupService";
+import { clearStaleStage } from "@/lib/refinementState";
 import { Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer, Tooltip } from 'recharts';
 import { toast } from "sonner"; // Added for notifications
 
@@ -241,6 +242,7 @@ export default function EvaluatePage() {
                 const newDoc = await evaluationService.getCurrentEvaluation(startupId);
                 setEvalDoc(newDoc);
                 setIsWorkflowComplete(false);
+                clearStaleStage(startupId, "evaluation");
             }
         } catch (error) {
             console.error("Evaluation generation failed:", error);
