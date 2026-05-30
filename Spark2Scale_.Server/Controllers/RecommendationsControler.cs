@@ -15,11 +15,22 @@ namespace Spark2Scale_.Server.Controllers
     {
         private readonly Client _supabase;
         private readonly IHttpClientFactory _httpClientFactory;
+        private readonly Spark2Scale_.Server.Services.AccessControlService _access;
 
-        public RecommendationsController(Client supabase, IHttpClientFactory httpClientFactory)
+        public RecommendationsController(
+            Client supabase,
+            IHttpClientFactory httpClientFactory,
+            Spark2Scale_.Server.Services.AccessControlService access)
         {
             _supabase = supabase;
             _httpClientFactory = httpClientFactory;
+            _access = access;
+        }
+
+        private string GetToken()
+        {
+            var header = Request.Headers["Authorization"].FirstOrDefault();
+            return header?.StartsWith("Bearer ") == true ? header.Substring("Bearer ".Length).Trim() : "";
         }
 
         // GET: api/Recommendations/{startupId}/{type}
@@ -28,6 +39,9 @@ namespace Spark2Scale_.Server.Controllers
         public async Task<IActionResult> GetRecommendations(string startupId, string type)
         {
             if (!Guid.TryParse(startupId, out Guid sId)) return BadRequest("Invalid ID");
+
+            if (!await _access.IsFounderOrContributor(GetToken(), sId))
+                return Unauthorized(new { message = "Unauthorized." });
 
             try
             {
@@ -68,6 +82,9 @@ namespace Spark2Scale_.Server.Controllers
         [HttpPost("save")]
         public async Task<IActionResult> SaveRecommendation([FromBody] RecommendationInsertDto input)
         {
+            if (!await _access.IsFounderOrContributor(GetToken(), input.StartupId))
+                return Unauthorized(new { message = "Unauthorized." });
+
             try
             {
                 var supabaseUrl = Environment.GetEnvironmentVariable("SUPABASE_URL");
@@ -161,10 +178,20 @@ namespace Spark2Scale_.Server.Controllers
         [HttpDelete("delete/{rid}")]
         public async Task<IActionResult> DeleteRecommendation(string rid)
         {
-            if (!Guid.TryParse(rid, out _)) return BadRequest("Invalid recommendation ID");
+            if (!Guid.TryParse(rid, out Guid recId)) return BadRequest("Invalid recommendation ID");
 
             try
             {
+                var lookup = await _supabase.From<Recommendation>()
+                    .Select("rid,startup_id")
+                    .Where(r => r.Rid == recId)
+                    .Get();
+                var rec = lookup.Models.FirstOrDefault();
+                if (rec == null) return NotFound(new { message = "Not found." });
+
+                if (!await _access.IsFounderOrContributor(GetToken(), rec.StartupId))
+                    return Unauthorized(new { message = "Unauthorized." });
+
                 var supabaseUrl = Environment.GetEnvironmentVariable("SUPABASE_URL");
                 var supabaseKey = Environment.GetEnvironmentVariable("SUPABASE_KEY");
 
@@ -193,6 +220,9 @@ namespace Spark2Scale_.Server.Controllers
         public async Task<IActionResult> ArchiveRecommendations(string startupId)
         {
             if (!Guid.TryParse(startupId, out Guid sId)) return BadRequest("Invalid ID");
+
+            if (!await _access.IsFounderOrContributor(GetToken(), sId))
+                return Unauthorized(new { message = "Unauthorized." });
 
             try
             {
