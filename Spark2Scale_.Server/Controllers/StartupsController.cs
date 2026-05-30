@@ -296,18 +296,19 @@ namespace Spark2Scale_.Server.Controllers
 
                 // Fire every read that depends only on sId (or the token) in parallel.
                 // Previously these ran in series, so the page paid ~5x the network
-                // round-trip latency before it could respond.
-                var startupTask = _supabase.From<Startup>().Select(SAFE_COLS).Where(s => s.Sid == sId).Get();
-                var workflowTask = _supabase.From<StartupWorkflow>().Where(w => w.StartupId == sId).Get();
-                var pitchTask = _supabase.From<PitchDeck>().Where(p => p.startup_id == sId).Get();
+                // round-trip latency before it could respond. Each task swallows
+                // its own failure so a single transient error (e.g. a stale token
+                // from Supabase Auth) doesn't fail the whole page.
+                var startupTask = SafeAsync(() => _supabase.From<Startup>().Select(SAFE_COLS).Where(s => s.Sid == sId).Get(), default(Supabase.Postgrest.Responses.ModeledResponse<Startup>));
+                var workflowTask = SafeAsync(() => _supabase.From<StartupWorkflow>().Where(w => w.StartupId == sId).Get(), default(Supabase.Postgrest.Responses.ModeledResponse<StartupWorkflow>));
+                var pitchTask = SafeAsync(() => _supabase.From<PitchDeck>().Where(p => p.startup_id == sId).Get(), default(Supabase.Postgrest.Responses.ModeledResponse<PitchDeck>));
                 var jsonRawTask = FetchStartupJsonResponseAsync(sId);
-                var userTask = bearer != null
-                    ? _supabase.Auth.GetUser(bearer)
-                    : Task.FromResult<Supabase.Gotrue.User?>(null);
+                var userTask = SafeGetUserAsync(bearer);
 
                 await Task.WhenAll(startupTask, workflowTask, pitchTask, jsonRawTask, userTask);
 
-                var startup = startupTask.Result.Models.FirstOrDefault();
+                var startupResult = startupTask.Result;
+                var startup = startupResult?.Models.FirstOrDefault();
                 if (startup == null) return NotFound("Startup not found");
 
                 string? role = null;
@@ -337,7 +338,7 @@ namespace Spark2Scale_.Server.Controllers
                 int progressCount = 0;
                 int totalLikes = 0;
                 bool hasGap = false;
-                var wf = workflowTask.Result.Models.FirstOrDefault();
+                var wf = workflowTask.Result?.Models.FirstOrDefault();
                 if (wf != null)
                 {
                     bool[] steps = { wf.IdeaCheck, wf.MarketResearch, wf.Evaluation, wf.Recommendation, wf.Documents, wf.PitchDeck };
@@ -349,11 +350,34 @@ namespace Spark2Scale_.Server.Controllers
                         else if (foundFalse && step) hasGap = true;
                     }
                 }
-                if (pitchTask.Result.Models.Any()) totalLikes = pitchTask.Result.Models.Sum(d => d.countlikes);
+                if (pitchTask.Result?.Models.Any() == true) totalLikes = pitchTask.Result.Models.Sum(d => d.countlikes);
 
                 return Ok(ToDto(startup, role, jsonRawTask.Result, progressCount, totalLikes, hasGap));
             }
             catch (Exception ex) { return StatusCode(500, $"Error: {ex.Message}"); }
+        }
+
+        // Run an async task and swallow exceptions so one transient failure
+        // doesn't cause Task.WhenAll to fail the whole composite read.
+        private async Task<T?> SafeAsync<T>(Func<Task<T>> work, T? fallback)
+        {
+            try { return await work(); }
+            catch (Exception ex)
+            {
+                _logger.LogWarning("SafeAsync swallowed exception: {Message}", ex.Message);
+                return fallback;
+            }
+        }
+
+        private async Task<Supabase.Gotrue.User?> SafeGetUserAsync(string? bearer)
+        {
+            if (string.IsNullOrEmpty(bearer)) return null;
+            try { return await _supabase.Auth.GetUser(bearer); }
+            catch (Exception ex)
+            {
+                _logger.LogWarning("Auth.GetUser failed: {Message}", ex.Message);
+                return null;
+            }
         }
 
         // Mapping from the recommendation agent's flat refinement keys to the
