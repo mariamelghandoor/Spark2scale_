@@ -272,9 +272,33 @@ export interface RecommendationContent {
     };
     matched_patterns?: {
         pattern_id: string;
+        name?: string;
+        severity?: string;            // "high" | "medium" | "low"
         strength_score: number;
+        strength_label?: string;      // "kill_signal" | "strong" | "moderate" | "weak"
+        confidence?: string;          // "HIGH" | "MEDIUM" | "LOW"
+        confidence_reasoning?: string;
         template: string;
     }[];
+
+    // Live market intelligence (World Bank + Tavily). Optional — older reports
+    // generated before this field existed simply won't have it.
+    market_signals?: {
+        country_risk?: {
+            [indicator: string]: {
+                value: number;
+                risk: string;          // "high" | "medium" | "low" | "unknown"
+                global_baseline?: { mean: number; std: number; n?: number; n_raw?: number; method?: string };
+            };
+        };
+        news_signals?: { title: string; url: string; source_domain: string; snippet: string; score?: number }[];
+        risk_flags?: string[];
+        funding_climate?: string;      // "Active" | "Neutral" | "Challenging"
+        confidence?: string;           // "high" | "medium" | "low"
+        tool_status?: { world_bank?: string; tavily?: string };
+        sources_used?: string[];
+    };
+
     patterns_detected?: any[]; // Deprecated/Legacy
 
     // Legacy Fields for UI Compatibility
@@ -674,6 +698,7 @@ export const recommendationService = {
                 insights:              apiInsights,
                 refined_statements:    data.refined_statements  || {},
                 matched_patterns:      data.matched_patterns    || [],
+                market_signals:        data.market_signals      || {},
                 patterns_detected:     [],
                 evaluation_scores:     evaluation_output.scores,
                 company_context:       evaluation_output.company_context,
@@ -718,6 +743,7 @@ ${Object.entries(evaluation_output.scores)
                 insights:              insights,
                 refined_statements:    {},
                 matched_patterns:      [],
+                market_signals:        {},
                 patterns_detected:     [],
                 evaluation_scores:     evaluation_output.scores,
                 company_context:       evaluation_output.company_context,
@@ -775,6 +801,48 @@ ${Object.entries(evaluation_output.scores)
             return true;
         } catch (error) {
             console.error("Error deleting recommendation:", error);
+            return false;
+        }
+    },
+
+    // Persist the founder-approved refinements onto the startup's json_response.
+    // Returns { applied, skipped } describing which keys made it through the
+    // server-side path whitelist, or null on failure.
+    async applyRefinements(
+        startupId: string,
+        refinements: Record<string, string>
+    ): Promise<{ applied: string[]; skipped: string[] } | null> {
+        try {
+            const response = await apiClient.post<{ applied: string[]; skipped: string[] }>(
+                `/api/Startups/${startupId}/apply-refinements`,
+                { Refinements: refinements }
+            );
+            return response.data ?? { applied: [], skipped: [] };
+        } catch (error) {
+            console.error("Error applying refinements:", error);
+            return null;
+        }
+    },
+
+    // Reset the workflow flags for stages downstream of recommendation so the
+    // founder sees those stages as "needs refresh" and can regenerate against
+    // the refined startup data.
+    async markDownstreamStale(startupId: string): Promise<boolean> {
+        try {
+            const current = await this._getWorkflowState(startupId);
+            const payload: WorkflowUpdatePayload = {
+                StartupId: startupId,
+                IdeaCheck: current.ideaCheck,
+                MarketResearch: false,
+                Evaluation: false,
+                Recommendation: current.recommendation,
+                Documents: false,
+                PitchDeck: false,
+            };
+            await this._updateWorkflow(payload);
+            return true;
+        } catch (error) {
+            console.error("Error marking downstream stale:", error);
             return false;
         }
     },

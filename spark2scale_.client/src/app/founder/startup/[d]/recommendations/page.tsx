@@ -9,6 +9,7 @@ import { recommendationService, DBRecommendation } from "@/services/recommendati
 import { startupService } from "@/services/startupService";
 import { evaluationService } from "@/services/evaluationService";
 import { RecommendationCard } from "@/components/recommendations/RecommendationCard";
+import RefinementStep from "@/components/recommendations/RefinementStep";
 
 interface NamedRecommendation {
     rec:  DBRecommendation;
@@ -248,6 +249,21 @@ export default function RecommendationsPage() {
                         </Button>
                     </div>
                 )}
+
+                {/* ── Refinement step (latest report's suggested startup updates) ── */}
+                {!isLoadingHistory && hasItems && cleanId && (() => {
+                    const latest = items[0]?.rec?.Content?.refined_statements;
+                    if (!latest || typeof latest !== "object" || Object.keys(latest).length === 0) {
+                        return null;
+                    }
+                    return (
+                        <RefinementStep
+                            key={items[0].rec.Id}
+                            startupId={cleanId}
+                            refinedStatements={latest}
+                        />
+                    );
+                })()}
 
                 {/* ── Recommendation history (newest first) ── */}
                 {!isLoadingHistory && hasItems && (

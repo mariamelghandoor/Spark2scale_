@@ -356,6 +356,161 @@ namespace Spark2Scale_.Server.Controllers
             catch (Exception ex) { return StatusCode(500, $"Error: {ex.Message}"); }
         }
 
+        // Mapping from the recommendation agent's flat refinement keys to the
+        // JSON Pointer (RFC 6901) paths inside startup_evaluation. Anything not
+        // listed here is ignored — we never accept caller-supplied paths.
+        private static readonly Dictionary<string, string> RefinementPathMap = new(StringComparer.OrdinalIgnoreCase)
+        {
+            { "problem_statement",     "/startup_evaluation/problem_definition/problem_statement" },
+            { "gap_analysis",          "/startup_evaluation/problem_definition/gap_analysis" },
+            { "current_solution",      "/startup_evaluation/problem_definition/current_solution" },
+            { "differentiation",       "/startup_evaluation/product_and_solution/differentiation" },
+            { "core_stickiness",       "/startup_evaluation/product_and_solution/core_stickiness" },
+            { "defensibility_moat",    "/startup_evaluation/product_and_solution/defensibility_moat" },
+            { "beachhead_market",      "/startup_evaluation/market_and_scope/beachhead_market" },
+            { "market_size",           "/startup_evaluation/market_and_scope/market_size_estimate" },
+            { "expansion_strategy",    "/startup_evaluation/market_and_scope/expansion_strategy" },
+            { "five_year_vision",      "/startup_evaluation/vision_and_strategy/five_year_vision" },
+            { "category_definition",   "/startup_evaluation/vision_and_strategy/category_definition" },
+            { "primary_risk",          "/startup_evaluation/vision_and_strategy/primary_risk" },
+            // Founder-level refinements apply to the first founder by convention.
+            { "founder_market_fit",    "/startup_evaluation/founder_and_team/founders/0/founder_market_fit_statement" },
+            { "founder_experience",    "/startup_evaluation/founder_and_team/founders/0/prior_experience" },
+        };
+
+        public class ApplyRefinementsDto
+        {
+            public Dictionary<string, string> Refinements { get; set; } = new();
+        }
+
+        // PATCH the startup's json_response with the user-approved refinements.
+        // Each refinement key is resolved against RefinementPathMap so callers
+        // can't write to arbitrary JSON paths.
+        [HttpPost("{id}/apply-refinements")]
+        public async Task<IActionResult> ApplyRefinements(string id, [FromBody] ApplyRefinementsDto input)
+        {
+            if (!Guid.TryParse(id, out Guid sId)) return BadRequest("Invalid ID format");
+            if (input?.Refinements == null || input.Refinements.Count == 0)
+                return BadRequest(new { message = "No refinements provided." });
+
+            var token = Request.Headers["Authorization"].FirstOrDefault()
+                ?.Replace("Bearer ", "", StringComparison.OrdinalIgnoreCase)
+                ?.Trim();
+            if (string.IsNullOrEmpty(token) || !await _access.IsFounderOrContributor(token, sId))
+                return Unauthorized(new { message = "Unauthorized." });
+
+            var supabaseUrl = Environment.GetEnvironmentVariable("SUPABASE_URL") ?? Environment.GetEnvironmentVariable("URL");
+            var supabaseKey = Environment.GetEnvironmentVariable("SUPABASE_KEY") ?? Environment.GetEnvironmentVariable("KEY");
+            if (string.IsNullOrEmpty(supabaseUrl) || string.IsNullOrEmpty(supabaseKey))
+                return StatusCode(500, new { message = "Supabase not configured." });
+
+            try
+            {
+                var http = _httpClientFactory.CreateClient();
+                using var getReq = new HttpRequestMessage(HttpMethod.Get,
+                    $"{supabaseUrl}/rest/v1/startups?select=json_response&sid=eq.{sId}");
+                getReq.Headers.Add("apikey", supabaseKey);
+                getReq.Headers.Add("Authorization", $"Bearer {supabaseKey}");
+                using var getRes = await http.SendAsync(getReq);
+                if (!getRes.IsSuccessStatusCode)
+                    return StatusCode((int)getRes.StatusCode, new { message = "Failed to read startup." });
+
+                var rows = JsonNode.Parse(await getRes.Content.ReadAsStringAsync())?.AsArray();
+                if (rows == null || rows.Count == 0)
+                    return NotFound(new { message = "Startup not found." });
+
+                var existing = rows[0]?["json_response"]?.DeepClone() ?? new JsonObject();
+                if (existing is not JsonObject jsonObj)
+                {
+                    // json_response was a string or null — start from a clean object.
+                    jsonObj = new JsonObject();
+                }
+
+                var applied = new List<string>();
+                var skipped = new List<string>();
+                foreach (var kvp in input.Refinements)
+                {
+                    if (string.IsNullOrWhiteSpace(kvp.Value)) { skipped.Add(kvp.Key); continue; }
+                    if (!RefinementPathMap.TryGetValue(kvp.Key, out var pointer)) { skipped.Add(kvp.Key); continue; }
+                    if (SetByJsonPointer(jsonObj, pointer, kvp.Value)) applied.Add(kvp.Key);
+                    else skipped.Add(kvp.Key);
+                }
+
+                if (applied.Count == 0)
+                    return BadRequest(new { message = "No supported refinement keys were provided.", skipped });
+
+                var patchPayload = new JsonObject { ["json_response"] = jsonObj };
+                using var patchReq = new HttpRequestMessage(new HttpMethod("PATCH"),
+                    $"{supabaseUrl}/rest/v1/startups?sid=eq.{sId}")
+                {
+                    Content = new StringContent(patchPayload.ToJsonString(),
+                        System.Text.Encoding.UTF8, "application/json")
+                };
+                patchReq.Headers.Add("apikey", supabaseKey);
+                patchReq.Headers.Add("Authorization", $"Bearer {supabaseKey}");
+                patchReq.Headers.Add("Prefer", "return=minimal");
+                using var patchRes = await http.SendAsync(patchReq);
+                if (!patchRes.IsSuccessStatusCode)
+                {
+                    var err = await patchRes.Content.ReadAsStringAsync();
+                    return StatusCode((int)patchRes.StatusCode, new { message = "Patch failed.", detail = err });
+                }
+
+                return Ok(new { applied, skipped });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { message = $"Error applying refinements: {ex.Message}" });
+            }
+        }
+
+        // Walk a JSON Pointer-style path (/a/b/0/c), creating intermediate
+        // objects when missing, then set the leaf to the provided string. Only
+        // existing array indices are written through; we never auto-grow arrays.
+        private static bool SetByJsonPointer(JsonObject root, string pointer, string value)
+        {
+            if (string.IsNullOrEmpty(pointer) || pointer[0] != '/') return false;
+            var parts = pointer.Substring(1).Split('/');
+            if (parts.Length == 0) return false;
+
+            JsonNode? cursor = root;
+            for (int i = 0; i < parts.Length - 1; i++)
+            {
+                var seg = parts[i];
+                if (cursor is JsonObject obj)
+                {
+                    if (obj[seg] is not JsonObject && obj[seg] is not JsonArray)
+                    {
+                        obj[seg] = new JsonObject();
+                    }
+                    cursor = obj[seg];
+                }
+                else if (cursor is JsonArray arr && int.TryParse(seg, out var idx))
+                {
+                    if (idx < 0 || idx >= arr.Count) return false;
+                    cursor = arr[idx];
+                }
+                else
+                {
+                    return false;
+                }
+            }
+
+            var leaf = parts[^1];
+            if (cursor is JsonObject leafObj)
+            {
+                leafObj[leaf] = value;
+                return true;
+            }
+            if (cursor is JsonArray leafArr && int.TryParse(leaf, out var leafIdx))
+            {
+                if (leafIdx < 0 || leafIdx >= leafArr.Count) return false;
+                leafArr[leafIdx] = value;
+                return true;
+            }
+            return false;
+        }
+
         private async Task<object?> FetchStartupJsonResponseAsync(Guid sId)
         {
             try
