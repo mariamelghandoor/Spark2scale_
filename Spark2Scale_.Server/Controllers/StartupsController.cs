@@ -20,17 +20,20 @@ namespace Spark2Scale_.Server.Controllers
         private readonly Supabase.Client _supabase;
         private readonly Services.AccessControlService _access;
         private readonly ILogger<StartupsController> _logger;
+        private readonly IHttpClientFactory _httpClientFactory;
 
         private const string SAFE_COLS = "sid,startupname,field,idea_description,region,startup_stage,founder_id,created_at,logo_path,current_iteration";
 
         public StartupsController(
             Supabase.Client supabase,
             Services.AccessControlService access,
-            ILogger<StartupsController> logger)
+            ILogger<StartupsController> logger,
+            IHttpClientFactory httpClientFactory)
         {
             _supabase = supabase;
             _access = access;
             _logger = logger;
+            _httpClientFactory = httpClientFactory;
         }
 
         public class MarketResearchRequest
@@ -120,13 +123,16 @@ namespace Spark2Scale_.Server.Controllers
                     ["current_iteration"] = 0
                 };
 
-                using var http = new HttpClient();
-                http.DefaultRequestHeaders.Add("apikey", supabaseKey);
-                http.DefaultRequestHeaders.Add("Authorization", $"Bearer {supabaseKey}");
-                http.DefaultRequestHeaders.Add("Prefer", "return=representation");
+                var http = _httpClientFactory.CreateClient();
+                using var postReq = new HttpRequestMessage(HttpMethod.Post, $"{supabaseUrl}/rest/v1/startups")
+                {
+                    Content = new StringContent(row.ToJsonString(), System.Text.Encoding.UTF8, "application/json")
+                };
+                postReq.Headers.Add("apikey", supabaseKey);
+                postReq.Headers.Add("Authorization", $"Bearer {supabaseKey}");
+                postReq.Headers.Add("Prefer", "return=representation");
 
-                var content = new StringContent(row.ToJsonString(), System.Text.Encoding.UTF8, "application/json");
-                var httpResp = await http.PostAsync($"{supabaseUrl}/rest/v1/startups", content);
+                var httpResp = await http.SendAsync(postReq);
 
                 if (!httpResp.IsSuccessStatusCode)
                 {
@@ -165,17 +171,17 @@ namespace Spark2Scale_.Server.Controllers
                 var objectPath = $"{sId}{ext}";
                 var publicUrl = $"{supabaseUrl}/storage/v1/object/public/logos/{objectPath}";
 
-                using var http = new HttpClient();
-                http.DefaultRequestHeaders.Add("apikey", supabaseKey);
-                http.DefaultRequestHeaders.Add("Authorization", $"Bearer {supabaseKey}");
+                var http = _httpClientFactory.CreateClient();
 
                 // Upsert so re-uploading works
                 var uploadContent = new ByteArrayContent(fileBytes);
                 uploadContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(file.ContentType);
-                var uploadReq = new HttpRequestMessage(HttpMethod.Post, $"{supabaseUrl}/storage/v1/object/logos/{objectPath}")
+                using var uploadReq = new HttpRequestMessage(HttpMethod.Post, $"{supabaseUrl}/storage/v1/object/logos/{objectPath}")
                 {
                     Content = uploadContent
                 };
+                uploadReq.Headers.Add("apikey", supabaseKey);
+                uploadReq.Headers.Add("Authorization", $"Bearer {supabaseKey}");
                 uploadReq.Headers.Add("x-upsert", "true");
                 var uploadResp = await http.SendAsync(uploadReq);
 
@@ -283,66 +289,96 @@ namespace Spark2Scale_.Server.Controllers
             if (!Guid.TryParse(id, out Guid sId)) return BadRequest("Invalid ID format");
             try
             {
-                var startup = (await _supabase.From<Startup>().Select(SAFE_COLS).Where(s => s.Sid == sId).Get()).Models.FirstOrDefault();
+                var authHeader = Request.Headers["Authorization"].FirstOrDefault();
+                string? bearer = (!string.IsNullOrEmpty(authHeader) && authHeader.StartsWith("Bearer "))
+                    ? authHeader.Substring("Bearer ".Length).Trim()
+                    : null;
+
+                // Fire every read that depends only on sId (or the token) in parallel.
+                // Previously these ran in series, so the page paid ~5x the network
+                // round-trip latency before it could respond.
+                var startupTask = _supabase.From<Startup>().Select(SAFE_COLS).Where(s => s.Sid == sId).Get();
+                var workflowTask = _supabase.From<StartupWorkflow>().Where(w => w.StartupId == sId).Get();
+                var pitchTask = _supabase.From<PitchDeck>().Where(p => p.startup_id == sId).Get();
+                var jsonRawTask = FetchStartupJsonResponseAsync(sId);
+                var userTask = bearer != null
+                    ? _supabase.Auth.GetUser(bearer)
+                    : Task.FromResult<Supabase.Gotrue.User?>(null);
+
+                await Task.WhenAll(startupTask, workflowTask, pitchTask, jsonRawTask, userTask);
+
+                var startup = startupTask.Result.Models.FirstOrDefault();
                 if (startup == null) return NotFound("Startup not found");
 
                 string? role = null;
-                var authHeader = Request.Headers["Authorization"].FirstOrDefault();
-                if (!string.IsNullOrEmpty(authHeader) && authHeader.StartsWith("Bearer "))
+                var user = userTask.Result;
+                if (user != null && Guid.TryParse(user.Id, out Guid currentUserId))
                 {
-                    try
+                    if (startup.FounderId == currentUserId)
                     {
-                        var user = await _supabase.Auth.GetUser(authHeader.Replace("Bearer ", "").Trim());
-                        if (user != null && Guid.TryParse(user.Id, out Guid currentUserId))
+                        role = "Founder";
+                    }
+                    else
+                    {
+                        try
                         {
-                            if (startup.FounderId == currentUserId) role = "Founder";
-                            else
-                            {
-                                var contrib = await _supabase.From<StartupContributor>().Match(new Dictionary<string, string> { { "startup_id", sId.ToString() }, { "user_id", currentUserId.ToString() } }).Get();
-                                if (contrib.Models.Any()) role = contrib.Models.First().Role ?? "Contributor";
-                            }
+                            var contrib = await _supabase.From<StartupContributor>()
+                                .Match(new Dictionary<string, string> {
+                                    { "startup_id", sId.ToString() },
+                                    { "user_id", currentUserId.ToString() }
+                                })
+                                .Get();
+                            if (contrib.Models.Any()) role = contrib.Models.First().Role ?? "Contributor";
                         }
+                        catch { }
                     }
-                    catch { }
                 }
 
-                int progressCount = 0; int totalLikes = 0; bool hasGap = false;
-                try
+                int progressCount = 0;
+                int totalLikes = 0;
+                bool hasGap = false;
+                var wf = workflowTask.Result.Models.FirstOrDefault();
+                if (wf != null)
                 {
-                    var wf = (await _supabase.From<StartupWorkflow>().Where(w => w.StartupId == sId).Get()).Models.FirstOrDefault();
-                    if (wf != null)
+                    bool[] steps = { wf.IdeaCheck, wf.MarketResearch, wf.Evaluation, wf.Recommendation, wf.Documents, wf.PitchDeck };
+                    progressCount = steps.Count(step => step);
+                    bool foundFalse = false;
+                    foreach (var step in steps)
                     {
-                        bool[] steps = { wf.IdeaCheck, wf.MarketResearch, wf.Evaluation, wf.Recommendation, wf.Documents, wf.PitchDeck };
-                        progressCount = steps.Count(step => step);
-                        bool foundFalse = false;
-                        foreach (var step in steps) { if (!step) foundFalse = true; else if (foundFalse && step) hasGap = true; }
-                    }
-                    var pdResult = await _supabase.From<PitchDeck>().Where(p => p.startup_id == sId).Get();
-                    if (pdResult.Models.Any()) totalLikes = pdResult.Models.Sum(d => d.countlikes);
-                }
-                catch { }
-
-                object? safeJsonData = null;
-                try
-                {
-                    var supabaseUrl = Environment.GetEnvironmentVariable("SUPABASE_URL") ?? Environment.GetEnvironmentVariable("URL");
-                    var supabaseKey = Environment.GetEnvironmentVariable("SUPABASE_KEY") ?? Environment.GetEnvironmentVariable("KEY");
-                    using var http = new HttpClient();
-                    http.DefaultRequestHeaders.Add("apikey", supabaseKey);
-                    http.DefaultRequestHeaders.Add("Authorization", $"Bearer {supabaseKey}");
-                    var rawRes = await http.GetAsync($"{supabaseUrl}/rest/v1/startups?select=json_response&sid=eq.{sId}");
-                    if (rawRes.IsSuccessStatusCode)
-                    {
-                        var body = await rawRes.Content.ReadAsStringAsync();
-                        var array = JsonNode.Parse(body)?.AsArray();
-                        if (array != null && array.Count > 0) safeJsonData = array[0]["json_response"];
+                        if (!step) foundFalse = true;
+                        else if (foundFalse && step) hasGap = true;
                     }
                 }
-                catch { }
+                if (pitchTask.Result.Models.Any()) totalLikes = pitchTask.Result.Models.Sum(d => d.countlikes);
 
-                return Ok(ToDto(startup, role, safeJsonData, progressCount, totalLikes, hasGap));
+                return Ok(ToDto(startup, role, jsonRawTask.Result, progressCount, totalLikes, hasGap));
             }
             catch (Exception ex) { return StatusCode(500, $"Error: {ex.Message}"); }
+        }
+
+        private async Task<object?> FetchStartupJsonResponseAsync(Guid sId)
+        {
+            try
+            {
+                var supabaseUrl = Environment.GetEnvironmentVariable("SUPABASE_URL") ?? Environment.GetEnvironmentVariable("URL");
+                var supabaseKey = Environment.GetEnvironmentVariable("SUPABASE_KEY") ?? Environment.GetEnvironmentVariable("KEY");
+                if (string.IsNullOrEmpty(supabaseUrl) || string.IsNullOrEmpty(supabaseKey)) return null;
+
+                var http = _httpClientFactory.CreateClient();
+                using var req = new HttpRequestMessage(HttpMethod.Get,
+                    $"{supabaseUrl}/rest/v1/startups?select=json_response&sid=eq.{sId}");
+                req.Headers.Add("apikey", supabaseKey);
+                req.Headers.Add("Authorization", $"Bearer {supabaseKey}");
+
+                using var rawRes = await http.SendAsync(req);
+                if (!rawRes.IsSuccessStatusCode) return null;
+
+                var body = await rawRes.Content.ReadAsStringAsync();
+                var array = JsonNode.Parse(body)?.AsArray();
+                if (array != null && array.Count > 0) return array[0]?["json_response"];
+                return null;
+            }
+            catch { return null; }
         }
 
         [HttpPut("update-idea/{id}")]
@@ -381,10 +417,12 @@ namespace Spark2Scale_.Server.Controllers
                 {
                     var supabaseUrl = Environment.GetEnvironmentVariable("SUPABASE_URL") ?? Environment.GetEnvironmentVariable("URL");
                     var supabaseKey = Environment.GetEnvironmentVariable("SUPABASE_KEY") ?? Environment.GetEnvironmentVariable("KEY");
-                    using var h = new HttpClient();
-                    h.DefaultRequestHeaders.Add("apikey", supabaseKey);
-                    h.DefaultRequestHeaders.Add("Authorization", $"Bearer {supabaseKey}");
-                    var rawRes = await h.GetAsync($"{supabaseUrl}/rest/v1/startups?select=json_response&sid=eq.{sId}");
+                    var h = _httpClientFactory.CreateClient();
+                    using var rawReq = new HttpRequestMessage(HttpMethod.Get,
+                        $"{supabaseUrl}/rest/v1/startups?select=json_response&sid=eq.{sId}");
+                    rawReq.Headers.Add("apikey", supabaseKey);
+                    rawReq.Headers.Add("Authorization", $"Bearer {supabaseKey}");
+                    using var rawRes = await h.SendAsync(rawReq);
                     if (rawRes.IsSuccessStatusCode)
                     {
                         var body = await rawRes.Content.ReadAsStringAsync();
@@ -428,8 +466,8 @@ namespace Spark2Scale_.Server.Controllers
                 }
 
                 string jsonContent = "";
-                using (var client = new HttpClient())
                 {
+                    var client = _httpClientFactory.CreateClient();
                     client.Timeout = TimeSpan.FromMinutes(3);
                     var externalPayload = new
                     {

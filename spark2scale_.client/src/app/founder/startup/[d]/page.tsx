@@ -71,12 +71,7 @@ export default function StartupDashboard() {
                 const data = await startupDashboardService.getDashboardData(cleanId, user.id);
                 setWorkflowData(data.workflow);
                 setStartupName(data.startupName);
-
-                // Fetch logo_path from the startup detail
-                const startupDetail = await fetch(
-                    `${(process.env.NEXT_PUBLIC_API_URL || "http://localhost:5231").replace(/\/$/, "").replace(/\/api$/, "")}/api/Startups/${cleanId}`
-                ).then(r => r.ok ? r.json() : null);
-                if (startupDetail?.logo_path) setLogoPath(startupDetail.logo_path);
+                if (data.logoPath) setLogoPath(data.logoPath);
 
                 setUserRole(data.role); // Set Role
                 setDocCount(data.docCount);

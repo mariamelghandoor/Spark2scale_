@@ -78,16 +78,19 @@ namespace Spark2Scale_.Server.Services
                 if (user?.Id == null) return false;
                 var userId = Guid.Parse(user.Id);
 
-                var founderCheck = await _supabase.From<Startup>()
+                // Run founder + contributor lookups concurrently so this gate
+                // costs one round-trip's worth of latency instead of two.
+                var founderTask = _supabase.From<Startup>()
                     .Select("sid,founder_id")
                     .Where(s => s.Sid == startupId && s.FounderId == userId)
                     .Get();
-                if (founderCheck.Models.Any()) return true;
-
-                var contributorCheck = await _supabase.From<StartupContributor>()
+                var contributorTask = _supabase.From<StartupContributor>()
                     .Where(c => c.StartupId == startupId && c.ContributorId == userId)
                     .Get();
-                return contributorCheck.Models.Any();
+                await Task.WhenAll(founderTask, contributorTask);
+
+                return founderTask.Result.Models.Any()
+                    || contributorTask.Result.Models.Any();
             }
             catch (Exception ex)
             {
