@@ -63,9 +63,8 @@ export default function MarketResearchPage() {
     }, [startupId]);
 
     const handleGenerate = async () => {
-        // Validation now only checks for Region
         if (!region) {
-            alert("Please select a Target Region");
+            setErrorMessage("Please select a target region before generating the report.");
             return;
         }
 
