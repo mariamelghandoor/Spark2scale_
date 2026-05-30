@@ -4,6 +4,14 @@ import path from "node:path";
 const nextConfig: NextConfig = {
     output: 'standalone',
 
+    compiler: {
+        // Strip all console.* except console.error in production builds.
+        // Dev builds keep full logging for debugging.
+        removeConsole: process.env.NODE_ENV === 'production'
+            ? { exclude: ['error'] }
+            : false,
+    },
+
     images: {
         remotePatterns: [
             { protocol: 'https', hostname: '**' },
