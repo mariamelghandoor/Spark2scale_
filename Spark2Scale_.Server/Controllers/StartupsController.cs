@@ -647,7 +647,12 @@ namespace Spark2Scale_.Server.Controllers
                 string jsonContent = "";
                 {
                     var client = _httpClientFactory.CreateClient();
-                    client.Timeout = TimeSpan.FromMinutes(3);
+                    // Azure App Service cold-starts can take 60-90s on top of
+                    // the AI agent's own runtime; 3 minutes was too tight when
+                    // the service had been idle. Bumped to 6 minutes plus one
+                    // automatic retry, so a single cold start no longer kills
+                    // the founder's market research request.
+                    client.Timeout = TimeSpan.FromMinutes(6);
                     var externalPayload = new
                     {
                         idea = shortIdeaName,
@@ -655,11 +660,34 @@ namespace Spark2Scale_.Server.Controllers
                         region = request.Region
                     };
 
-                    var response = await client.PostAsJsonAsync("https://spark2scale-ai-api-server.azurewebsites.net/api/v1/market-research/research", externalPayload);
-                    if (!response.IsSuccessStatusCode)
+                    HttpResponseMessage response = null!;
+                    Exception lastEx = null!;
+                    const int maxAttempts = 2;
+                    for (int attempt = 1; attempt <= maxAttempts; attempt++)
                     {
-                        var error = await response.Content.ReadAsStringAsync();
-                        return StatusCode((int)response.StatusCode, $"AI Service Failed: {error}");
+                        try
+                        {
+                            response = await client.PostAsJsonAsync(
+                                "https://spark2scale-ai-api-server.azurewebsites.net/api/v1/market-research/research",
+                                externalPayload);
+                            if (response.IsSuccessStatusCode) { lastEx = null; break; }
+                            // 5xx -> retry once; 4xx -> surface immediately.
+                            if ((int)response.StatusCode < 500) break;
+                            lastEx = new Exception($"AI {response.StatusCode}");
+                        }
+                        catch (TaskCanceledException ex) { lastEx = ex; }
+                        catch (HttpRequestException ex) { lastEx = ex; }
+                        if (attempt < maxAttempts) await Task.Delay(TimeSpan.FromSeconds(2));
+                    }
+
+                    if (lastEx != null)
+                    {
+                        return StatusCode(504, $"AI Service unreachable after {maxAttempts} attempts: {lastEx.Message}");
+                    }
+                    if (response == null || !response.IsSuccessStatusCode)
+                    {
+                        var error = response != null ? await response.Content.ReadAsStringAsync() : "no response";
+                        return StatusCode((int?)response?.StatusCode ?? 502, $"AI Service Failed: {error}");
                     }
                     jsonContent = await response.Content.ReadAsStringAsync();
                 }
