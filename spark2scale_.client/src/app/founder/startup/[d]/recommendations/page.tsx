@@ -83,6 +83,15 @@ export default function RecommendationsPage() {
         if (!cleanId) return;
         setIsGenerating(true);
         try {
+            // Gate generation on the evaluation stage being complete — otherwise
+            // we feed the recommendation agent stale or mock evaluation data and
+            // produce misleading output.
+            const workflow = await recommendationService._getWorkflowState(cleanId);
+            if (!workflow.evaluation) {
+                alert("Please complete the Evaluation stage before generating recommendations.");
+                return;
+            }
+
             const [startupData, evalContent] = await Promise.all([
                 startupService.getById(cleanId),
                 evaluationService.getEvaluationContent(cleanId),

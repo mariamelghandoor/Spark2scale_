@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
 import Link from "next/link";
 import LegoIllustration from "@/components/lego/LegoIllustration";
 import { motion } from "framer-motion";
@@ -39,6 +40,15 @@ function SignupContent() {
 
         if (!supabase) {
             setError("Configuration Missing: Supabase credentials are not set in .env.local");
+            return;
+        }
+
+        if (!formData.dataConsent) {
+            setValidationErrors((prev) => ({
+                ...prev,
+                dataConsent: "You must consent to data processing to create an account",
+            }));
+            setError("Please review and accept the data processing consent before continuing.");
             return;
         }
 
@@ -87,6 +97,7 @@ function SignupContent() {
         userType: typeParam || "founder",
         addressRegion: "",
         tags: [] as string[],
+        dataConsent: false,
     });
 
     // Sync from query params if they change (e.g. initial load)
@@ -167,6 +178,10 @@ function SignupContent() {
 
         if (!formData.addressRegion && formData.userType !== "investor") {
             errors.addressRegion = "Address/Region is required";
+        }
+
+        if (!formData.dataConsent) {
+            errors.dataConsent = "You must consent to data processing to create an account";
         }
 
         setValidationErrors(errors);
@@ -668,6 +683,57 @@ function SignupContent() {
                                             </div>
                                             {validationErrors.confirmPassword && (
                                                 <p className="text-sm text-red-500">{validationErrors.confirmPassword}</p>
+                                            )}
+                                        </div>
+
+                                        <div className="space-y-2 rounded-lg border border-[#576238]/20 bg-[#F0EADC]/40 p-4">
+                                            <div className="flex items-start gap-3">
+                                                <Checkbox
+                                                    id="dataConsent"
+                                                    checked={formData.dataConsent}
+                                                    onCheckedChange={(checked) => {
+                                                        setFormData({ ...formData, dataConsent: checked === true });
+                                                        if (checked === true && validationErrors.dataConsent) {
+                                                            setValidationErrors((prev) => {
+                                                                const next = { ...prev };
+                                                                delete next.dataConsent;
+                                                                return next;
+                                                            });
+                                                        }
+                                                    }}
+                                                    className="mt-0.5"
+                                                    aria-invalid={!!validationErrors.dataConsent}
+                                                    required
+                                                />
+                                                <Label
+                                                    htmlFor="dataConsent"
+                                                    className="text-sm font-normal leading-relaxed text-[#576238] cursor-pointer"
+                                                >
+                                                    I acknowledge and consent that the information I provide, along with the
+                                                    content I create on Spark2Scale, may be processed and used to power
+                                                    platform features, generate personalized insights, and support the
+                                                    continued improvement and development of the platform&apos;s services
+                                                    and models. My data will be handled in accordance with the{" "}
+                                                    <Link
+                                                        href="/privacy"
+                                                        target="_blank"
+                                                        className="font-semibold underline-offset-4 hover:underline"
+                                                    >
+                                                        Privacy Policy
+                                                    </Link>{" "}
+                                                    and{" "}
+                                                    <Link
+                                                        href="/terms"
+                                                        target="_blank"
+                                                        className="font-semibold underline-offset-4 hover:underline"
+                                                    >
+                                                        Terms of Service
+                                                    </Link>
+                                                    .
+                                                </Label>
+                                            </div>
+                                            {validationErrors.dataConsent && (
+                                                <p className="text-sm text-red-500 pl-7">{validationErrors.dataConsent}</p>
                                             )}
                                         </div>
 

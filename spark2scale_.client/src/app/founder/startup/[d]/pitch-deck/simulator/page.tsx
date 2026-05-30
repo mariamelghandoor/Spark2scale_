@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -150,23 +150,25 @@ export default function PitchSimulator() {
         }
     }, [phase]);
 
+    // Latest-handler ref so the interval below always calls the freshest
+    // version of handleGetReportAndEnd without re-creating the timer when the
+    // handler identity changes (and without stale-closure bugs).
+    const handleGetReportAndEndRef = useRef<() => void>(() => {});
+
     // ── Meeting countdown timer ──────────────────────────────────────────────
     useEffect(() => {
-        if (phase === "meeting") {
-            const timer = setInterval(() => {
-                setTimeLeft((prev) => {
-                    if (prev <= 1) {
-                        clearInterval(timer);
-                        // Timer hit zero — auto trigger "Get Report & End"
-                        handleGetReportAndEnd();
-                        return 0;
-                    }
-                    return prev - 1;
-                });
-            }, 1000);
-            return () => clearInterval(timer);
-        }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+        if (phase !== "meeting") return;
+        const timer = setInterval(() => {
+            setTimeLeft((prev) => {
+                if (prev <= 1) {
+                    clearInterval(timer);
+                    handleGetReportAndEndRef.current();
+                    return 0;
+                }
+                return prev - 1;
+            });
+        }, 1000);
+        return () => clearInterval(timer);
     }, [phase]);
 
     const formatTime = (seconds: number) => {
@@ -234,6 +236,10 @@ export default function PitchSimulator() {
             setPhase("evaluation");
         }
     };
+
+    useEffect(() => {
+        handleGetReportAndEndRef.current = handleGetReportAndEnd;
+    });
 
 
     // ─────────────────────────────────────────────────────────────────────────

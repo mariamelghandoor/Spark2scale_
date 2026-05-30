@@ -34,7 +34,12 @@ export const marketResearchService = {
             if (activeDoc.json_response) {
                 let parsedData = activeDoc.json_response;
                 if (typeof parsedData === 'string') {
-                    try { parsedData = JSON.parse(parsedData); } catch { }
+                    try {
+                        parsedData = JSON.parse(parsedData);
+                    } catch (err) {
+                        console.error("Failed to parse market research json_response:", err);
+                        return activeDoc;
+                    }
                 }
 
                 let contentToMerge = parsedData;
