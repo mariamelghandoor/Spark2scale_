@@ -806,21 +806,46 @@ ${Object.entries(evaluation_output.scores)
     },
 
     // Persist the founder-approved refinements onto the startup's json_response.
-    // Returns { applied, skipped } describing which keys made it through the
-    // server-side path whitelist, or null on failure.
+    // Returns either a success result or an error payload with the message that
+    // came back from the API — the UI uses this to show specific feedback.
     async applyRefinements(
         startupId: string,
         refinements: Record<string, string>
-    ): Promise<{ applied: string[]; skipped: string[] } | null> {
+    ): Promise<
+        | { ok: true; applied: string[]; skipped: string[] }
+        | { ok: false; status: number | null; message: string }
+    > {
         try {
             const response = await apiClient.post<{ applied: string[]; skipped: string[] }>(
                 `/api/Startups/${startupId}/apply-refinements`,
                 { Refinements: refinements }
             );
-            return response.data ?? { applied: [], skipped: [] };
+            const data = response.data ?? { applied: [], skipped: [] };
+            return { ok: true, applied: data.applied ?? [], skipped: data.skipped ?? [] };
         } catch (error) {
+            const raw = error instanceof Error ? error.message : "";
+            const statusMatch = raw.match(/Request failed \((\d+)\)/i);
+            const status = statusMatch ? Number(statusMatch[1]) : null;
+
+            let message = "We couldn't save the refinements right now. Please try again in a moment.";
+            const bodyMatch = raw.match(/Request failed \(\d+\):\s*(.+)$/i);
+            if (bodyMatch) {
+                try {
+                    const parsed = JSON.parse(bodyMatch[1]);
+                    if (typeof parsed === "string") message = parsed;
+                    else if (parsed?.message) message = String(parsed.message);
+                    else if (parsed?.detail) message = String(parsed.detail);
+                } catch {
+                    message = bodyMatch[1].replace(/^"|"$/g, "");
+                }
+            }
+            if (status === 404) {
+                message = "The refinements endpoint isn't available — the backend may be running an older build. Please restart the API server and try again.";
+            } else if (status === 401 || status === 403) {
+                message = "You don't have permission to update this startup's data.";
+            }
             console.error("Error applying refinements:", error);
-            return null;
+            return { ok: false, status, message };
         }
     },
 

@@ -113,19 +113,18 @@ export default function RefinementStep({
             startupId,
             refinementsToSend
         );
-        if (!result) {
-            setError(
-                "We couldn't save the refinements right now. Please try again in a moment."
-            );
+        if (!result.ok) {
+            setError(result.message);
             setIsApplying(false);
             return;
         }
 
         const stale = await recommendationService.markDownstreamStale(startupId);
         setDownstreamReset(stale);
-        setAppliedResult(result);
+        const summary = { applied: result.applied, skipped: result.skipped };
+        setAppliedResult(summary);
         setIsApplying(false);
-        onApplied?.(result);
+        onApplied?.(summary);
     };
 
     const handleSkip = () => {
