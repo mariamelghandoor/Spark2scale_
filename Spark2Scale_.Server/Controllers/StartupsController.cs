@@ -646,13 +646,16 @@ namespace Spark2Scale_.Server.Controllers
 
                 string jsonContent = "";
                 {
+                    // Async polling pattern (mirrors Evaluation's job-id flow).
+                    // The sync /market-research/research endpoint blew past
+                    // Azure App Service's 230s front-door limit and returned
+                    // 504 on every cold workflow run. We now kick off the
+                    // workflow with /research/start (returns a job id in <1s),
+                    // then poll /research/status/{id} every few seconds.
                     var client = _httpClientFactory.CreateClient();
-                    // Azure App Service cold-starts can take 60-90s on top of
-                    // the AI agent's own runtime; 3 minutes was too tight when
-                    // the service had been idle. Bumped to 6 minutes plus one
-                    // automatic retry, so a single cold start no longer kills
-                    // the founder's market research request.
-                    client.Timeout = TimeSpan.FromMinutes(6);
+                    client.Timeout = TimeSpan.FromSeconds(30);
+                    const string AI_BASE = "https://spark2scale-ai-api-server.azurewebsites.net/api/v1/market-research";
+
                     var externalPayload = new
                     {
                         idea = shortIdeaName,
@@ -660,36 +663,67 @@ namespace Spark2Scale_.Server.Controllers
                         region = request.Region
                     };
 
-                    HttpResponseMessage response = null!;
-                    Exception lastEx = null!;
-                    const int maxAttempts = 2;
-                    for (int attempt = 1; attempt <= maxAttempts; attempt++)
+                    string? jobId = null;
+                    try
                     {
+                        var startResp = await client.PostAsJsonAsync($"{AI_BASE}/research/start", externalPayload);
+                        if (!startResp.IsSuccessStatusCode)
+                        {
+                            var err = await startResp.Content.ReadAsStringAsync();
+                            return StatusCode((int)startResp.StatusCode, $"AI Service failed to start job: {err}");
+                        }
+                        var startJson = JsonNode.Parse(await startResp.Content.ReadAsStringAsync());
+                        jobId = startJson?["job_id"]?.GetValue<string>();
+                    }
+                    catch (Exception ex)
+                    {
+                        return StatusCode(502, $"AI Service unreachable: {ex.Message}");
+                    }
+                    if (string.IsNullOrEmpty(jobId))
+                        return StatusCode(502, "AI Service did not return a job id.");
+
+                    var deadline = DateTime.UtcNow.AddMinutes(8);
+                    var pollDelay = TimeSpan.FromSeconds(5);
+                    JsonNode? finalResult = null;
+                    string? failureMessage = null;
+                    while (DateTime.UtcNow < deadline)
+                    {
+                        await Task.Delay(pollDelay);
                         try
                         {
-                            response = await client.PostAsJsonAsync(
-                                "https://spark2scale-ai-api-server.azurewebsites.net/api/v1/market-research/research",
-                                externalPayload);
-                            if (response.IsSuccessStatusCode) { lastEx = null; break; }
-                            // 5xx -> retry once; 4xx -> surface immediately.
-                            if ((int)response.StatusCode < 500) break;
-                            lastEx = new Exception($"AI {response.StatusCode}");
+                            var statusResp = await client.GetAsync($"{AI_BASE}/research/status/{jobId}");
+                            if (!statusResp.IsSuccessStatusCode)
+                            {
+                                if (pollDelay < TimeSpan.FromSeconds(20)) pollDelay = pollDelay.Add(TimeSpan.FromSeconds(2));
+                                continue;
+                            }
+                            var statusJson = JsonNode.Parse(await statusResp.Content.ReadAsStringAsync());
+                            var status = statusJson?["status"]?.GetValue<string>();
+                            if (status == "completed")
+                            {
+                                finalResult = statusJson?["result"];
+                                break;
+                            }
+                            if (status == "failed")
+                            {
+                                failureMessage = statusJson?["error"]?.GetValue<string>() ?? "Unknown AI failure";
+                                break;
+                            }
+                            // Mild backoff while running (5s -> 10s -> 15s max).
+                            if (pollDelay < TimeSpan.FromSeconds(15)) pollDelay = pollDelay.Add(TimeSpan.FromSeconds(2));
                         }
-                        catch (TaskCanceledException ex) { lastEx = ex; }
-                        catch (HttpRequestException ex) { lastEx = ex; }
-                        if (attempt < maxAttempts) await Task.Delay(TimeSpan.FromSeconds(2));
+                        catch (Exception)
+                        {
+                            // Transient poll failure — keep trying until deadline.
+                        }
                     }
 
-                    if (lastEx != null)
-                    {
-                        return StatusCode(504, $"AI Service unreachable after {maxAttempts} attempts: {lastEx.Message}");
-                    }
-                    if (response == null || !response.IsSuccessStatusCode)
-                    {
-                        var error = response != null ? await response.Content.ReadAsStringAsync() : "no response";
-                        return StatusCode((int?)response?.StatusCode ?? 502, $"AI Service Failed: {error}");
-                    }
-                    jsonContent = await response.Content.ReadAsStringAsync();
+                    if (failureMessage != null)
+                        return StatusCode(502, $"AI Service Failed: {failureMessage}");
+                    if (finalResult == null)
+                        return StatusCode(504, "AI Service did not complete in time. Please try again.");
+
+                    jsonContent = finalResult.ToJsonString();
                 }
 
                 // 1. Safely Parse JSON
