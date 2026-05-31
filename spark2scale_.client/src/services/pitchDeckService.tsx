@@ -52,24 +52,41 @@ export interface PitchDeck {
 
 export const pitchDeckService = {
     // 1. Upload Video
-    uploadVideo: async (startupId: string, file: File): Promise<PitchDeck> => {
+    async uploadVideo(startupId: string, file: File) {
         const formData = new FormData();
+
+        // CRITICAL FIX: This must precisely match the C# property name
         formData.append("startup_id", startupId);
         formData.append("file", file);
 
-        try {
-            // Don't pass Content-Type — the browser must auto-generate
-            // "multipart/form-data; boundary=..." with the correct boundary.
-            const response = await apiClient.post(`/api/PitchDecks/upload`, formData);
-            return response.data as PitchDeck;
-        } catch (error: unknown) {
-            let errorText = "Failed to upload video";
-            if (error && typeof error === 'object' && 'response' in error) {
-                const errResponse = (error as { response?: { data?: string } }).response?.data;
-                if (errResponse) errorText = errResponse;
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:5231';
+
+        // Read the token using the same key as apiClient.ts ('auth_token')
+        const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
+
+        const response = await fetch(`${apiUrl}/api/PitchDecks/upload`, {
+            method: 'POST',
+            body: formData,
+            // DO NOT set 'Content-Type': 'multipart/form-data'.
+            // The browser generates it automatically with the correct boundary string.
+            credentials: 'include',
+            headers: {
+                ...(token ? { 'Authorization': `Bearer ${token}` } : {})
             }
-            throw new Error(typeof errorText === 'string' ? errorText : JSON.stringify(errorText));
+        });
+
+        if (!response.ok) {
+            let errorMsg = `Upload failed with status ${response.status}`;
+            try {
+                const errorText = await response.text();
+                if (errorText) errorMsg = errorText;
+            } catch (e) {
+                // Ignore JSON parsing errors for standard HTTP error pages
+            }
+            throw new Error(errorMsg);
         }
+
+        return await response.json();
     },
 
     // 2. Get All Pitches for a Startup

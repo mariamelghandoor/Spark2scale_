@@ -272,6 +272,17 @@ namespace Spark2Scale_.Server.Controllers
                 }
 
                 Console.WriteLine($"[SignUp] User created. proceedStep: {authUserId}");
+<<<<<<< HEAD
+=======
+                
+                    if (requiresEmailConfirmation)
+                    {
+                        // ROBUST EMAIL SENDING: Manually generate link and send via EmailService
+                        try 
+                        {
+                            Console.WriteLine($"[SignUp] Generating Admin Link for {email}...");
+                            // Variables supabaseUrl and supabaseKey are already defined in outer scope
+>>>>>>> 39a4a5fcac3104a30e216f6bb7710f482b848703
 
                 if (requiresEmailConfirmation)
                 {

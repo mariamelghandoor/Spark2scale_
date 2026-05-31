@@ -134,6 +134,8 @@ namespace Spark2Scale_.Server.Controllers
         }
 
         [HttpPost("upload")]
+        [RequestFormLimits(MultipartBodyLengthLimit = 104857600)] // 100 MB limit
+        [RequestSizeLimit(104857600)]
         public async Task<IActionResult> UploadPitchDeck([FromForm] PitchDeckUploadDto input)
         {
             if (input.startup_id == Guid.Empty) return BadRequest("Startup ID is required.");
@@ -178,8 +180,9 @@ namespace Spark2Scale_.Server.Controllers
                         .Set(x => x.is_current, true)
                         .Set(x => x.created_at, DateTime.UtcNow)
                         .Set(x => x.version_number, newVersion)
-                        // Optionally clear the old analysis since the video changed:
-                        // .Set(x => x.analysis, null)
+                        .Set(x => x.pitchname, input.file.FileName) // <--- ADDED FILENAME HERE
+                                                                    // Optionally clear the old analysis since the video changed:
+                                                                    // .Set(x => x.analysis, null)
                         .Update();
 
                     // Re-fetch the row because Supabase C# client may return empty Models after Update()
@@ -196,6 +199,7 @@ namespace Spark2Scale_.Server.Controllers
                         pitchdeckid = Guid.NewGuid(),
                         startup_id = input.startup_id,
                         video_url = publicUrl,
+                        pitchname = input.file.FileName, // <--- ADDED FILENAME HERE
                         tags = new List<string>(),
                         countlikes = 0,
                         is_current = true,
@@ -381,5 +385,4 @@ namespace Spark2Scale_.Server.Controllers
             }
         }
     }
-
 }

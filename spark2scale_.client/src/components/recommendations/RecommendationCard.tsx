@@ -13,7 +13,7 @@
  */
 
 import React, { useState } from "react";
-import { Eye, Download, Loader2, Trash2 } from "lucide-react";
+import { Eye, Download, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
     Dialog,
@@ -27,6 +27,7 @@ import {
 import jsPDF from "jspdf";
 import { DBRecommendation, RecommendationContent } from "@/services/recommendationService";
 import { InvestmentMemoView, buildReportMarkdown, isMissingStatement } from "./ReportView";
+import LegoSpinner from "@/components/lego/LegoSpinner";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -850,7 +851,7 @@ export const RecommendationCard: React.FC<RecommendationCardProps> = ({
                     onClick={handleDownload}
                     disabled={isPDFLoading}>
                     {isPDFLoading
-                        ? <Loader2 className="h-4 w-4 animate-spin" />
+                        ? <LegoSpinner className="h-4 w-4 animate-spin" />
                         : <Download className="h-4 w-4" />}
                     Download PDF
                 </Button>
@@ -867,7 +868,7 @@ export const RecommendationCard: React.FC<RecommendationCardProps> = ({
                             title="Delete this report"
                         >
                             {isDeleting
-                                ? <Loader2 className="h-4 w-4 animate-spin" />
+                                ? <LegoSpinner className="h-4 w-4 animate-spin" />
                                 : <Trash2 className="h-4 w-4" />}
                         </Button>
 
@@ -922,7 +923,7 @@ export const RecommendationCard: React.FC<RecommendationCardProps> = ({
                                         }}
                                     >
                                         {isDeleting
-                                            ? <Loader2 className="h-4 w-4 animate-spin" />
+                                            ? <LegoSpinner className="h-4 w-4 animate-spin" />
                                             : <Trash2 className="h-4 w-4" />}
                                         Delete
                                     </Button>

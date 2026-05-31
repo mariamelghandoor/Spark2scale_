@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { ArrowLeft, Download, Filter, Sparkles, Eye, CheckCircle, RotateCcw, Loader2, FileText } from "lucide-react";
+import { ArrowLeft, Download, Filter, Sparkles, Eye, CheckCircle, RotateCcw, FileText } from "lucide-react";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { useParams } from "next/navigation";
@@ -12,6 +12,7 @@ import { Label } from "@/components/ui/label";
 import { marketResearchService, MarketResearchDoc } from "@/services/marketResearchService";
 import { startupService } from "@/services/startupService";
 import ContributorHeader from "@/components/contributor/ContributorHeader";
+import LegoSpinner from "@/components/lego/LegoSpinner";
 
 export default function ContributorMarketResearchPage() {
     const params = useParams();
@@ -63,7 +64,7 @@ export default function ContributorMarketResearchPage() {
     if (isLoading) {
         return (
             <div className="min-h-screen flex items-center justify-center bg-[#F0EADC]">
-                <Loader2 className="h-8 w-8 animate-spin text-[#576238]" />
+                <LegoSpinner className="h-8 w-8 animate-spin text-[#576238]" />
             </div>
         );
     }

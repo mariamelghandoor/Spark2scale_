@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import LegoLoader from "@/components/lego/LegoLoader";
 
 interface ProtectedRouteProps {
     children: React.ReactNode;
@@ -72,10 +73,7 @@ export default function ProtectedRoute({
     if (loading) {
         return (
             <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-[#F0EADC] via-[#fff] to-[#FFD95D]/20">
-                <div className="text-center">
-                    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#576238] mx-auto mb-4"></div>
-                    <p className="text-muted-foreground">Loading...</p>
-                </div>
+                <LegoLoader />
             </div>
         );
     }

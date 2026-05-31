@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
-import { ArrowLeft, Play, Eye, Download, Edit2, Loader2, Calendar, X, Globe, Lock, AlertTriangle } from "lucide-react";
+import { ArrowLeft, Play, Eye, Download, Edit2, Calendar, X, Globe, Lock, AlertTriangle } from "lucide-react";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { useParams, useRouter } from "next/navigation";
@@ -21,6 +21,7 @@ import { Label } from "@/components/ui/label";
 // Import PitchDeck directly (now that it has canaccess)
 import { pitchDeckService, PitchDeck } from "@/services/pitchDeckService";
 import { toast } from "sonner";
+import LegoSpinner from "@/components/lego/LegoSpinner";
 
 // REMOVED: interface ExtendedPitchDeck ... (Not needed anymore)
 
@@ -185,7 +186,7 @@ export default function PitchesPage() {
 
                 {isLoading ? (
                     <div className="flex justify-center py-20">
-                        <Loader2 className="h-8 w-8 animate-spin text-[#576238]" />
+                        <LegoSpinner className="h-8 w-8 animate-spin text-[#576238]" />
                     </div>
                 ) : pitches.length === 0 ? (
                     <div className="text-center py-20 bg-white/50 rounded-xl border-2 border-dashed">

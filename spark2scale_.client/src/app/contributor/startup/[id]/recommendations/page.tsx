@@ -1,12 +1,12 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Loader2 } from "lucide-react";
 import { motion } from "framer-motion";
 import { useParams } from "next/navigation";
 import { recommendationService, DBRecommendation } from "@/services/recommendationService";
 import ContributorHeader from "@/components/contributor/ContributorHeader";
 import { RecommendationCard } from "@/components/recommendations/RecommendationCard";
+import LegoSpinner from "@/components/lego/LegoSpinner";
 
 export default function ContributorRecommendationsPage() {
     const params = useParams();
@@ -52,7 +52,7 @@ export default function ContributorRecommendationsPage() {
             <main className="container mx-auto px-4 py-8 max-w-5xl">
                 {isLoadingData ? (
                     <div className="text-center py-20">
-                        <Loader2 className="h-10 w-10 animate-spin mx-auto text-[#576238] mb-4" />
+                        <LegoSpinner className="h-10 w-10 animate-spin mx-auto text-[#576238] mb-4" />
                         <p className="text-muted-foreground">Loading analysis…</p>
                     </div>
                 ) : (

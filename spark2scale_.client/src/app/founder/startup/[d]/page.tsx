@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
@@ -13,6 +13,8 @@ import { getStaleStages, type StageId } from "@/lib/refinementState";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import LegoProgress from "@/components/lego/LegoProgress";
+import LegoSpinner from "@/components/lego/LegoSpinner";
+import LegoLoader from "@/components/lego/LegoLoader";
 import { useParams, useRouter } from "next/navigation";
 import {
     Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
@@ -43,7 +45,11 @@ export default function StartupDashboard() {
 
     const [logoPath, setLogoPath] = useState<string | null>(null);
     const [isUploadingLogo, setIsUploadingLogo] = useState(false);
+<<<<<<< HEAD
     const [staleStages, setStaleStages] = useState<Set<StageId>>(new Set());
+=======
+    const [error, setError] = useState<string | null>(null);
+>>>>>>> 39a4a5fcac3104a30e216f6bb7710f482b848703
 
     // Meeting & Calendar State
     const [currentMonthDate, setCurrentMonthDate] = useState(new Date());
@@ -69,18 +75,62 @@ export default function StartupDashboard() {
         const init = async () => {
             if (!cleanId || loading || !user?.id) return;
 
+            const cacheKey = `startup_data_${cleanId}_${user.id}`;
+            const cachedDataStr = sessionStorage.getItem(cacheKey);
+
+            if (cachedDataStr) {
+                try {
+                    const cachedData = JSON.parse(cachedDataStr);
+                    setWorkflowData(cachedData.workflow);
+                    setStartupName(cachedData.startupName);
+                    if (cachedData.logoPath !== undefined) setLogoPath(cachedData.logoPath);
+                    setUserRole(cachedData.role);
+                    setDocCount(cachedData.docCount);
+                    setVideoCount(cachedData.videoCount);
+                    setMeetings(cachedData.meetings);
+                    setIsLoading(false);
+                } catch (e) {
+                    console.error("Cache parsing error", e);
+                }
+            }
+
             try {
                 const data = await startupDashboardService.getDashboardData(cleanId, user.id);
+                
+                if (data.logoPath) setLogoPath(data.logoPath);
+                
                 setWorkflowData(data.workflow);
                 setStartupName(data.startupName);
+<<<<<<< HEAD
                 if (data.logoPath) setLogoPath(data.logoPath);
 
+=======
+>>>>>>> 39a4a5fcac3104a30e216f6bb7710f482b848703
                 setUserRole(data.role); // Set Role
                 setDocCount(data.docCount);
                 setVideoCount(data.videoCount);
                 setMeetings(data.meetings);
-            } catch (error) {
-                console.error("Dashboard load failed", error);
+
+                // Save to Cache
+                sessionStorage.setItem(cacheKey, JSON.stringify({
+                    workflow: data.workflow,
+                    startupName: data.startupName,
+                    logoPath: data.logoPath,
+                    role: data.role,
+                    docCount: data.docCount,
+                    videoCount: data.videoCount,
+                    meetings: data.meetings,
+                }));
+            } catch (err: any) {
+                console.error("Dashboard load failed", err);
+                const msg = err.message || "";
+                if (msg.includes("403")) {
+                    setError("Forbidden");
+                } else if (msg.includes("401")) {
+                    setError("Unauthorized");
+                } else {
+                    setError("Error");
+                }
             } finally {
                 setIsLoading(false);
             }
@@ -205,6 +255,97 @@ export default function StartupDashboard() {
     // ---------------------------------------------------------
     // 3. Render
     // ---------------------------------------------------------
+    if (loading || isLoading) {
+        return (
+            <div className="h-screen w-full flex items-center justify-center bg-[#F0EADC]">
+                <LegoLoader />
+            </div>
+        );
+    }
+
+    if (error === "Forbidden" || error === "Unauthorized") {
+        return (
+            <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-[#F0EADC] via-[#fff] to-[#FFD95D]/20 px-4 text-center">
+                <motion.div 
+                    initial={{ opacity: 0, scale: 0.9 }} 
+                    animate={{ opacity: 1, scale: 1 }} 
+                    transition={{ type: "spring", stiffness: 100, damping: 15 }}
+                    className="bg-white p-8 md:p-12 rounded-[2.5rem] shadow-2xl max-w-lg border-2 border-red-200 flex flex-col items-center relative overflow-hidden"
+                >
+                    {/* Floating background blocks */}
+                    <div className="absolute top-0 right-0 w-24 h-24 bg-red-100 rounded-full blur-3xl opacity-50 pointer-events-none" />
+                    <div className="absolute bottom-0 left-0 w-24 h-24 bg-orange-100 rounded-full blur-3xl opacity-50 pointer-events-none" />
+
+                    {/* Speech Bubble */}
+                    <motion.div 
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: 0.5 }}
+                        className="bg-[#576238] text-[#FFD95D] px-6 py-3 rounded-2xl text-xs font-black relative mb-8 shadow-md border border-[#576238] after:content-[''] after:absolute after:top-full after:left-1/2 after:-translate-x-1/2 after:border-8 after:border-transparent after:border-t-[#576238]"
+                    >
+                        "Hey! Where do you think you're going?!"
+                    </motion.div>
+
+                    {/* Shaking Angry Lego Brick */}
+                    <motion.div 
+                        animate={{ 
+                            x: [0, -2, 2, -2, 2, 0],
+                            y: [0, 1, -1, 1, -1, 0]
+                        }}
+                        transition={{ 
+                            repeat: Infinity, 
+                            repeatType: "mirror", 
+                            duration: 1.5, 
+                            ease: "easeInOut" 
+                        }}
+                        className="relative w-36 h-28 bg-red-600 rounded-2xl shadow-[inset_-8px_-8px_0px_rgba(0,0,0,0.2),8px_8px_16px_rgba(0,0,0,0.15)] flex flex-col items-center justify-center mb-8 border border-red-700 cursor-pointer"
+                    >
+                        {/* Lego Studs */}
+                        <div className="absolute -top-3 left-6 w-6 h-3 bg-red-500 rounded-t-md border-t border-red-400 shadow-[inset_-2px_0_0_rgba(0,0,0,0.1)]" />
+                        <div className="absolute -top-3 left-15 w-6 h-3 bg-red-500 rounded-t-md border-t border-red-400 shadow-[inset_-2px_0_0_rgba(0,0,0,0.1)]" />
+                        <div className="absolute -top-3 left-24 w-6 h-3 bg-red-500 rounded-t-md border-t border-red-400 shadow-[inset_-2px_0_0_rgba(0,0,0,0.1)]" />
+
+                        {/* Angry Face */}
+                        <div className="flex flex-col items-center gap-1.5 w-full px-4">
+                            {/* Eyebrows & Eyes */}
+                            <div className="flex justify-between w-full px-2">
+                                {/* Left Eye + Eyebrow */}
+                                <div className="relative flex flex-col items-center">
+                                    <div className="w-6 h-1.5 bg-black rounded-full rotate-[20deg] absolute -top-1" />
+                                    <div className="w-5 h-5 bg-white rounded-full flex items-center justify-center overflow-hidden shadow-inner border border-red-800">
+                                        <div className="w-2.5 h-2.5 bg-black rounded-full absolute translate-y-0.5" />
+                                    </div>
+                                </div>
+                                {/* Right Eye + Eyebrow */}
+                                <div className="relative flex flex-col items-center">
+                                    <div className="w-6 h-1.5 bg-black rounded-full -rotate-[20deg] absolute -top-1" />
+                                    <div className="w-5 h-5 bg-white rounded-full flex items-center justify-center overflow-hidden shadow-inner border border-red-800">
+                                        <div className="w-2.5 h-2.5 bg-black rounded-full absolute translate-y-0.5" />
+                                    </div>
+                                </div>
+                            </div>
+                            {/* Angry Mouth */}
+                            <svg className="w-10 h-4 mt-1 text-black" viewBox="0 0 100 40">
+                                <path d="M 10 30 Q 50 5 90 30" fill="none" stroke="black" strokeWidth="12" strokeLinecap="round" />
+                            </svg>
+                        </div>
+                    </motion.div>
+
+                    <h2 className="text-2xl font-black text-[#576238] mb-3">Access Blocked</h2>
+                    <p className="text-slate-600 mb-8 font-serif leading-relaxed text-sm max-w-sm">
+                        This startup belongs to another user. You do not have permission to view or edit this dashboard.
+                    </p>
+
+                    <Link href="/founder/dashboard">
+                        <Button className="bg-[#576238] hover:bg-[#576238]/90 text-white font-bold px-8 py-3 rounded-2xl shadow-lg hover:shadow-xl transition-all duration-300 transform hover:-translate-y-0.5">
+                            Back to Dashboard
+                        </Button>
+                    </Link>
+                </motion.div>
+            </div>
+        );
+    }
+
     return (
         <div className="min-h-screen bg-gradient-to-br from-[#F0EADC] via-[#fff] to-[#FFD95D]/20">
             {/* Top Navigation Bar */}
@@ -223,7 +364,7 @@ export default function StartupDashboard() {
                                 ) : (
                                     <div className="h-11 w-11 rounded-full bg-[#576238]/10 border-2 border-dashed border-[#576238]/30 group-hover:border-[#576238] flex items-center justify-center transition-all">
                                         {isUploadingLogo
-                                            ? <div className="h-4 w-4 border-2 border-[#576238] border-t-transparent rounded-full animate-spin" />
+                                            ? <LegoSpinner className="h-4 w-4 animate-spin text-[#576238]" />
                                             : <span className="text-[#576238] font-bold text-sm">{startupName?.[0]?.toUpperCase()}</span>
                                         }
                                     </div>

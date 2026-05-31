@@ -11,9 +11,14 @@ import { Checkbox } from "@/components/ui/checkbox";
 import Link from "next/link";
 import LegoIllustration from "@/components/lego/LegoIllustration";
 import { motion } from "framer-motion";
+<<<<<<< HEAD
 import { Loader2, CheckCircle2, Eye, EyeOff, ShieldCheck } from "lucide-react";
+=======
+import { CheckCircle2, Eye, EyeOff } from "lucide-react";
+>>>>>>> 39a4a5fcac3104a30e216f6bb7710f482b848703
 import { useRouter, useSearchParams } from "next/navigation";
 import { createBrowserClient } from "@supabase/auth-helpers-nextjs";
+import LegoSpinner from "@/components/lego/LegoSpinner";
 
 function SignupContent() {
     const [showPassword, setShowPassword] = useState(false);
@@ -27,7 +32,14 @@ function SignupContent() {
             }
             return createBrowserClient(
                 process.env.NEXT_PUBLIC_SUPABASE_URL,
-                process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+                process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+                {
+                    auth: {
+                        lock: async (name, acquireTimeout, fn) => {
+                            return await fn();
+                        }
+                    }
+                }
             );
         } catch (error) {
             console.error("Failed to initialize Supabase client:", error);
@@ -174,6 +186,18 @@ function SignupContent() {
 
         if (!formData.phone.trim()) {
             errors.phone = "Phone number is required";
+        } else {
+            const validCharsRegex = /^[+]?[0-9\s\-()]+$/;
+            if (!validCharsRegex.test(formData.phone)) {
+                errors.phone = "Phone number can only contain numbers, spaces, hyphens, parentheses, and a leading +";
+            } else {
+                const digits = formData.phone.replace(/\D/g, "");
+                if (digits.length < 7) {
+                    errors.phone = "Phone number must contain at least 7 digits";
+                } else if (digits.length > 15) {
+                    errors.phone = "Phone number cannot exceed 15 digits";
+                }
+            }
         }
 
         if (!formData.addressRegion && formData.userType !== "investor") {
@@ -404,8 +428,85 @@ function SignupContent() {
     }
 
     return (
-        <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-[#F0EADC] via-[#fff] to-[#FFD95D]/20">
-            <div className="w-full max-w-6xl grid md:grid-cols-2 gap-8 items-center">
+        <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-[#F0EADC] via-[#fff] to-[#FFD95D]/20 relative overflow-hidden">
+            {/* Background 3D-style floating Lego blocks */}
+            <div className="absolute inset-0 overflow-hidden pointer-events-none z-0">
+                {/* Block 1: Forest Green (Top Left) */}
+                <motion.div
+                    animate={{ y: [-10, 10, -10], rotate: [-5, 5, -5] }}
+                    transition={{ repeat: Infinity, duration: 6, ease: "easeInOut" }}
+                    className="absolute top-[10%] left-[8%] w-24 h-16 opacity-20 lg:opacity-35 hidden sm:block"
+                >
+                    <div className="w-full h-12 bg-[#576238] rounded-xl shadow-2xl relative border border-white/10">
+                        <div className="absolute -top-2 left-3 w-4 h-3 bg-[#576238] rounded-t-md shadow-inner" />
+                        <div className="absolute -top-2 left-10 w-4 h-3 bg-[#576238] rounded-t-md shadow-inner" />
+                        <div className="absolute -top-2 left-17 w-4 h-3 bg-[#576238] rounded-t-md shadow-inner" />
+                    </div>
+                </motion.div>
+
+                {/* Block 2: Golden Yellow (Top Right) */}
+                <motion.div
+                    animate={{ y: [8, -8, 8], rotate: [4, -4, 4] }}
+                    transition={{ repeat: Infinity, duration: 7, ease: "easeInOut" }}
+                    className="absolute top-[15%] right-[10%] w-20 h-14 opacity-20 lg:opacity-35 hidden sm:block"
+                >
+                    <div className="w-full h-10 bg-[#FFD95D] rounded-xl shadow-2xl relative border border-white/10">
+                        <div className="absolute -top-2 left-4 w-4 h-3 bg-[#FFD95D] rounded-t-md shadow-inner" />
+                        <div className="absolute -top-2 left-12 w-4 h-3 bg-[#FFD95D] rounded-t-md shadow-inner" />
+                    </div>
+                </motion.div>
+
+                {/* Block 3: Coral Red (Middle Left) */}
+                <motion.div
+                    animate={{ y: [12, -12, 12], x: [-5, 5, -5] }}
+                    transition={{ repeat: Infinity, duration: 8, ease: "easeInOut" }}
+                    className="absolute top-[50%] left-[5%] w-16 h-12 opacity-15 lg:opacity-25 hidden md:block"
+                >
+                    <div className="w-full h-8 bg-[#ff6b6b] rounded-xl shadow-2xl relative border border-white/10">
+                        <div className="absolute -top-2 left-3 w-3 h-2 bg-[#ff6b6b] rounded-t-md shadow-inner" />
+                        <div className="absolute -top-2 left-9 w-3 h-2 bg-[#ff6b6b] rounded-t-md shadow-inner" />
+                    </div>
+                </motion.div>
+
+                {/* Block 4: Sky Blue (Middle Right) */}
+                <motion.div
+                    animate={{ y: [-15, 15, -15], rotate: [-6, 6, -6] }}
+                    transition={{ repeat: Infinity, duration: 9, ease: "easeInOut" }}
+                    className="absolute top-[55%] right-[8%] w-24 h-16 opacity-15 lg:opacity-25 hidden md:block"
+                >
+                    <div className="w-full h-12 bg-[#4a90e2] rounded-xl shadow-2xl relative border border-white/10">
+                        <div className="absolute -top-2 left-3 w-4 h-3 bg-[#4a90e2] rounded-t-md shadow-inner" />
+                        <div className="absolute -top-2 left-10 w-4 h-3 bg-[#4a90e2] rounded-t-md shadow-inner" />
+                        <div className="absolute -top-2 left-17 w-4 h-3 bg-[#4a90e2] rounded-t-md shadow-inner" />
+                    </div>
+                </motion.div>
+
+                {/* Block 5: Sage Green (Bottom Left) */}
+                <motion.div
+                    animate={{ y: [-8, 8, -8], rotate: [3, -3, 3] }}
+                    transition={{ repeat: Infinity, duration: 6.5, ease: "easeInOut" }}
+                    className="absolute bottom-[12%] left-[10%] w-20 h-14 opacity-20 lg:opacity-30 hidden sm:block"
+                >
+                    <div className="w-full h-10 bg-[#8b9456] rounded-xl shadow-2xl relative border border-white/10">
+                        <div className="absolute -top-2 left-4 w-4 h-3 bg-[#8b9456] rounded-t-md shadow-inner" />
+                        <div className="absolute -top-2 left-12 w-4 h-3 bg-[#8b9456] rounded-t-md shadow-inner" />
+                    </div>
+                </motion.div>
+
+                {/* Block 6: Orange/Brown (Bottom Right) */}
+                <motion.div
+                    animate={{ y: [10, -10, 10], x: [3, -3, 3] }}
+                    transition={{ repeat: Infinity, duration: 7.5, ease: "easeInOut" }}
+                    className="absolute bottom-[10%] right-[12%] w-16 h-12 opacity-20 lg:opacity-30 hidden sm:block"
+                >
+                    <div className="w-full h-8 bg-[#d4cbb8] rounded-xl shadow-2xl relative border border-white/10">
+                        <div className="absolute -top-2 left-3 w-3 h-2 bg-[#d4cbb8] rounded-t-md shadow-inner" />
+                        <div className="absolute -top-2 left-9 w-3 h-2 bg-[#d4cbb8] rounded-t-md shadow-inner" />
+                    </div>
+                </motion.div>
+            </div>
+
+            <div className="w-full max-w-6xl grid md:grid-cols-2 gap-8 items-center z-10">
                 {/* Left side - Illustration */}
                 <motion.div
                     initial={{ opacity: 0, x: -50 }}
@@ -760,7 +861,7 @@ function SignupContent() {
                                         >
                                             {loading ? (
                                                 <>
-                                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                                    <LegoSpinner className="mr-2 h-4 w-4 animate-spin" />
                                                     Creating Account...
                                                 </>
                                             ) : (
@@ -837,7 +938,7 @@ export default function SignupPage() {
     return (
         <Suspense fallback={
             <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-[#F0EADC] via-[#fff] to-[#FFD95D]/20">
-                <Loader2 className="h-8 w-8 animate-spin text-[#576238]" />
+                <LegoSpinner className="h-8 w-8 animate-spin text-[#576238]" />
             </div>
         }>
             <SignupContent />

@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useState, useRef, useEffect } from "react";
 import type { ChangeEvent } from "react";
@@ -7,13 +7,14 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { ArrowLeft, Save, Trash2, Camera, Loader2 } from "lucide-react";
+import { ArrowLeft, Save, Trash2, Camera } from "lucide-react";
 // Link import removed since we are using router.back()
 import { motion } from "framer-motion";
 import { useRouter } from "next/navigation";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { userService } from "@/services/userService";
 import { useAuth } from "@/context/AuthContext";
+import LegoSpinner from "@/components/lego/LegoSpinner";
 
 interface ProfileData {
     fname: string;
@@ -83,6 +84,28 @@ export default function ProfilePage() {
     };
 
     const handleSave = async () => {
+        if (!profile.phoneNumber.trim()) {
+            setStatusMessage("Error: Phone number is required.");
+            return;
+        }
+
+        const validCharsRegex = /^[+]?[0-9\s\-()]+$/;
+        if (!validCharsRegex.test(profile.phoneNumber)) {
+            setStatusMessage("Error: Phone number can only contain numbers, spaces, hyphens, parentheses, and a leading +");
+            return;
+        }
+
+        const digits = profile.phoneNumber.replace(/\D/g, "");
+        if (digits.length < 7) {
+            setStatusMessage("Error: Phone number must contain at least 7 digits.");
+            return;
+        }
+
+        if (digits.length > 15) {
+            setStatusMessage("Error: Phone number cannot exceed 15 digits.");
+            return;
+        }
+
         setIsLoading(true);
         setStatusMessage(null);
 
@@ -132,7 +155,83 @@ export default function ProfilePage() {
     };
 
     return (
-        <div className="min-h-screen bg-gradient-to-br from-[#F0EADC] via-[#fff] to-[#FFD95D]/20">
+        <div className="min-h-screen bg-gradient-to-br from-[#F0EADC] via-[#fff] to-[#FFD95D]/20 relative overflow-hidden">
+    {/* Background floating Lego blocks */}
+    <div className="absolute inset-0 overflow-hidden pointer-events-none z-0">
+        {/* Block 1: Forest Green (Top Left) */}
+        <motion.div
+            animate={{ y: [-10, 10, -10], rotate: [-5, 5, -5] }}
+            transition={{ repeat: Infinity, duration: 6, ease: "easeInOut" }}
+            className="absolute top-[10%] left-[8%] w-24 h-16 opacity-20 lg:opacity-35 hidden sm:block"
+        >
+            <div className="w-full h-12 bg-[#576238] rounded-xl shadow-2xl relative border border-white/10">
+                <div className="absolute -top-2 left-3 w-4 h-3 bg-[#576238] rounded-t-md shadow-inner" />
+                <div className="absolute -top-2 left-10 w-4 h-3 bg-[#576238] rounded-t-md shadow-inner" />
+                <div className="absolute -top-2 left-17 w-4 h-3 bg-[#576238] rounded-t-md shadow-inner" />
+            </div>
+        </motion.div>
+
+        {/* Block 2: Golden Yellow (Top Right) */}
+        <motion.div
+            animate={{ y: [8, -8, 8], rotate: [4, -4, 4] }}
+            transition={{ repeat: Infinity, duration: 7, ease: "easeInOut" }}
+            className="absolute top-[15%] right-[10%] w-20 h-14 opacity-20 lg:opacity-35 hidden sm:block"
+        >
+            <div className="w-full h-10 bg-[#FFD95D] rounded-xl shadow-2xl relative border border-white/10">
+                <div className="absolute -top-2 left-4 w-4 h-3 bg-[#FFD95D] rounded-t-md shadow-inner" />
+                <div className="absolute -top-2 left-12 w-4 h-3 bg-[#FFD95D] rounded-t-md shadow-inner" />
+            </div>
+        </motion.div>
+
+        {/* Block 3: Coral Red (Middle Left) */}
+        <motion.div
+            animate={{ y: [12, -12, 12], x: [-5, 5, -5] }}
+            transition={{ repeat: Infinity, duration: 8, ease: "easeInOut" }}
+            className="absolute top-[50%] left-[5%] w-16 h-12 opacity-15 lg:opacity-25 hidden md:block"
+        >
+            <div className="w-full h-8 bg-[#ff6b6b] rounded-xl shadow-2xl relative border border-white/10">
+                <div className="absolute -top-2 left-3 w-3 h-2 bg-[#ff6b6b] rounded-t-md shadow-inner" />
+                <div className="absolute -top-2 left-9 w-3 h-2 bg-[#ff6b6b] rounded-t-md shadow-inner" />
+            </div>
+        </motion.div>
+
+        {/* Block 4: Sky Blue (Middle Right) */}
+        <motion.div
+            animate={{ y: [-15, 15, -15], rotate: [-6, 6, -6] }}
+            transition={{ repeat: Infinity, duration: 9, ease: "easeInOut" }}
+            className="absolute top-[55%] right-[8%] w-24 h-16 opacity-15 lg:opacity-25 hidden md:block"
+        >
+            <div className="w-full h-12 bg-[#4a90e2] rounded-xl shadow-2xl relative border border-white/10">
+                <div className="absolute -top-2 left-3 w-4 h-3 bg-[#4a90e2] rounded-t-md shadow-inner" />
+                <div className="absolute -top-2 left-10 w-4 h-3 bg-[#4a90e2] rounded-t-md shadow-inner" />
+                <div className="absolute -top-2 left-17 w-4 h-3 bg-[#4a90e2] rounded-t-md shadow-inner" />
+            </div>
+        </motion.div>
+
+        {/* Block 5: Sage Green (Bottom Left) */}
+        <motion.div
+            animate={{ y: [-8, 8, -8], rotate: [3, -3, 3] }}
+            transition={{ repeat: Infinity, duration: 6.5, ease: "easeInOut" }}
+            className="absolute bottom-[12%] left-[10%] w-20 h-14 opacity-20 lg:opacity-30 hidden sm:block"
+        >
+            <div className="w-full h-10 bg-[#8b9456] rounded-xl shadow-2xl relative border border-white/10">
+                <div className="absolute -top-2 left-4 w-4 h-3 bg-[#8b9456] rounded-t-md shadow-inner" />
+                <div className="absolute -top-2 left-12 w-4 h-3 bg-[#8b9456] rounded-t-md shadow-inner" />
+            </div>
+        </motion.div>
+
+        {/* Block 6: Sandy Tan (Bottom Right) */}
+        <motion.div
+            animate={{ y: [10, -10, 10], x: [3, -3, 3] }}
+            transition={{ repeat: Infinity, duration: 7.5, ease: "easeInOut" }}
+            className="absolute bottom-[10%] right-[12%] w-16 h-12 opacity-20 lg:opacity-30 hidden sm:block"
+        >
+            <div className="w-full h-8 bg-[#d4cbb8] rounded-xl shadow-2xl relative border border-white/10">
+                <div className="absolute -top-2 left-3 w-3 h-2 bg-[#d4cbb8] rounded-t-md shadow-inner" />
+                <div className="absolute -top-2 left-9 w-3 h-2 bg-[#d4cbb8] rounded-t-md shadow-inner" />
+            </div>
+        </motion.div>
+    </div>
             {/* Top Navigation Bar */}
             <div className="border-b bg-white/80 backdrop-blur-lg sticky top-0 z-50 shadow-sm">
                 <div className="flex w-full items-center px-6 md:px-12 py-4">
@@ -217,7 +316,7 @@ export default function ProfilePage() {
 
                                 <div className="flex flex-col sm:flex-row gap-4 pt-4 border-t">
                                     <Button onClick={handleSave} disabled={isLoading} className="flex-1 bg-[#576238] hover:bg-[#6b7c3f]">
-                                        {isLoading ? (<><Loader2 className="mr-2 h-4 w-4 animate-spin" />Saving...</>) : (<><Save className="mr-2 h-4 w-4" />Save Changes</>)}
+                                        {isLoading ? (<><LegoSpinner className="mr-2 h-4 w-4 animate-spin" />Saving...</>) : (<><Save className="mr-2 h-4 w-4" />Save Changes</>)}
                                     </Button>
                                     <AlertDialog>
                                         <AlertDialogTrigger asChild>

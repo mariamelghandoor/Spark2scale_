@@ -2,7 +2,7 @@
 import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Presentation, Table, Scale, ArrowLeft, Upload, FileText, Plus, Eye, Send, Star, Users, Edit, Loader2, Trash2, Sparkles, RefreshCw, Bot, History, X, Download } from "lucide-react";
+import { Presentation, Table, Scale, ArrowLeft, Upload, FileText, Plus, Eye, Send, Star, Users, Edit, Trash2, Sparkles, RefreshCw, Bot, History, X, Download } from "lucide-react";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import { useParams, useRouter } from "next/navigation";
@@ -11,6 +11,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useAuth } from "@/context/AuthContext";
+import LegoSpinner from "@/components/lego/LegoSpinner";
 import {
     documentsService,
     REQUIRED_DOCS,
@@ -310,7 +311,7 @@ export default function DocumentsPage() {
                                                     disabled={isPptGenerating}
                                                 >
                                                     {isPptGenerating
-                                                        ? <><Loader2 className="h-3 w-3 mr-1.5 animate-spin" /> Generating…</>
+                                                        ? <><LegoSpinner className="h-3 w-3 mr-1.5 animate-spin" /> Generating…</>
                                                         : pptUrl
                                                             ? <><RefreshCw className="h-3 w-3 mr-1.5" /> Regenerate</>
                                                             : <><Sparkles className="h-3 w-3 mr-1.5" /> Generate PPT</>
@@ -345,7 +346,7 @@ export default function DocumentsPage() {
                         {/* ── Required Docs List ── */}
                         {isLoadingData ? (
                             <div className="text-center py-20">
-                                <Loader2 className="h-10 w-10 animate-spin mx-auto text-[#576238] opacity-50" />
+                                <LegoSpinner className="h-10 w-10 animate-spin mx-auto text-[#576238] opacity-50" />
                             </div>
                         ) : (
                             <div className="space-y-4">
@@ -378,14 +379,14 @@ export default function DocumentsPage() {
                                                                     <Button variant="outline" size="sm" className="h-8 text-xs border-gray-200" onClick={() => handleEvaluate(state?.dbId)}><Star className="h-3 w-3 mr-1.5" /> Evaluate</Button>
                                                                     <Button variant="outline" size="sm" className="h-8 text-xs border-gray-200" onClick={() => handleRecommend(state?.dbId)}><Edit className="h-3 w-3 mr-1.5" /> Recommend</Button>
                                                                     <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-400 hover:text-red-500 ml-auto" onClick={() => handleDelete(state?.dbId)}>
-                                                                        {deletingId === state?.dbId ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
+                                                                        {deletingId === state?.dbId ? <LegoSpinner className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
                                                                     </Button>
                                                                     <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-400 hover:text-[#576238]" onClick={() => triggerUpload(config.id)}><RefreshCw className="h-3 w-3" /></Button>
                                                                 </>
                                                             ) : (
                                                                 <>
                                                                     <Button variant="outline" size="sm" className="h-8 text-xs border-gray-300 hover:bg-gray-50" onClick={() => triggerUpload(config.id)} disabled={uploadingId === config.id}>
-                                                                        {uploadingId === config.id ? <Loader2 className="h-3 w-3 mr-1.5 animate-spin" /> : <Upload className="h-3 w-3 mr-1.5" />} Upload
+                                                                        {uploadingId === config.id ? <LegoSpinner className="h-3 w-3 mr-1.5 animate-spin" /> : <Upload className="h-3 w-3 mr-1.5" />} Upload
                                                                     </Button>
                                                                     <Button size="sm" className="h-8 text-xs bg-[#576238] hover:bg-[#464f2d] text-white shadow-sm" onClick={() => handleGenerateClick(config.id, config.aiPrompt)}>
                                                                         <Sparkles className="h-3 w-3 mr-1.5" /> AI Generate
@@ -404,7 +405,7 @@ export default function DocumentsPage() {
 
                         <div className="pt-4 text-center">
                             <Button size="lg" className="w-full sm:w-auto bg-[#FFD95D] hover:bg-[#ffe89a] text-black font-semibold px-8" onClick={handleCompleteStage} disabled={isCompleting}>
-                                {isCompleting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : "Complete Documents Stage"}
+                                {isCompleting ? <LegoSpinner className="mr-2 h-4 w-4 animate-spin" /> : "Complete Documents Stage"}
                             </Button>
                         </div>
                     </div>
@@ -458,7 +459,7 @@ export default function DocumentsPage() {
 
                                     <ScrollArea className="h-full p-4">
                                         {isChatLoading ? (
-                                            <div className="flex justify-center items-center h-full opacity-50"><Loader2 className="h-6 w-6 animate-spin" /></div>
+                                            <div className="flex justify-center items-center h-full opacity-50"><LegoSpinner className="h-6 w-6 animate-spin" /></div>
                                         ) : (
                                             <div className="space-y-4">
                                                 {messages.map((m, i) => (
@@ -475,7 +476,7 @@ export default function DocumentsPage() {
                                                                     className="mt-2 h-7 text-[10px] border-[#576238] text-[#576238] hover:bg-[#576238] hover:text-white transition-colors"
                                                                     onClick={() => handleGenerateAction(chatContext)}
                                                                 >
-                                                                    {isGeneratingDoc ? <Loader2 className="h-3 w-3 mr-1.5 animate-spin" /> : <Sparkles className="h-3 w-3 mr-1.5" />}
+                                                                    {isGeneratingDoc ? <LegoSpinner className="h-3 w-3 mr-1.5 animate-spin" /> : <Sparkles className="h-3 w-3 mr-1.5" />}
                                                                     Generate {getCurrentContextName()}
                                                                 </Button>
                                                             </motion.div>

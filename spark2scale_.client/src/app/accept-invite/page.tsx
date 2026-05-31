@@ -4,9 +4,10 @@ import { useEffect, useState, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Check, AlertCircle, Loader2 } from "lucide-react";
+import { Check, AlertCircle } from "lucide-react";
 import { motion } from "framer-motion";
 import apiClient from "@/lib/apiClient";
+import LegoSpinner from "@/components/lego/LegoSpinner";
 
 function AcceptInviteContent() {
     const searchParams = useSearchParams();
@@ -81,7 +82,7 @@ function AcceptInviteContent() {
 
                     {status === "loading" && (
                         <div className="py-8">
-                            <Loader2 className="w-10 h-10 text-[#576238] animate-spin mx-auto mb-4" />
+                            <LegoSpinner className="w-10 h-10 text-[#576238] animate-spin mx-auto mb-4" />
                             <p className="text-[#576238] font-medium">Joining workspace...</p>
                         </div>
                     )}

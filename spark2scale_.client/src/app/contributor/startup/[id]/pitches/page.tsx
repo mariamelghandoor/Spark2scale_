@@ -3,13 +3,14 @@
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { ArrowLeft, Play, Download, Info, Eye, Loader2 } from "lucide-react";
+import { ArrowLeft, Play, Download, Info, Eye } from "lucide-react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { pitchDeckService, PitchDeck } from "@/services/pitchDeckService";
 import ContributorHeader from "@/components/contributor/ContributorHeader";
+import LegoSpinner from "@/components/lego/LegoSpinner";
 
 export default function ContributorPitchesPage() {
     const params = useParams();
@@ -128,7 +129,7 @@ export default function ContributorPitchesPage() {
                     {/* Pitches Grid */}
                     {isLoading ? (
                         <div className="flex justify-center py-10">
-                            <Loader2 className="h-8 w-8 animate-spin text-[#576238]" />
+                            <LegoSpinner className="h-8 w-8 animate-spin text-[#576238]" />
                         </div>
                     ) : pitches.length === 0 ? (
                         <div className="text-center py-10">

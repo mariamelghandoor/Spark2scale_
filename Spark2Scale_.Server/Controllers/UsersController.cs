@@ -1,4 +1,4 @@
-﻿// Spark2Scale_.Server/Controllers/UsersController.cs
+// Spark2Scale_.Server/Controllers/UsersController.cs
 using Microsoft.AspNetCore.Mvc;
 using Spark2Scale_.Server.Models;
 using Supabase;
@@ -160,14 +160,37 @@ namespace Spark2Scale_.Server.Controllers
             }
         }
 
+        private string GetToken()
+        {
+            var header = Request.Headers["Authorization"].FirstOrDefault();
+            return header?.StartsWith("Bearer ") == true ? header.Substring(7) : "";
+        }
+
         // DELETE: api/users/delete-profile/{userId}
         [HttpDelete("delete-profile/{userId}")]
         public async Task<IActionResult> DeleteProfile(string userId)
         {
             if (!Guid.TryParse(userId, out Guid uid)) return BadRequest("Invalid User ID");
 
+            var token = GetToken();
+            if (string.IsNullOrWhiteSpace(token))
+            {
+                return Unauthorized(new { message = "Authentication token is missing." });
+            }
+
             try
             {
+                var user = await _supabase.Auth.GetUser(token);
+                if (user == null || string.IsNullOrEmpty(user.Id))
+                {
+                    return Unauthorized(new { message = "Invalid or expired session token." });
+                }
+
+                if (!Guid.TryParse(user.Id, out Guid authenticatedUid) || authenticatedUid != uid)
+                {
+                    return StatusCode(403, "Forbidden");
+                }
+
                 await _supabase.From<User>().Where(u => u.uid == uid).Delete();
                 return Ok(new { message = "User deleted successfully" });
             }
@@ -176,6 +199,7 @@ namespace Spark2Scale_.Server.Controllers
                 return StatusCode(500, $"Error deleting user: {ex.Message}");
             }
         }
+
 
         [HttpGet("{id}")]
         public async Task<IActionResult> GetUser(Guid id)

@@ -9,8 +9,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { ArrowLeft, Mail } from "lucide-react";
-import { Loader2 } from "lucide-react";
-
+import LegoSpinner from "@/components/lego/LegoSpinner";
 export default function ForgotPasswordPage() {
     const [email, setEmail] = useState("");
     const [loading, setLoading] = useState(false);
@@ -177,7 +176,7 @@ export default function ForgotPasswordPage() {
                                 >
                                     {loading ? (
                                         <>
-                                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                            <LegoSpinner className="mr-2 h-4 w-4 animate-spin" />
                                             Sending...
                                         </>
                                     ) : (

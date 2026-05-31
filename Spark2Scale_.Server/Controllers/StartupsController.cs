@@ -36,6 +36,12 @@ namespace Spark2Scale_.Server.Controllers
             _httpClientFactory = httpClientFactory;
         }
 
+        private string GetToken()
+        {
+            var header = Request.Headers["Authorization"].FirstOrDefault();
+            return header?.StartsWith("Bearer ") == true ? header.Substring(7) : "";
+        }
+
         public class MarketResearchRequest
         {
             public string Region { get; set; }
@@ -158,6 +164,10 @@ namespace Spark2Scale_.Server.Controllers
         {
             if (!Guid.TryParse(id, out Guid sId)) return BadRequest("Invalid ID format");
             if (file == null || file.Length == 0) return BadRequest("No file provided.");
+
+            var token = GetToken();
+            if (string.IsNullOrEmpty(token)) return Unauthorized("Missing authorization token.");
+            if (!await _access.IsFounderOrOwner(token, sId)) return StatusCode(403, "Only the Founder can upload a logo.");
 
             try
             {
@@ -287,8 +297,13 @@ namespace Spark2Scale_.Server.Controllers
         public async Task<IActionResult> GetStartupById(string id)
         {
             if (!Guid.TryParse(id, out Guid sId)) return BadRequest("Invalid ID format");
+
+            var token = GetToken();
+            if (string.IsNullOrEmpty(token)) return Unauthorized("Missing authorization token.");
+
             try
             {
+<<<<<<< HEAD
                 var authHeader = Request.Headers["Authorization"].FirstOrDefault();
                 string? bearer = (!string.IsNullOrEmpty(authHeader) && authHeader.StartsWith("Bearer "))
                     ? authHeader.Substring("Bearer ".Length).Trim()
@@ -330,9 +345,51 @@ namespace Spark2Scale_.Server.Controllers
                                 })
                                 .Get();
                             if (contrib.Models.Any()) role = contrib.Models.First().Role ?? "Contributor";
+=======
+                var user = await _supabase.Auth.GetUser(token);
+                if (user == null || !Guid.TryParse(user.Id, out Guid currentUserId))
+                {
+                    return Unauthorized("Invalid or expired session token.");
+                }
+
+                var startup = (await _supabase.From<Startup>().Select(SAFE_COLS).Where(s => s.Sid == sId).Get()).Models.FirstOrDefault();
+                if (startup == null) return NotFound("Startup not found");
+
+                string? role = null;
+                bool isAuthorized = false;
+
+                if (startup.FounderId == currentUserId)
+                {
+                    isAuthorized = true;
+                    role = "Founder";
+                }
+                else
+                {
+                    var contrib = await _supabase.From<StartupContributor>().Match(new Dictionary<string, string> { { "startup_id", sId.ToString() }, { "user_id", currentUserId.ToString() } }).Get();
+                    if (contrib.Models.Any())
+                    {
+                        isAuthorized = true;
+                        role = contrib.Models.First().Role ?? "Contributor";
+                    }
+                    else
+                    {
+                        var investorCheck = await _supabase.From<Investor>().Where(i => i.user_id == currentUserId).Get();
+                        if (investorCheck.Models.Any())
+                        {
+                            isAuthorized = true;
+                            role = "Investor";
+>>>>>>> 39a4a5fcac3104a30e216f6bb7710f482b848703
                         }
                         catch { }
                     }
+<<<<<<< HEAD
+=======
+                }
+
+                if (!isAuthorized)
+                {
+                    return StatusCode(403, $"Forbidden: startup.FounderId is '{startup.FounderId}', currentUserId is '{currentUserId}'");
+>>>>>>> 39a4a5fcac3104a30e216f6bb7710f482b848703
                 }
 
                 int progressCount = 0;
@@ -585,6 +642,10 @@ namespace Spark2Scale_.Server.Controllers
         {
             if (!Guid.TryParse(id, out Guid sId)) return BadRequest("Invalid ID format");
 
+            var token = GetToken();
+            if (string.IsNullOrEmpty(token)) return Unauthorized("Missing authorization token.");
+            if (!await _access.IsFounderOrOwner(token, sId)) return StatusCode(403, "Only the Founder can generate market research.");
+
             try
             {
                 var startup = (await _supabase.From<Startup>().Select(SAFE_COLS).Where(s => s.Sid == sId).Get()).Models.FirstOrDefault();
@@ -826,16 +887,27 @@ namespace Spark2Scale_.Server.Controllers
         {
             if (!Guid.TryParse(id, out Guid sId)) return BadRequest();
 
-            var rawJson = input.JsonResponse.GetRawText();
-            var supabaseSafeJson = JsonConvert.DeserializeObject<object>(rawJson);
+            var token = GetToken();
+            if (string.IsNullOrEmpty(token)) return Unauthorized("Missing authorization token.");
+            if (!await _access.IsFounderOrOwner(token, sId)) return StatusCode(403, "Only the Founder can update recommendation data.");
 
-            await _supabase.From<Startup>()
-                .Where(s => s.Sid == sId)
-                .Set(s => s.JsonResponse, supabaseSafeJson)
-                .Set(s => s.CurrentIteration, input.CurrentIteration)
-                .Update();
+            try
+            {
+                var rawJson = input.JsonResponse.GetRawText();
+                var supabaseSafeJson = JsonConvert.DeserializeObject<object>(rawJson);
 
-            return Ok(new { message = "Recommendation saved.", iteration = input.CurrentIteration });
+                await _supabase.From<Startup>()
+                    .Where(s => s.Sid == sId)
+                    .Set(s => s.JsonResponse, supabaseSafeJson)
+                    .Set(s => s.CurrentIteration, input.CurrentIteration)
+                    .Update();
+
+                return Ok(new { message = "Recommendation saved.", iteration = input.CurrentIteration });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, $"Error updating recommendation data: {ex.Message}");
+            }
         }
 
         [HttpPut("update-json/{id}")]
@@ -845,10 +917,9 @@ namespace Spark2Scale_.Server.Controllers
 
             try
             {
-                // 1. (Optional) Check Authorization just like you did in UpdateIdea
-                // var token = Request.Headers["Authorization"].FirstOrDefault()?.Replace("Bearer ", "");
-                // if (string.IsNullOrEmpty(token)) return Unauthorized("Missing authorization token.");
-                // if (!await _access.IsFounderOrOwner(token, sId)) return StatusCode(403, "Only the Founder can update data.");
+                var token = GetToken();
+                if (string.IsNullOrEmpty(token)) return Unauthorized("Missing authorization token.");
+                if (!await _access.IsFounderOrOwner(token, sId)) return StatusCode(403, "Only the Founder can update data.");
 
                 // 2. Parse the JSON safely for the Supabase C# Client
                 var rawJson = input.jsonResponse.GetRawText();
@@ -874,7 +945,7 @@ namespace Spark2Scale_.Server.Controllers
             if (!Guid.TryParse(id, out Guid sId)) return BadRequest("Invalid ID format");
             try
             {
-                var token = Request.Headers["Authorization"].FirstOrDefault()?.Replace("Bearer ", "");
+                var token = GetToken();
                 if (string.IsNullOrEmpty(token)) return Unauthorized("Missing authorization token.");
                 if (!await _access.IsFounderOrOwner(token, sId)) return StatusCode(403, "Only the Founder can delete this startup.");
 

@@ -5,8 +5,9 @@ import { useParams, useSearchParams } from "next/navigation"; // Added useSearch
 import { pitchDeckService, PitchDeck } from "@/services/pitchDeckService";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { ArrowLeft, CheckCircle, Mic, Activity, Loader2 } from "lucide-react";
+import { ArrowLeft, CheckCircle, Mic, Activity } from "lucide-react";
 import Link from "next/link";
+import LegoSpinner from "@/components/lego/LegoSpinner";
 
 export default function PitchDetailsPage() {
     const params = useParams();
@@ -49,7 +50,7 @@ export default function PitchDetailsPage() {
     if (loading) {
         return (
             <div className="min-h-screen bg-[#F0EADC]/30 flex flex-col items-center justify-center gap-4">
-                <Loader2 className="h-8 w-8 animate-spin text-[#576238]" />
+                <LegoSpinner className="h-8 w-8 animate-spin text-[#576238]" />
                 <p className="text-[#576238]">Loading Detailed Analysis...</p>
             </div>
         );

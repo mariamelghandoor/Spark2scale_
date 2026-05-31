@@ -2,9 +2,22 @@
 
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
+import { usePathname } from "next/navigation";
 import { motion } from "framer-motion";
 
 export default function Navbar() {
+    const pathname = usePathname();
+
+    const handlePlansClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
+        if (pathname === "/") {
+            e.preventDefault();
+            const element = document.getElementById("pricing");
+            if (element) {
+                element.scrollIntoView({ behavior: "smooth" });
+            }
+        }
+    };
+
     return (
         <motion.nav
             initial={{ y: -20, opacity: 0 }}
@@ -26,7 +39,7 @@ export default function Navbar() {
                 </Link>
 
                 <div className="flex items-center gap-4">
-                    <Link href="/plans">
+                    <Link href="/#pricing" onClick={handlePlansClick}>
                         <Button variant="outline" className="font-semibold">
                             Plans
                         </Button>

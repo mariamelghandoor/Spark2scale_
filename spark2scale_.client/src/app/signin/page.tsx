@@ -10,10 +10,45 @@ import Link from "next/link";
 import LegoIllustration from "@/components/lego/LegoIllustration";
 import { motion } from "framer-motion";
 import { useRouter } from "next/navigation";
-import { Loader2, Eye, EyeOff } from "lucide-react";
+import { Eye, EyeOff } from "lucide-react";
 import { handleAuthSuccess, User, getDashboardRoute, resolveUserType, setCookie } from "@/lib/auth";
 import { useAuth } from "@/context/AuthContext";
 import { createBrowserClient } from "@supabase/auth-helpers-nextjs";
+import LegoSpinner from "@/components/lego/LegoSpinner";
+
+function extractCleanErrorMessage(inputMsg: string): string {
+    if (!inputMsg) return '';
+    const trimmed = inputMsg.trim();
+    
+    // Check if it is a JSON string
+    if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+        try {
+            const parsed = JSON.parse(trimmed);
+            if (parsed.msg) return extractCleanErrorMessage(parsed.msg);
+            if (parsed.message) return extractCleanErrorMessage(parsed.message);
+            if (parsed.error_description) return extractCleanErrorMessage(parsed.error_description);
+            if (parsed.error) return extractCleanErrorMessage(parsed.error);
+        } catch {
+            // Ignore parse errors
+        }
+    }
+    
+    // Sometimes it's a JSON string nested inside a wrapper like: "Request failed (400): {"code":400,...}"
+    const jsonMatch = trimmed.match(/\{.*\}/);
+    if (jsonMatch) {
+        try {
+            const parsed = JSON.parse(jsonMatch[0]);
+            if (parsed.msg) return extractCleanErrorMessage(parsed.msg);
+            if (parsed.message) return extractCleanErrorMessage(parsed.message);
+            if (parsed.error_description) return extractCleanErrorMessage(parsed.error_description);
+            if (parsed.error) return extractCleanErrorMessage(parsed.error);
+        } catch {
+            // Ignore parse errors
+        }
+    }
+    
+    return inputMsg;
+}
 
 export default function SigninPage() {
     const router = useRouter();
@@ -27,7 +62,14 @@ export default function SigninPage() {
             }
             return createBrowserClient(
                 process.env.NEXT_PUBLIC_SUPABASE_URL,
-                process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+                process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+                {
+                    auth: {
+                        lock: async (name, acquireTimeout, fn) => {
+                            return await fn();
+                        }
+                    }
+                }
             );
         } catch (error) {
             console.error("Failed to initialize Supabase client:", error);
@@ -143,6 +185,8 @@ export default function SigninPage() {
                             data.message = Object.values(data.errors).flat().join(" ");
                         } else if (data.title && !data.message) {
                             data.message = data.title as string;
+                        } else if (data.msg && !data.message) {
+                            data.message = data.msg as string;
                         }
                     } catch (parseError) {
                         console.error('JSON parse error:', parseError);
@@ -158,8 +202,9 @@ export default function SigninPage() {
                     responseText = await clonedResponse.text().catch(() => '');
                     if (responseText && !data.message && !data.detail) {
                         try {
-                            const parsedText = JSON.parse(responseText) as { message?: string; detail?: string; title?: string; errors?: Record<string, string[]>; [key: string]: unknown };
+                            const parsedText = JSON.parse(responseText) as { message?: string; detail?: string; title?: string; msg?: string; errors?: Record<string, string[]>; [key: string]: unknown };
                             if (parsedText.message) data.message = parsedText.message;
+                            if (parsedText.msg) data.message = parsedText.msg;
                             if (parsedText.detail) data.detail = parsedText.detail;
                             if (parsedText.errors) {
                                 data.message = Object.values(parsedText.errors).flat().join(" ");
@@ -174,9 +219,11 @@ export default function SigninPage() {
                     // Ignore if we can't read response
                 }
 
-                const errorMsg = (typeof data.message === 'string' ? data.message : '') ||
+                let errorMsg = (typeof data.message === 'string' ? data.message : '') ||
                     (typeof data.detail === 'string' ? data.detail : '') ||
                     `Sign in failed (${response.status}). Please check your credentials.`;
+
+                errorMsg = extractCleanErrorMessage(errorMsg);
 
                 if (response.status === 404) {
                     throw new Error(`404 Not Found\n\nRequested URL: ${url}\n\nThis usually means:\n1. Backend is not running on ${cleanApiUrl}\n2. Endpoint route doesn't match (expected: /api/Auth/signin)\n3. Backend route is different from what frontend expects\n\nTroubleshooting:\n1. Verify backend: Open ${cleanApiUrl}/swagger in browser\n2. Check if POST /api/Auth/signin appears in Swagger\n3. Verify backend is running: Check console for "Now listening on: http://localhost:5231"\n4. Check Network tab in DevTools to see the actual request URL\n5. Rebuild backend: cd Spark2Scale/Spark2scale_/Spark2Scale_.Server && dotnet build\n\nResponse: ${responseText || errorMsg || 'No details available'}`);
@@ -274,7 +321,8 @@ export default function SigninPage() {
             if (error.message?.includes('JSON') || error.message?.includes('fetch')) {
                 setError('Server connection error. Please check if the backend is running and try again.');
             } else {
-                setError(error.message || 'An error occurred during sign in. Please try again.');
+                const cleanMsg = extractCleanErrorMessage(error.message);
+                setError(cleanMsg || 'An error occurred during sign in. Please try again.');
             }
         } finally {
             setLoading(false);
@@ -308,8 +356,85 @@ export default function SigninPage() {
     };
 
     return (
-        <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-[#F0EADC] via-[#fff] to-[#FFD95D]/20">
-            <div className="w-full max-w-6xl grid md:grid-cols-2 gap-8 items-center">
+        <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-[#F0EADC] via-[#fff] to-[#FFD95D]/20 relative overflow-hidden">
+            {/* Background 3D-style floating Lego blocks */}
+            <div className="absolute inset-0 overflow-hidden pointer-events-none z-0">
+                {/* Block 1: Forest Green (Top Left) */}
+                <motion.div
+                    animate={{ y: [-10, 10, -10], rotate: [-5, 5, -5] }}
+                    transition={{ repeat: Infinity, duration: 6, ease: "easeInOut" }}
+                    className="absolute top-[10%] left-[8%] w-24 h-16 opacity-20 lg:opacity-35 hidden sm:block"
+                >
+                    <div className="w-full h-12 bg-[#576238] rounded-xl shadow-2xl relative border border-white/10">
+                        <div className="absolute -top-2 left-3 w-4 h-3 bg-[#576238] rounded-t-md shadow-inner" />
+                        <div className="absolute -top-2 left-10 w-4 h-3 bg-[#576238] rounded-t-md shadow-inner" />
+                        <div className="absolute -top-2 left-17 w-4 h-3 bg-[#576238] rounded-t-md shadow-inner" />
+                    </div>
+                </motion.div>
+
+                {/* Block 2: Golden Yellow (Top Right) */}
+                <motion.div
+                    animate={{ y: [8, -8, 8], rotate: [4, -4, 4] }}
+                    transition={{ repeat: Infinity, duration: 7, ease: "easeInOut" }}
+                    className="absolute top-[15%] right-[10%] w-20 h-14 opacity-20 lg:opacity-35 hidden sm:block"
+                >
+                    <div className="w-full h-10 bg-[#FFD95D] rounded-xl shadow-2xl relative border border-white/10">
+                        <div className="absolute -top-2 left-4 w-4 h-3 bg-[#FFD95D] rounded-t-md shadow-inner" />
+                        <div className="absolute -top-2 left-12 w-4 h-3 bg-[#FFD95D] rounded-t-md shadow-inner" />
+                    </div>
+                </motion.div>
+
+                {/* Block 3: Coral Red (Middle Left) */}
+                <motion.div
+                    animate={{ y: [12, -12, 12], x: [-5, 5, -5] }}
+                    transition={{ repeat: Infinity, duration: 8, ease: "easeInOut" }}
+                    className="absolute top-[50%] left-[5%] w-16 h-12 opacity-15 lg:opacity-25 hidden md:block"
+                >
+                    <div className="w-full h-8 bg-[#ff6b6b] rounded-xl shadow-2xl relative border border-white/10">
+                        <div className="absolute -top-2 left-3 w-3 h-2 bg-[#ff6b6b] rounded-t-md shadow-inner" />
+                        <div className="absolute -top-2 left-9 w-3 h-2 bg-[#ff6b6b] rounded-t-md shadow-inner" />
+                    </div>
+                </motion.div>
+
+                {/* Block 4: Sky Blue (Middle Right) */}
+                <motion.div
+                    animate={{ y: [-15, 15, -15], rotate: [-6, 6, -6] }}
+                    transition={{ repeat: Infinity, duration: 9, ease: "easeInOut" }}
+                    className="absolute top-[55%] right-[8%] w-24 h-16 opacity-15 lg:opacity-25 hidden md:block"
+                >
+                    <div className="w-full h-12 bg-[#4a90e2] rounded-xl shadow-2xl relative border border-white/10">
+                        <div className="absolute -top-2 left-3 w-4 h-3 bg-[#4a90e2] rounded-t-md shadow-inner" />
+                        <div className="absolute -top-2 left-10 w-4 h-3 bg-[#4a90e2] rounded-t-md shadow-inner" />
+                        <div className="absolute -top-2 left-17 w-4 h-3 bg-[#4a90e2] rounded-t-md shadow-inner" />
+                    </div>
+                </motion.div>
+
+                {/* Block 5: Sage Green (Bottom Left) */}
+                <motion.div
+                    animate={{ y: [-8, 8, -8], rotate: [3, -3, 3] }}
+                    transition={{ repeat: Infinity, duration: 6.5, ease: "easeInOut" }}
+                    className="absolute bottom-[12%] left-[10%] w-20 h-14 opacity-20 lg:opacity-30 hidden sm:block"
+                >
+                    <div className="w-full h-10 bg-[#8b9456] rounded-xl shadow-2xl relative border border-white/10">
+                        <div className="absolute -top-2 left-4 w-4 h-3 bg-[#8b9456] rounded-t-md shadow-inner" />
+                        <div className="absolute -top-2 left-12 w-4 h-3 bg-[#8b9456] rounded-t-md shadow-inner" />
+                    </div>
+                </motion.div>
+
+                {/* Block 6: Orange/Brown (Bottom Right) */}
+                <motion.div
+                    animate={{ y: [10, -10, 10], x: [3, -3, 3] }}
+                    transition={{ repeat: Infinity, duration: 7.5, ease: "easeInOut" }}
+                    className="absolute bottom-[10%] right-[12%] w-16 h-12 opacity-20 lg:opacity-30 hidden sm:block"
+                >
+                    <div className="w-full h-8 bg-[#d4cbb8] rounded-xl shadow-2xl relative border border-white/10">
+                        <div className="absolute -top-2 left-3 w-3 h-2 bg-[#d4cbb8] rounded-t-md shadow-inner" />
+                        <div className="absolute -top-2 left-9 w-3 h-2 bg-[#d4cbb8] rounded-t-md shadow-inner" />
+                    </div>
+                </motion.div>
+            </div>
+
+            <div className="w-full max-w-6xl grid md:grid-cols-2 gap-8 items-center z-10">
                 {/* Left side - Illustration */}
                 <motion.div
                     initial={{ opacity: 0, x: -50 }}
@@ -409,7 +534,7 @@ export default function SigninPage() {
                                 >
                                     {loading ? (
                                         <>
-                                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                            <LegoSpinner className="mr-2 h-4 w-4 animate-spin" />
                                             Signing in...
                                         </>
                                     ) : (

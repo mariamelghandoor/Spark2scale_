@@ -6,7 +6,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import {
     ArrowLeft, Mic, MicOff, PhoneOff, Clock, User, CheckCircle2,
     UserCircle2, Brain, TrendingUp, ShieldCheck, Zap, Target, Trophy,
-    AlertTriangle, ChevronRight, Loader2, FileText, XCircle, Star,
+    AlertTriangle, ChevronRight, FileText, XCircle, Star,
     AlertCircle, CheckCircle, RefreshCw
 } from "lucide-react";
 import Link from "next/link";
@@ -18,6 +18,8 @@ import { Label } from "@/components/ui/label";
 import { App } from "@/components/livekit-app/app";
 import { APP_CONFIG_DEFAULTS } from "@/app-config";
 import { pitchDeckService } from "@/services/pitchDeckService";
+import LegoSpinner from "@/components/lego/LegoSpinner";
+import LegoLoader from "@/components/lego/LegoLoader";
 
 type SimulationPhase = "setup" | "preparing" | "meeting" | "ending" | "evaluation";
 
@@ -339,7 +341,7 @@ export default function PitchSimulator() {
                                         disabled={isExtracting}
                                     >
                                         {isExtracting ? (
-                                            <><Loader2 className="mr-2 h-5 w-5 animate-spin" /> Preparing AI Context...</>
+                                            <><LegoSpinner className="mr-2 h-5 w-5 animate-spin" /> Preparing AI Context...</>
                                         ) : (
                                             <>Start Simulation <ChevronRight className="ml-2 h-4 w-4" /></>
                                         )}
@@ -409,9 +411,8 @@ export default function PitchSimulator() {
                 {/* ── PHASE 3.5: ENDING (report being generated) ── */}
                 {phase === "ending" && (
                     <motion.div key="ending" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex flex-col items-center justify-center min-h-screen bg-neutral-900 text-white text-center px-4">
-                        <div className="relative mb-8">
-                            <div className="w-24 h-24 rounded-full border-4 border-[#FFD95D]/30 border-t-[#FFD95D] animate-spin" />
-                            <FileText className="absolute inset-0 m-auto h-10 w-10 text-[#FFD95D]" />
+                        <div className="mb-8 flex justify-center">
+                            <LegoLoader />
                         </div>
                         <h2 className="text-3xl font-black uppercase italic tracking-tighter text-[#FFD95D]">
                             Generating Your Report...

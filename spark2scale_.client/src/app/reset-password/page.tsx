@@ -9,8 +9,8 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { ArrowLeft, CheckCircle2 } from "lucide-react";
-import { Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
+import LegoSpinner from "@/components/lego/LegoSpinner";
 
 export default function ResetPasswordPage() {
     const router = useRouter();
@@ -257,7 +257,7 @@ export default function ResetPasswordPage() {
                                 >
                                     {loading ? (
                                         <>
-                                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                            <LegoSpinner className="mr-2 h-4 w-4 animate-spin" />
                                             Resetting Password...
                                         </>
                                     ) : (

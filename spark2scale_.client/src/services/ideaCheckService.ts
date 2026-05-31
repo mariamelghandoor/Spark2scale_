@@ -1,4 +1,4 @@
-﻿import apiClient from '@/lib/apiClient';
+import apiClient from '@/lib/apiClient';
 
 // --- Types ---
 
@@ -203,6 +203,8 @@ export const ideaCheckService = {
         }
 
         // 2. Call external AI chat API
+        // Wrap startup_data to match the nesting the AI extraction prompt expects:
+        // { data: { startup_evaluation: { ...flatFields } } }
         let assistantReply = "";
         try {
             console.log("Calling AI API with:", { content, historyLength: history.length, startupData });
@@ -219,25 +221,30 @@ export const ideaCheckService = {
                         role: m.role,
                         content: m.content
                     })),
-                    startup_data: startupData
+                    // Issue 1 fix: wrap in the nesting the AI extraction prompt expects
+                    startup_data: { data: { startup_evaluation: startupData } }
                 })
             });
 
             console.log("AI response status:", aiResponse.status);
-            const rawText = await aiResponse.text(); // ← read as text first
-            console.log("AI raw response:", rawText);  // ← log raw text
+            const rawText = await aiResponse.text();
+            console.log("AI raw response:", rawText);
+
+            // Issue 3 fix: surface rate-limit errors distinctly
+            if (aiResponse.status === 429) {
+                throw new Error("RATE_LIMITED");
+            }
 
             if (!aiResponse.ok) {
                 console.error("AI API error:", rawText);
                 throw new Error(`AI API responded with ${aiResponse.status}`);
             }
 
-            const aiData = JSON.parse(rawText); // ← then parse
+            const aiData = JSON.parse(rawText);
             console.log("AI parsed response keys:", Object.keys(aiData));
 
-            // Grab whichever field exists
             assistantReply =
-                aiData.ai_reply ??        // ✅ THIS is the correct field
+                aiData.ai_reply ??
                 aiData.assistant_message ??
                 aiData.reply ??
                 aiData.response ??
@@ -249,8 +256,11 @@ export const ideaCheckService = {
 
             console.log("Assistant reply extracted:", assistantReply);
 
-        } catch (error) {
+        } catch (error: any) {
             console.error("Error calling AI chat API:", error);
+            if (error?.message === "RATE_LIMITED") {
+                throw error; // re-throw so page.tsx can show specific UX
+            }
             assistantReply = "Sorry, I couldn't get a response. Please try again.";
         }
 
@@ -299,7 +309,7 @@ export const ideaCheckService = {
         startupId: string,
         chatHistory: ChatMessage[],
         startupData: object
-    ): Promise<object | null> {  // ← now RETURNS the updated data
+    ): Promise<object | null> {
         try {
             console.log("📤 Sending to AI update endpoint...");
             console.log("BEFORE startup_data:", JSON.stringify(startupData, null, 2));
@@ -312,7 +322,8 @@ export const ideaCheckService = {
                 },
                 body: JSON.stringify({
                     chat_history: chatHistory.map(m => ({ role: m.role, content: m.content })),
-                    startup_data: startupData
+                    // Issue 1 fix: wrap to match the AI extraction prompt's expected nesting
+                    startup_data: { data: { startup_evaluation: startupData } }
                 })
             });
 
@@ -325,14 +336,15 @@ export const ideaCheckService = {
 
             const rawData = JSON.parse(rawText);
 
-            // Unwrap whichever key the AI returns, then wrap it as "startup_evaluation"
-            const innerData = rawData.updated_startup_data ?? rawData.startup_evaluation ?? rawData;
+            // Issue 2 fix: backend returns { updated_startup_data: { data: { startup_evaluation: {...} } } }
+            // Unwrap back to the flat shape so the state and DB receive the original flat structure.
+            // No extra wrapping here — the caller (handleMarkComplete) uses it as-is.
+            const fullMerged = rawData.updated_startup_data ?? rawData;
+            const flatData = fullMerged?.data?.startup_evaluation ?? fullMerged;
 
-            const updatedData = { startup_evaluation: innerData };
+            console.log("AFTER startup_data (from AI, flat):", JSON.stringify(flatData, null, 2));
 
-            console.log("AFTER startup_data (from AI):", JSON.stringify(updatedData, null, 2));
-
-            return updatedData;
+            return flatData;
 
         } catch (error) {
             console.error("❌ Error calling update-startup-data:", error);

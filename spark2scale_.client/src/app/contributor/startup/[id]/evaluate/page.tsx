@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { ArrowLeft, Download, FileText, Loader2, CheckCircle } from "lucide-react";
+import { ArrowLeft, Download, FileText, CheckCircle } from "lucide-react";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { useParams } from "next/navigation";
@@ -11,6 +11,7 @@ import { Progress } from "@/components/ui/progress";
 import { evaluationService, EvaluationDocument } from "@/services/evaluationService";
 import { startupService } from "@/services/startupService";
 import ContributorHeader from "@/components/contributor/ContributorHeader";
+import LegoSpinner from "@/components/lego/LegoSpinner";
 
 export default function ContributorEvaluatePage() {
     const params = useParams();
@@ -55,7 +56,7 @@ export default function ContributorEvaluatePage() {
     if (isLoading) {
         return (
             <div className="min-h-screen flex items-center justify-center bg-[#F0EADC]">
-                <Loader2 className="h-8 w-8 animate-spin text-[#576238]" />
+                <LegoSpinner className="h-8 w-8 animate-spin text-[#576238]" />
             </div>
         );
     }

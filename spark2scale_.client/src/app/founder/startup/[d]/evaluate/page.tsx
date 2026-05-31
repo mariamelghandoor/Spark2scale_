@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
     ArrowLeft, Download, PlayCircle, CheckCircle, FileText,
-    Loader2, Trash2, AlertTriangle, Target, Info, Sparkles, Activity, Bot
+    Trash2, AlertTriangle, Target, Info, Sparkles, Activity, Bot
 } from "lucide-react";
 import Link from "next/link";
 import { motion } from "framer-motion";
@@ -22,6 +22,7 @@ import jsPDF from 'jspdf';
 
 // Import the Lego Loader
 import LegoResearchLoader from "@/components/lego/LegoResearchLoader";
+import LegoSpinner from "@/components/lego/LegoSpinner";
 
 /* =========================================
    FOUNDER VIEW COMPONENT
@@ -388,7 +389,7 @@ export default function EvaluatePage() {
     const rawScore = normalizedFounderData?.Content?.["Weighted Score"] || 0;
     const displayScore = typeof rawScore === 'number' ? rawScore.toFixed(1) : parseFloat(rawScore || "0").toFixed(1);
 
-    if (isLoading) return <div className="min-h-screen flex items-center justify-center bg-[#F0EADC]"><Loader2 className="h-8 w-8 animate-spin text-[#576238]" /></div>;
+    if (isLoading) return <div className="min-h-screen flex items-center justify-center bg-[#F0EADC]"><LegoSpinner className="h-8 w-8 animate-spin text-[#576238]" /></div>;
     if (!startupId) return <div className="min-h-screen flex items-center justify-center bg-[#F0EADC]"><p className="text-red-500 font-bold">Error: No Startup ID provided in URL.</p></div>;
 
     return (
@@ -472,7 +473,7 @@ export default function EvaluatePage() {
                                     >
                                         <span className="relative z-10 flex items-center gap-2">
                                             {isGenerating ? (
-                                                <Loader2 className="h-5 w-5 animate-spin" />
+                                                <LegoSpinner className="h-5 w-5 animate-spin" />
                                             ) : (
                                                 <Sparkles className="h-5 w-5 transition-transform group-hover:rotate-12" />
                                             )}
@@ -499,7 +500,7 @@ export default function EvaluatePage() {
                                     onClick={handleRunEvaluation}
                                     disabled={isGenerating || userRole !== 'Founder'}
                                 >
-                                    {isGenerating ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <PlayCircle className="w-4 h-4 mr-2" />}
+                                    {isGenerating ? <LegoSpinner className="w-4 h-4 animate-spin mr-2" /> : <PlayCircle className="w-4 h-4 mr-2" />}
                                     {isGenerating ? "Regenerating..." : "Regenerate Evaluation"}
                                 </Button>
 
@@ -511,7 +512,7 @@ export default function EvaluatePage() {
                                     onClick={handleDownloadPdf}
                                     disabled={isDownloadingPdf}
                                 >
-                                    {isDownloadingPdf ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Download className="h-4 w-4 mr-2" />}
+                                    {isDownloadingPdf ? <LegoSpinner className="h-4 w-4 mr-2 animate-spin" /> : <Download className="h-4 w-4 mr-2" />}
                                     {isDownloadingPdf ? "Generating PDF..." : "Download PDF"}
                                 </Button>
 
@@ -523,7 +524,7 @@ export default function EvaluatePage() {
                                         onClick={handleDelete}
                                         disabled={isDeleting}
                                     >
-                                        {isDeleting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Trash2 className="h-4 w-4 mr-2" />}
+                                        {isDeleting ? <LegoSpinner className="h-4 w-4 animate-spin mr-2" /> : <Trash2 className="h-4 w-4 mr-2" />}
                                         Delete Report
                                     </Button>
                                 )}

@@ -3,8 +3,7 @@
 import { useEffect, useState, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Loader2 } from 'lucide-react';
-
+import LegoSpinner from "@/components/lego/LegoSpinner";
 function JoinContent() {
     const searchParams = useSearchParams();
     const router = useRouter();
@@ -30,7 +29,7 @@ function JoinContent() {
     if (loading) {
         return (
             <div className="min-h-screen flex items-center justify-center bg-[#F0EADC]">
-                <Loader2 className="h-10 w-10 animate-spin text-[#576238]" />
+                <LegoSpinner className="h-10 w-10 animate-spin text-[#576238]" />
             </div>
         );
     }

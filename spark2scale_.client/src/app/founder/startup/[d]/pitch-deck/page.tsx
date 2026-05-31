@@ -6,8 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
     ArrowLeft, Upload, FileText, Mic, Eye, Download, X,
-    Maximize2, Brain, CheckCircle2, AlertTriangle, Loader2,
-    Presentation, RefreshCw
+    Maximize2, Brain, CheckCircle2, AlertTriangle, Presentation, RefreshCw
 } from "lucide-react";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
@@ -17,6 +16,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { APP_CONFIG_DEFAULTS } from "@/app-config";
 import { App } from "@/components/livekit-app/app";
 import { pitchDeckService } from "@/services/pitchDeckService";
+import LegoSpinner from "@/components/lego/LegoSpinner";
 
 const PYTHON_API_URL = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'https://spark2scale-ai-api-server.azurewebsites.net';
 
@@ -207,30 +207,25 @@ export default function PitchDeckPage() {
 
     // Trigger extraction when entering session
     useEffect(() => {
-        if (phase === "session" && !extractionDone) {
-            setIsExtracting(true);
-            const pythonApiUrl = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'https://spark2scale-ai-api-server.azurewebsites.net';
-            fetch(`${pythonApiUrl}/api/v1/pitch-analyzer/extract`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                // Pass pitchdeckid so the backend can link this session to the Supabase row.
-                // If null (no pitch deck uploaded yet), the backend still runs extraction
-                // but will set _supabase_linked: false when generating the report.
-                body: JSON.stringify({
-                    pitchdeckid: pitchDeckId ?? null,
-                    startup_id: startupId ?? null,
-                }),
-            })
-                .then(async (res) => {
-                    if (!res.ok) throw new Error(`Server returned ${res.status}`);
-                })
-                .catch(e => console.error('Extraction failed:', e))
-                .finally(() => {
-                    setIsExtracting(false);
-                    setExtractionDone(true);
-                });
-        }
-    }, [phase, extractionDone, pitchDeckId, startupId]);
+        if (!startupId) return;
+        pitchDeckService.getPitches(startupId).then((decks) => {
+            const current = decks.find((d) => d.is_current) ?? decks[0] ?? null;
+            if (current?.pitchdeckid) {
+                setPitchDeckId(current.pitchdeckid);
+                setPitchBlockMsg(null);
+
+                // CRITICAL FIX: Add the fetched video to the UI state so it survives refreshes
+                setUploadedFiles([{
+                    name: current.pitchname !== "Untitled Pitch" ? current.pitchname : "Saved Pitch Video",
+                    size: 0, // Size isn't stored in your DB model, so we fallback to 0
+                    url: current.video_url,
+                    uploadedAt: new Date(current.created_at).toLocaleString(),
+                }]);
+            }
+        }).catch(() => {
+            console.warn("[PitchDeck] Could not fetch pitchdeckid — report won't be saved to Supabase.");
+        });
+    }, [startupId]);
 
     // File Handlers — Video only, upload to Supabase via C# backend
     const handleFiles = useCallback(async (files: FileList | File[]) => {
@@ -303,7 +298,7 @@ export default function PitchDeckPage() {
     if (phase === "fetching_report") {
         return (
             <div className="min-h-screen bg-[#576238] flex flex-col items-center justify-center gap-6 text-white">
-                <Loader2 className="h-12 w-12 animate-spin text-[#FFD95D]" />
+                <LegoSpinner className="h-12 w-12 animate-spin text-[#FFD95D]" />
                 <div className="text-center">
                     <h2 className="text-2xl font-black">Generating Your Report</h2>
                     <p className="text-white/70 mt-2 text-sm">The AI is compiling your Investment Readiness Review…</p>
@@ -422,7 +417,7 @@ export default function PitchDeckPage() {
                                         onChange={e => e.target.files && handleFiles(e.target.files)} />
                                     {isUploading ? (
                                         <div className="flex flex-col items-center gap-3">
-                                            <Loader2 className="h-10 w-10 animate-spin text-[#576238]" />
+                                            <LegoSpinner className="h-10 w-10 animate-spin text-[#576238]" />
                                             <p className="text-[#576238] font-semibold">Uploading...</p>
                                         </div>
                                     ) : (
@@ -498,7 +493,7 @@ export default function PitchDeckPage() {
                                 disabled={isMarkingComplete}
                             >
                                 {isMarkingComplete
-                                    ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Processing...</>
+                                    ? <><LegoSpinner className="h-4 w-4 mr-2 animate-spin" />Processing...</>
                                     : "Mark as Complete & Continue →"
                                 }
                             </Button>
@@ -535,7 +530,7 @@ export default function PitchDeckPage() {
                             </div>
                             {isExtracting && (
                                 <div className="flex items-center gap-1.5 text-xs text-[#FFD95D]/80 font-medium">
-                                    <Loader2 className="h-3 w-3 animate-spin" />
+                                    <LegoSpinner className="h-3 w-3 animate-spin" />
                                     Preparing AI context...
                                 </div>
                             )}
@@ -748,7 +743,7 @@ export default function PitchDeckPage() {
                             <Button size="lg" className="bg-[#FFD95D] hover:bg-[#ffe07a] text-black font-semibold px-8 shadow-md"
                                 onClick={handleMarkComplete} disabled={isMarkingComplete}>
                                 {isMarkingComplete
-                                    ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Processing...</>
+                                    ? <><LegoSpinner className="h-4 w-4 mr-2 animate-spin" />Processing...</>
                                     : "Mark as Complete & Continue →"}
                             </Button>
                         ) : (
