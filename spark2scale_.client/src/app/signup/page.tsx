@@ -11,7 +11,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import Link from "next/link";
 import LegoIllustration from "@/components/lego/LegoIllustration";
 import { motion } from "framer-motion";
-import { Loader2, CheckCircle2, Eye, EyeOff } from "lucide-react";
+import { Loader2, CheckCircle2, Eye, EyeOff, ShieldCheck } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createBrowserClient } from "@supabase/auth-helpers-nextjs";
 
@@ -686,7 +686,13 @@ function SignupContent() {
                                             )}
                                         </div>
 
-                                        <div className="space-y-2 rounded-lg border border-[#576238]/20 bg-[#F0EADC]/40 p-4">
+                                        <div
+                                            className={`rounded-xl border p-4 transition-colors ${
+                                                validationErrors.dataConsent
+                                                    ? "border-red-300 bg-red-50/50"
+                                                    : "border-[#576238]/20 bg-[#F0EADC]/30"
+                                            }`}
+                                        >
                                             <div className="flex items-start gap-3">
                                                 <Checkbox
                                                     id="dataConsent"
@@ -701,40 +707,49 @@ function SignupContent() {
                                                             });
                                                         }
                                                     }}
-                                                    className="mt-0.5"
+                                                    className="mt-1"
                                                     aria-invalid={!!validationErrors.dataConsent}
                                                     required
                                                 />
-                                                <Label
-                                                    htmlFor="dataConsent"
-                                                    className="text-sm font-normal leading-relaxed text-[#576238] cursor-pointer"
-                                                >
-                                                    I acknowledge and consent that the information I provide, along with the
-                                                    content I create on Spark2Scale, may be processed and used to power
-                                                    platform features, generate personalized insights, and support the
-                                                    continued improvement and development of the platform&apos;s services
-                                                    and models. My data will be handled in accordance with the{" "}
-                                                    <Link
-                                                        href="/privacy"
-                                                        target="_blank"
-                                                        className="font-semibold underline-offset-4 hover:underline"
+                                                <div className="flex-1 space-y-1.5">
+                                                    <Label
+                                                        htmlFor="dataConsent"
+                                                        className="flex items-center gap-1.5 text-sm font-semibold text-[#576238] cursor-pointer"
                                                     >
-                                                        Privacy Policy
-                                                    </Link>{" "}
-                                                    and{" "}
-                                                    <Link
-                                                        href="/terms"
-                                                        target="_blank"
-                                                        className="font-semibold underline-offset-4 hover:underline"
-                                                    >
-                                                        Terms of Service
-                                                    </Link>
-                                                    .
-                                                </Label>
+                                                        <ShieldCheck className="h-4 w-4" />
+                                                        Data processing consent
+                                                    </Label>
+                                                    <p className="text-xs leading-relaxed text-[#576238]/80">
+                                                        I agree that Spark2Scale may securely store and process the
+                                                        information I provide and the content I create on the platform
+                                                        in order to deliver its features, generate personalized insights,
+                                                        and improve its services. I have read and accept the{" "}
+                                                        <Link
+                                                            href="/privacy"
+                                                            target="_blank"
+                                                            rel="noopener noreferrer"
+                                                            className="font-semibold text-[#576238] underline underline-offset-2 hover:text-[#6b7c3f]"
+                                                        >
+                                                            Privacy Policy
+                                                        </Link>{" "}
+                                                        and{" "}
+                                                        <Link
+                                                            href="/terms"
+                                                            target="_blank"
+                                                            rel="noopener noreferrer"
+                                                            className="font-semibold text-[#576238] underline underline-offset-2 hover:text-[#6b7c3f]"
+                                                        >
+                                                            Terms of Service
+                                                        </Link>
+                                                        .
+                                                    </p>
+                                                    {validationErrors.dataConsent && (
+                                                        <p className="text-xs font-medium text-red-600">
+                                                            {validationErrors.dataConsent}
+                                                        </p>
+                                                    )}
+                                                </div>
                                             </div>
-                                            {validationErrors.dataConsent && (
-                                                <p className="text-sm text-red-500 pl-7">{validationErrors.dataConsent}</p>
-                                            )}
                                         </div>
 
                                         <Button

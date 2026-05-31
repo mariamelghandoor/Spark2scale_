@@ -32,20 +32,32 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content }) =
     let tableBuffer: string[] = [];
     let inTable = false;
 
-    const parseLine = (text: string, key: number) => {
-        const parts = text.split(/(\*\*.*?\*\*)/g);
-        return (
-            <p key={key} className="mb-3 text-gray-800 leading-relaxed font-serif text-base">
-                {parts.map((part, i) => {
-                    if (part.startsWith("**") && part.endsWith("**"))
-                        return <strong key={i} className="font-bold text-gray-900">{part.slice(2, -2)}</strong>;
-                    if (part.startsWith("_") && part.endsWith("_"))
-                        return <em key={i} className="italic text-gray-800">{part.slice(1, -1)}</em>;
-                    return part;
-                })}
-            </p>
-        );
-    };
+    // Inline tokens: **bold**, [text](url) links, bare URLs, _italic_.
+    // Order matters — links/URLs are matched before italic so underscores inside
+    // a URL aren't mistaken for emphasis.
+    const INLINE_RE = /(\*\*[^*]+\*\*|\[[^\]]+\]\(https?:\/\/[^)]+\)|https?:\/\/[^\s)]+|_[^_]+_)/g;
+    const linkClass =
+        "text-[#576238] underline decoration-[#ffd95d] underline-offset-2 hover:text-[#464f2d] break-words";
+
+    const renderInline = (text: string): React.ReactNode[] =>
+        text.split(INLINE_RE).filter(p => p !== undefined && p !== "").map((part, i) => {
+            if (part.startsWith("**") && part.endsWith("**"))
+                return <strong key={i} className="font-bold text-gray-900">{part.slice(2, -2)}</strong>;
+            const md = part.match(/^\[([^\]]+)\]\((https?:\/\/[^)]+)\)$/);
+            if (md)
+                return <a key={i} href={md[2]} target="_blank" rel="noopener noreferrer" className={linkClass}>{md[1]}</a>;
+            if (/^https?:\/\/[^\s)]+$/.test(part))
+                return <a key={i} href={part} target="_blank" rel="noopener noreferrer" className={linkClass}>{part}</a>;
+            if (part.startsWith("_") && part.endsWith("_") && part.length > 2)
+                return <em key={i} className="italic text-gray-800">{part.slice(1, -1)}</em>;
+            return <React.Fragment key={i}>{part}</React.Fragment>;
+        });
+
+    const parseLine = (text: string, key: number) => (
+        <p key={key} className="mb-3 text-gray-800 leading-relaxed font-serif text-base">
+            {renderInline(text)}
+        </p>
+    );
 
     const flushTable = (key: string) => {
         if (tableBuffer.length === 0) return null;
@@ -229,6 +241,207 @@ function formatGenerated(d: Date = new Date()): string {
     return `${month} ${day}, ${d.getFullYear()} at ${hh}:${mm} ${ampm}`;
 }
 
+// ---------------------------------------------------------------------------
+// Market Intelligence + Detected Patterns — themed helpers & sections
+// ---------------------------------------------------------------------------
+
+// Human-readable labels for World Bank indicator keys.
+const INDICATOR_LABELS: Record<string, string> = {
+    inflation_rate: "Inflation Rate",
+    gdp_growth_rate: "GDP Growth Rate",
+    unemployment_rate: "Unemployment Rate",
+    "government_debt_%_of_gdp": "Government Debt (% of GDP)",
+    ease_of_doing_business_score: "Ease of Doing Business",
+};
+function prettyIndicator(key: string): string {
+    if (INDICATOR_LABELS[key]) return INDICATOR_LABELS[key];
+    return key.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase()).replace(/Gdp/g, "GDP");
+}
+
+// Risk level → themed badge classes (red / amber / olive-green).
+function riskBadge(risk: string): string {
+    switch ((risk || "").toLowerCase()) {
+        case "high":   return "bg-red-100 text-red-700 border border-red-200";
+        case "medium": return "bg-amber-100 text-amber-800 border border-amber-200";
+        case "low":    return "bg-[#eef2e3] text-[#576238] border border-[#576238]/20";
+        default:       return "bg-gray-100 text-gray-500 border border-gray-200";
+    }
+}
+
+// Funding climate → themed badge classes.
+function climateBadge(climate: string): string {
+    switch ((climate || "").toLowerCase()) {
+        case "active":      return "bg-[#eef2e3] text-[#576238] border border-[#576238]/20";
+        case "challenging": return "bg-red-100 text-red-700 border border-red-200";
+        default:            return "bg-amber-100 text-amber-800 border border-amber-200"; // Neutral
+    }
+}
+
+// Pattern strength label → themed badge + row tint.
+function patternStyle(label: string): { badge: string; row: string; icon: string } {
+    switch ((label || "").toLowerCase()) {
+        case "kill_signal":
+            return { badge: "bg-red-600 text-white", row: "bg-red-50", icon: "🛑" };
+        case "strong":
+            return { badge: "bg-amber-500 text-white", row: "bg-[#fffbea]", icon: "⚠️" };
+        case "moderate":
+            return { badge: "bg-[#576238] text-white", row: "bg-white", icon: "•" };
+        default:
+            return { badge: "bg-gray-300 text-gray-700", row: "bg-white", icon: "•" };
+    }
+}
+
+const MarketIntelligenceSection: React.FC<{ signals: any }> = ({ signals }) => {
+    if (!signals || typeof signals !== "object") return null;
+    const countryRisk: Record<string, any> = signals.country_risk ?? {};
+    const riskFlags: string[] = Array.isArray(signals.risk_flags) ? signals.risk_flags : [];
+    const indicators = Object.entries(countryRisk);
+    const baseline = countryRisk?.inflation_rate?.global_baseline;
+    const toolStatus = signals.tool_status ?? {};
+
+    // Nothing meaningful to show.
+    if (indicators.length === 0 && riskFlags.length === 0 && !signals.funding_climate) return null;
+
+    return (
+        <section>
+            <SectionHeader title="🌍 Market Intelligence" upper={false} />
+
+            {/* Funding climate + intel confidence badges */}
+            <div className="flex flex-wrap gap-2 mt-3 mb-4">
+                {signals.funding_climate && (
+                    <span className={`px-3 py-1 rounded-full text-xs font-semibold ${climateBadge(signals.funding_climate)}`}>
+                        Funding Climate: {signals.funding_climate}
+                    </span>
+                )}
+                {signals.confidence && (
+                    <span className="px-3 py-1 rounded-full text-xs font-semibold bg-[#576238]/10 text-[#576238] border border-[#576238]/20">
+                        Intel Confidence: {String(signals.confidence).toUpperCase()}
+                    </span>
+                )}
+            </div>
+
+            {/* Country risk table */}
+            {indicators.length > 0 && (
+                <div className="overflow-x-auto">
+                    <table className="w-full text-sm text-left border-collapse">
+                        <thead>
+                            <tr className="bg-[#576238] text-white">
+                                <th className="py-2 px-3 font-bold uppercase tracking-wide text-xs">Macro Indicator</th>
+                                <th className="py-2 px-3 font-bold uppercase tracking-wide text-xs">Value</th>
+                                <th className="py-2 px-3 font-bold uppercase tracking-wide text-xs">Risk</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {indicators.map(([key, d]: [string, any], i) => (
+                                <tr key={key} className={i % 2 === 0 ? "bg-[#F4F1EA]" : "bg-white"}>
+                                    <td className="py-2 px-3 align-top font-bold text-[#576238] border border-gray-200">
+                                        {prettyIndicator(key)}
+                                    </td>
+                                    <td className="py-2 px-3 align-top text-gray-800 border border-gray-200">
+                                        {d?.value != null ? `${d.value}%` : "—"}
+                                    </td>
+                                    <td className="py-2 px-3 align-top border border-gray-200">
+                                        <span className={`px-2 py-0.5 rounded-full text-xs font-semibold capitalize ${riskBadge(d?.risk)}`}>
+                                            {d?.risk ?? "unknown"}
+                                        </span>
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            )}
+
+            {/* Inflation baseline note */}
+            {baseline && baseline.mean != null && (
+                <p className="text-xs text-gray-500 italic mt-2">
+                    Inflation is benchmarked against a live global average of {baseline.mean}%
+                    {baseline.std != null ? ` (±${baseline.std}` : ""}
+                    {baseline.n != null ? `, n=${baseline.n} countries` : ""}
+                    {baseline.std != null ? ", outlier-trimmed)" : ""}.
+                </p>
+            )}
+
+            {/* Auto-generated risk flags */}
+            {riskFlags.length > 0 && (
+                <div className="mt-4">
+                    <h4 className="text-sm font-bold text-gray-800 mb-2 font-sans">Auto-Generated Risk Flags</h4>
+                    <ul className="space-y-1.5">
+                        {riskFlags.map((flag, i) => (
+                            <li key={i} className="flex gap-2 text-sm text-gray-700">
+                                <span className="mt-1.5 h-2 w-2 rounded-full bg-[#ffd95d] shrink-0" />
+                                <span>{flag}</span>
+                            </li>
+                        ))}
+                    </ul>
+                </div>
+            )}
+
+            {/* Data sources / tool status footnote */}
+            <p className="text-[11px] text-gray-400 mt-3">
+                Sources: World Bank ({toolStatus.world_bank ?? "n/a"}) · Tavily ({toolStatus.tavily ?? "n/a"}).
+            </p>
+        </section>
+    );
+};
+
+const DetectedPatternsSection: React.FC<{ patterns: any[] }> = ({ patterns }) => {
+    if (!Array.isArray(patterns) || patterns.length === 0) return null;
+
+    return (
+        <section>
+            <SectionHeader title="🛑 Detected Failure Patterns" upper={false} />
+            <p className="text-sm text-gray-700 mt-2 mb-4">
+                Risk patterns surfaced from the startup's own scores, weighted by stage.
+                <span className="ml-1 font-semibold text-red-600">Kill signals</span> are the most urgent.
+            </p>
+
+            <div className="overflow-x-auto">
+                <table className="w-full text-sm text-left border-collapse">
+                    <thead>
+                        <tr className="bg-[#576238] text-white">
+                            <th className="py-2 px-3 font-bold uppercase tracking-wide text-xs">Pattern</th>
+                            <th className="py-2 px-3 font-bold uppercase tracking-wide text-xs">Severity</th>
+                            <th className="py-2 px-3 font-bold uppercase tracking-wide text-xs">Strength</th>
+                            <th className="py-2 px-3 font-bold uppercase tracking-wide text-xs">Confidence</th>
+                            <th className="py-2 px-3 font-bold uppercase tracking-wide text-xs">Recommended Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {patterns.map((p: any, i) => {
+                            const style = patternStyle(p?.strength_label);
+                            return (
+                                <tr key={p?.pattern_id ?? i} className={style.row}>
+                                    <td className="py-2 px-3 align-top font-bold text-[#576238] border border-gray-200">
+                                        {style.icon} {p?.name ?? p?.pattern_id ?? "—"}
+                                    </td>
+                                    <td className="py-2 px-3 align-top border border-gray-200">
+                                        <span className={`px-2 py-0.5 rounded-full text-xs font-semibold capitalize ${riskBadge(p?.severity)}`}>
+                                            {p?.severity ?? "—"}
+                                        </span>
+                                    </td>
+                                    <td className="py-2 px-3 align-top border border-gray-200">
+                                        <span className={`px-2 py-0.5 rounded text-xs font-semibold ${style.badge}`}>
+                                            {p?.strength_score != null ? Number(p.strength_score).toFixed(2) : "—"}
+                                            {p?.strength_label ? ` · ${String(p.strength_label).replace(/_/g, " ")}` : ""}
+                                        </span>
+                                    </td>
+                                    <td className="py-2 px-3 align-top text-gray-700 border border-gray-200">
+                                        {p?.confidence ?? "—"}
+                                    </td>
+                                    <td className="py-2 px-3 align-top text-gray-800 border border-gray-200">
+                                        {p?.template ?? "—"}
+                                    </td>
+                                </tr>
+                            );
+                        })}
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    );
+};
+
 export const InvestmentMemoView: React.FC<InvestmentMemoViewProps> = ({ data }) => {
     const ins = data?.insights ?? {};
     const refined: Record<string, { original: string; recommended: string; why_better: string }> =
@@ -247,6 +460,9 @@ export const InvestmentMemoView: React.FC<InvestmentMemoViewProps> = ({ data }) 
     const refinedKeys = REFINED_ORDER.filter(
         k => refined[k] && typeof refined[k] === "object",
     );
+
+    const marketSignals = data?.market_signals ?? data?.marketSignals ?? null;
+    const patterns: any[] = data?.matched_patterns ?? data?.matchedPatterns ?? [];
 
     return (
         <div className="bg-white text-black w-full mx-auto shadow-2xl rounded overflow-hidden">
@@ -341,6 +557,12 @@ export const InvestmentMemoView: React.FC<InvestmentMemoViewProps> = ({ data }) 
                         </div>
                     </section>
                 )}
+
+                {/* ── 🌍 Market Intelligence (live World Bank + Tavily) ── */}
+                <MarketIntelligenceSection signals={marketSignals} />
+
+                {/* ── 🛑 Detected Failure Patterns (stage-weighted) ── */}
+                <DetectedPatternsSection patterns={patterns} />
 
                 {/* ── 📋 Strategic Analysis & Recommendations ── */}
                 <section>
