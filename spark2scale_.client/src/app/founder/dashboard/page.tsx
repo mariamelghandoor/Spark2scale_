@@ -640,8 +640,27 @@ export default function FounderDashboard() {
             const market = evaluation.market_and_scope ?? {};
             const traction = evaluation.traction_metrics ?? {};
             const gtm = evaluation.gtm_strategy ?? {};
-            const biz = evaluation.business_data ?? {};
+            // Read business_model (the canonical name used by every other
+            // part of the stack). The previous code read business_data, which
+            // silently dropped pricing_model / monthly_burn / runway etc.
+            const biz = evaluation.business_model ?? evaluation.business_data ?? {};
             const vis = evaluation.vision_and_strategy ?? {};
+
+            // Map extracted founders into the wizard's founders[] state shape.
+            // Without this, founders pulled from the pitch deck were lost and
+            // the Team dimension scored 0/5 every time.
+            const extractedFounders: any[] = Array.isArray(founder.founders)
+                ? founder.founders
+                    .map((f: any) => ({
+                        name: f?.name ?? "",
+                        role: f?.role ?? "",
+                        ownership_percentage: Number(f?.ownership_percentage ?? f?.ownership ?? 0) || 0,
+                        prior_experience: f?.prior_experience ?? f?.experience ?? "",
+                        years_direct_experience: Number(f?.years_direct_experience ?? f?.years_experience ?? 0) || 0,
+                        founder_market_fit_statement: f?.founder_market_fit_statement ?? f?.market_fit ?? "",
+                    }))
+                    .filter((f: any) => (f.name || "").trim() !== "")
+                : [];
 
             setNewStartup(prev => ({
                 ...prev,
@@ -654,8 +673,9 @@ export default function FounderDashboard() {
                 current_round_size: snap.round_size || snap.current_round_size || prev.current_round_size,
                 target_close_date: snap.target_close_date || prev.target_close_date,
                 existing_investors: snap.existing_investors || vis.existing_investors || prev.existing_investors,
-                full_time_start: founder.full_time_start || prev.full_time_start,
+                full_time_start: founder.execution?.full_time_start_date || founder.full_time_start || prev.full_time_start,
                 shipments: typeof founder.execution === "string" ? founder.execution : Array.isArray(founder.execution?.key_shipments) ? founder.execution.key_shipments.join("\n") : founder.shipments || prev.shipments,
+                founders: extractedFounders.length > 0 ? extractedFounders : prev.founders,
                 customer_profile: (typeof problem.customer_profile === "object" ? problem.customer_profile?.description : problem.customer_profile) || problem.target_customer || prev.customer_profile,
                 problem_statement: problem.problem_statement || problem.problem || prev.problem_statement,
                 current_solution: problem.current_solution || prev.current_solution,
