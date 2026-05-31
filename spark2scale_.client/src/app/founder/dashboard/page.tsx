@@ -361,41 +361,10 @@ function EvaluationWizard({ data, setData, loading, onSubmit, step, setStep, pen
 // 3. MAIN DASHBOARD PAGE
 // ============================================================================
 
-// Required fields drive both the wizard's submit-time validation and the *
-// markers shown next to each label. Every field listed here is an AI-critical
-// input — if it's blank, downstream agents (evaluation, recommendation, BMC,
-// SWOT) start producing "Unknown" cells and shallow reports.
-const REQUIRED_FIELDS = [
-    // Step 1 — Company Snapshot
-    { id: "name",                 name: "Company Name",                              step: 1 },
-    { id: "hq_location",          name: "HQ Location",                               step: 1 },
-    { id: "stage",                name: "Current Stage",                             step: 1 },
-
-    // Step 3 — Problem Definition
-    { id: "customer_profile",     name: "Primary Customer Profile",                  step: 3 },
-    { id: "problem_statement",    name: "Specific Problem (1-2 sentences)",          step: 3 },
-    { id: "gap_analysis",         name: "What is broken about current solutions?",   step: 3 },
-    { id: "cost_of_not_solving",  name: "Cost of NOT solving this problem",          step: 3 },
-
-    // Step 4 — Product & Solution
-    { id: "product_status",       name: "Product Status",                            step: 4 },
-    { id: "core_use_case",        name: "Core use case users come back for",         step: 4 },
-    { id: "differentiation",      name: "Meaningful differentiation",                step: 4 },
-
-    // Step 5 — Market & Scope
-    { id: "beachhead_market",     name: "Beachhead market",                          step: 5 },
-    { id: "vision",               name: "Long-term Vision",                          step: 5 },
-
-    // Step 7 — GTM Strategy + Business Model
-    { id: "acquisition_channel",  name: "Primary acquisition channel",               step: 7 },
-    { id: "sales_motion",         name: "Sales motion",                              step: 7 },
-    { id: "pricing_model",        name: "Pricing model",                             step: 7 },
-    { id: "monthly_burn",         name: "Monthly Burn ($)",                          step: 7 },
-    { id: "runway",               name: "Runway (Months)",                           step: 7 },
-
-    // Step 8 — Vision & Strategy
-    { id: "primary_risk",         name: "Biggest Risk to Success",                   step: 8 },
-];
+// All wizard fields are optional. The * markers still appear next to labels
+// as soft hints — they tell the founder which inputs the AI agents benefit
+// most from when filled — but submission is not blocked when they're empty.
+const REQUIRED_FIELDS: { id: string; name: string; step: number }[] = [];
 
 const TIPS = [
     {
@@ -792,32 +761,7 @@ export default function FounderDashboard() {
     };
 
     const handleAddStartup = async () => {
-        // Run field validation based on the required fields map
-        const errors = REQUIRED_FIELDS.filter(f => !newStartup[f.id] || String(newStartup[f.id]).trim() === "");
-
-        // Founder array isn't a flat field, so it needs its own check.
-        // The Recommendation/Evaluation agents score Team on founder details,
-        // so at least one founder with name + role + prior experience + market-fit
-        // statement is required to avoid the "Sarasero / OFFLINE" empty-data trap.
-        const founders = Array.isArray(newStartup.founders) ? newStartup.founders : [];
-        const firstFounder = founders[0];
-        if (!firstFounder
-            || !String(firstFounder.name ?? "").trim()
-            || !String(firstFounder.role ?? "").trim()
-            || !String(firstFounder.prior_experience ?? "").trim()
-            || !String(firstFounder.founder_market_fit_statement ?? "").trim()
-        ) {
-            errors.push({
-                id: "founders",
-                name: "Founders (name, role, prior experience, founder–market fit statement)",
-                step: 2,
-            });
-        }
-
-        if (errors.length > 0) {
-            setValidationErrors(errors);
-            return; // Stop submission and show error alert
-        }
+        // All fields are now optional. No pre-submit validation runs.
 
         if (!user?.id) { alert("User not authenticated."); return; }
         setIsCreating(true);
