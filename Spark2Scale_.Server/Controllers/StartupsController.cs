@@ -303,12 +303,6 @@ namespace Spark2Scale_.Server.Controllers
 
             try
             {
-<<<<<<< HEAD
-                var authHeader = Request.Headers["Authorization"].FirstOrDefault();
-                string? bearer = (!string.IsNullOrEmpty(authHeader) && authHeader.StartsWith("Bearer "))
-                    ? authHeader.Substring("Bearer ".Length).Trim()
-                    : null;
-
                 // Fire every read that depends only on sId (or the token) in parallel.
                 // Previously these ran in series, so the page paid ~5x the network
                 // round-trip latency before it could respond. Each task swallows
@@ -318,41 +312,18 @@ namespace Spark2Scale_.Server.Controllers
                 var workflowTask = SafeAsync(() => _supabase.From<StartupWorkflow>().Where(w => w.StartupId == sId).Get(), default(Supabase.Postgrest.Responses.ModeledResponse<StartupWorkflow>));
                 var pitchTask = SafeAsync(() => _supabase.From<PitchDeck>().Where(p => p.startup_id == sId).Get(), default(Supabase.Postgrest.Responses.ModeledResponse<PitchDeck>));
                 var jsonRawTask = FetchStartupJsonResponseAsync(sId);
-                var userTask = SafeGetUserAsync(bearer);
+                var userTask = SafeGetUserAsync(token);
 
                 await Task.WhenAll(startupTask, workflowTask, pitchTask, jsonRawTask, userTask);
 
-                var startupResult = startupTask.Result;
-                var startup = startupResult?.Models.FirstOrDefault();
-                if (startup == null) return NotFound("Startup not found");
-
-                string? role = null;
+                // Auth must succeed — without a resolved user we can't authorize anything.
                 var user = userTask.Result;
-                if (user != null && Guid.TryParse(user.Id, out Guid currentUserId))
-                {
-                    if (startup.FounderId == currentUserId)
-                    {
-                        role = "Founder";
-                    }
-                    else
-                    {
-                        try
-                        {
-                            var contrib = await _supabase.From<StartupContributor>()
-                                .Match(new Dictionary<string, string> {
-                                    { "startup_id", sId.ToString() },
-                                    { "user_id", currentUserId.ToString() }
-                                })
-                                .Get();
-                            if (contrib.Models.Any()) role = contrib.Models.First().Role ?? "Contributor";
-=======
-                var user = await _supabase.Auth.GetUser(token);
                 if (user == null || !Guid.TryParse(user.Id, out Guid currentUserId))
                 {
                     return Unauthorized("Invalid or expired session token.");
                 }
 
-                var startup = (await _supabase.From<Startup>().Select(SAFE_COLS).Where(s => s.Sid == sId).Get()).Models.FirstOrDefault();
+                var startup = startupTask.Result?.Models.FirstOrDefault();
                 if (startup == null) return NotFound("Startup not found");
 
                 string? role = null;
@@ -365,31 +336,35 @@ namespace Spark2Scale_.Server.Controllers
                 }
                 else
                 {
-                    var contrib = await _supabase.From<StartupContributor>().Match(new Dictionary<string, string> { { "startup_id", sId.ToString() }, { "user_id", currentUserId.ToString() } }).Get();
-                    if (contrib.Models.Any())
+                    try
                     {
-                        isAuthorized = true;
-                        role = contrib.Models.First().Role ?? "Contributor";
-                    }
-                    else
-                    {
-                        var investorCheck = await _supabase.From<Investor>().Where(i => i.user_id == currentUserId).Get();
-                        if (investorCheck.Models.Any())
+                        var contrib = await _supabase.From<StartupContributor>()
+                            .Match(new Dictionary<string, string> {
+                                { "startup_id", sId.ToString() },
+                                { "user_id", currentUserId.ToString() }
+                            })
+                            .Get();
+                        if (contrib.Models.Any())
                         {
                             isAuthorized = true;
-                            role = "Investor";
->>>>>>> 39a4a5fcac3104a30e216f6bb7710f482b848703
+                            role = contrib.Models.First().Role ?? "Contributor";
                         }
-                        catch { }
+                        else
+                        {
+                            var investorCheck = await _supabase.From<Investor>().Where(i => i.user_id == currentUserId).Get();
+                            if (investorCheck.Models.Any())
+                            {
+                                isAuthorized = true;
+                                role = "Investor";
+                            }
+                        }
                     }
-<<<<<<< HEAD
-=======
+                    catch { }
                 }
 
                 if (!isAuthorized)
                 {
-                    return StatusCode(403, $"Forbidden: startup.FounderId is '{startup.FounderId}', currentUserId is '{currentUserId}'");
->>>>>>> 39a4a5fcac3104a30e216f6bb7710f482b848703
+                    return StatusCode(403, new { message = "You don't have permission to view this startup." });
                 }
 
                 int progressCount = 0;

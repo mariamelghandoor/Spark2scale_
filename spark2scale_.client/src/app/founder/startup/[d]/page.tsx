@@ -45,11 +45,8 @@ export default function StartupDashboard() {
 
     const [logoPath, setLogoPath] = useState<string | null>(null);
     const [isUploadingLogo, setIsUploadingLogo] = useState(false);
-<<<<<<< HEAD
     const [staleStages, setStaleStages] = useState<Set<StageId>>(new Set());
-=======
     const [error, setError] = useState<string | null>(null);
->>>>>>> 39a4a5fcac3104a30e216f6bb7710f482b848703
 
     // Meeting & Calendar State
     const [currentMonthDate, setCurrentMonthDate] = useState(new Date());
@@ -101,11 +98,6 @@ export default function StartupDashboard() {
                 
                 setWorkflowData(data.workflow);
                 setStartupName(data.startupName);
-<<<<<<< HEAD
-                if (data.logoPath) setLogoPath(data.logoPath);
-
-=======
->>>>>>> 39a4a5fcac3104a30e216f6bb7710f482b848703
                 setUserRole(data.role); // Set Role
                 setDocCount(data.docCount);
                 setVideoCount(data.videoCount);

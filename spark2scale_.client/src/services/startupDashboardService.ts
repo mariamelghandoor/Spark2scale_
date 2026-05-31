@@ -32,11 +32,7 @@ export interface DashboardData {
     docCount: number;
     meetings: Meeting[];
     videoCount: number;
-<<<<<<< HEAD
-    logoPath?: string | null;
-=======
     logoPath: string | null;
->>>>>>> 39a4a5fcac3104a30e216f6bb7710f482b848703
 }
 
 export const startupDashboardService = {
@@ -51,18 +47,17 @@ export const startupDashboardService = {
             docCount: 0,
             meetings: [],
             videoCount: 0,
-            logoPath: null
+            logoPath: null,
         };
 
-<<<<<<< HEAD
         // Fire all five lookups in parallel; allSettled keeps a single failure
         // from torpedoing the rest of the dashboard. Previously these ran in
         // strict series so the page had to wait for the sum of all five.
         const [startupResRaw, wfResRaw, docCountResRaw, meetingsResRaw, videoCountRaw] = await Promise.allSettled([
-            apiClient.get(`/api/Startups/${startupId}`),
-            apiClient.get(`/api/StartupWorkflow/${startupId}`),
-            apiClient.get(`/api/DocumentVersions/count/${startupId}`),
-            apiClient.get(`/api/Meetings?startupId=${startupId}`),
+            apiClient.get<any>(`/api/Startups/${startupId}`),
+            apiClient.get<any>(`/api/StartupWorkflow/${startupId}`),
+            apiClient.get<any>(`/api/DocumentVersions/count/${startupId}`),
+            apiClient.get<Meeting[]>(`/api/Meetings?startupId=${startupId}`),
             pitchDeckService.getPitchCount(startupId),
         ]);
 
@@ -74,98 +69,12 @@ export const startupDashboardService = {
             result.logoPath = startupData.logo_path ?? null;
         } else if (startupResRaw.status === "rejected") {
             console.error("Failed to load startup details", startupResRaw.reason);
-=======
-        try {
-            // ---------------------------------------------------------
-            // STEP 1: Load Core Startup Info (Most Important)
-            // ---------------------------------------------------------
-            try {
-                const startupRes = await apiClient.get(`/api/Startups/${startupId}`);
-                if (startupRes.data) {
-                    result.startupName = startupRes.data.startupname;
-                    result.role = startupRes.data.current_role || "Viewer";
-                    result.logoPath = startupRes.data.logo_path || null;
-
-                    // FRONTEND FALLBACK: If backend misses the role mapping, 
-                    // we strictly check the founder_id against your logged-in user ID!
-                    if (startupRes.data.founder_id === userId) {
-                        result.role = "Founder";
-                    }
-                }
-            } catch (e: any) {
-                console.error("Failed to load startup details", e);
-                const msg = e.message || "";
-                if (msg.includes("403") || msg.includes("401")) {
-                    throw e;
-                }
+            // Surface 401/403 to the caller so the page can show "Unauthorized"
+            // or "Forbidden" instead of a silent broken state.
+            const msg = startupResRaw.reason?.message || String(startupResRaw.reason || "");
+            if (msg.includes("401") || msg.includes("403")) {
+                throw startupResRaw.reason;
             }
-
-            // ---------------------------------------------------------
-            // STEP 2: Load Workflow Data
-            // ---------------------------------------------------------
-            try {
-                const wfRes = await apiClient.get(`/api/StartupWorkflow/${startupId}`);
-                if (wfRes.data) {
-                    const rawWf = wfRes.data;
-                    result.workflow = {
-                        startupId: rawWf.startupId || rawWf.StartupId,
-                        ideaCheck: rawWf.ideaCheck || rawWf.IdeaCheck || false,
-                        marketResearch: rawWf.marketResearch || rawWf.MarketResearch || false,
-                        evaluation: rawWf.evaluation || rawWf.Evaluation || false,
-                        recommendation: rawWf.recommendation || rawWf.Recommendation || false,
-                        documents: rawWf.documents || rawWf.Documents || false,
-                        pitchDeck: rawWf.pitchDeck || rawWf.PitchDeck || false
-                    };
-                }
-            } catch (e) {
-                console.warn("Failed to load workflow", e);
-            }
-
-            // ---------------------------------------------------------
-            // STEP 3: Load Document Count
-            // ---------------------------------------------------------
-            try {
-                const docCountRes = await apiClient.get(`/api/DocumentVersions/count/${startupId}`);
-                if (docCountRes.data) {
-                    result.docCount = docCountRes.data.count || 0;
-                }
-            } catch (e) {
-                console.warn("Failed to load document count", e);
-            }
-
-            // ---------------------------------------------------------
-            // STEP 4: Load Meetings
-            // ---------------------------------------------------------
-            try {
-                // Testing against startupId since it usually dictates the context
-                const meetingsRes = await apiClient.get(`/api/Meetings?startupId=${startupId}`);
-                if (meetingsRes.data) {
-                    result.meetings = meetingsRes.data;
-                }
-            } catch (e) {
-                console.warn("Failed to load meetings", e);
-            }
-
-            // ---------------------------------------------------------
-            // STEP 5: Load Video Count
-            // ---------------------------------------------------------
-            try {
-                const videoCount = await pitchDeckService.getPitchCount(startupId);
-                result.videoCount = videoCount || 0;
-            } catch (e) {
-                console.warn("Failed to load video count", e);
-            }
-
-            return result;
-
-        } catch (error: any) {
-            console.error("Fatal error assembling dashboard data:", error);
-            const msg = error.message || "";
-            if (msg.includes("403") || msg.includes("401")) {
-                throw error;
-            }
-            return result; // Returns whatever parts successfully loaded instead of crashing!
->>>>>>> 39a4a5fcac3104a30e216f6bb7710f482b848703
         }
 
         if (wfResRaw.status === "fulfilled" && wfResRaw.value?.data) {

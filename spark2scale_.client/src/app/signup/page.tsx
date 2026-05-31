@@ -11,11 +11,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import Link from "next/link";
 import LegoIllustration from "@/components/lego/LegoIllustration";
 import { motion } from "framer-motion";
-<<<<<<< HEAD
-import { Loader2, CheckCircle2, Eye, EyeOff, ShieldCheck } from "lucide-react";
-=======
-import { CheckCircle2, Eye, EyeOff } from "lucide-react";
->>>>>>> 39a4a5fcac3104a30e216f6bb7710f482b848703
+import { CheckCircle2, Eye, EyeOff, ShieldCheck } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createBrowserClient } from "@supabase/auth-helpers-nextjs";
 import LegoSpinner from "@/components/lego/LegoSpinner";

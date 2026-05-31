@@ -9,11 +9,8 @@ import { recommendationService, DBRecommendation } from "@/services/recommendati
 import { startupService } from "@/services/startupService";
 import { evaluationService } from "@/services/evaluationService";
 import { RecommendationCard } from "@/components/recommendations/RecommendationCard";
-<<<<<<< HEAD
 import RefinementStep from "@/components/recommendations/RefinementStep";
-=======
 import LegoSpinner from "@/components/lego/LegoSpinner";
->>>>>>> 39a4a5fcac3104a30e216f6bb7710f482b848703
 
 interface NamedRecommendation {
     rec:  DBRecommendation;

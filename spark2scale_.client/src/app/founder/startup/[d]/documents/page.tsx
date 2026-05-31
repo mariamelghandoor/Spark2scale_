@@ -28,7 +28,6 @@ import {
     ChatMessage,
 } from "@/services/documentsService";
 import { generateSwotPDF } from "@/pdf-formats/swotPdf";
-<<<<<<< HEAD
 import { clearStaleStage } from "@/lib/refinementState";
 
 // ---------------------------------------------------------------------------
@@ -64,8 +63,6 @@ function friendlyDocsError(err: unknown, action: string): string {
     }
     return `We couldn't ${action} right now. Please try again in a moment.`;
 }
-=======
->>>>>>> 39a4a5fcac3104a30e216f6bb7710f482b848703
 
 // ---------------------------------------------------------------------------
 // Toast System
@@ -729,10 +726,6 @@ export default function DocumentsPage() {
             setMessages((prev) => [...prev, { role: "assistant", content: netErr }]);
             if (activeSessionId) await documentsService.sendMessage(activeSessionId, netErr, "assistant");
             toast("error", "Connection Error", "Could not reach the server. Please try again.");
-        } finally {
-            setIsPptGenerating(false);
-            setIsTyping(false);
-<<<<<<< HEAD
         }
     };
 
@@ -819,164 +812,10 @@ export default function DocumentsPage() {
             setIsPptEditing(false);
         }
     };
-=======
-        }
-    };
-
-    const handleSimulateGeneration = async (docId: string) => {
-        if (!cleanId) return;
-        const docConfig = REQUIRED_DOCS.find((d) => d.id === docId);
-        if (!docConfig) return;
-
-        // 1. Force chat UI to link and open the correct document session
-        const activeSessionId = await ensureSessionForDocument(docId);
-
-        setIsGeneratingDoc(true);
-
-        // 2. Add organic user request prompt
-        const userMsg = `Generate the ${docConfig.name} for me.`;
-        setMessages((prev) => [...prev, { role: "user", content: userMsg }]);
-        if (activeSessionId) await documentsService.sendMessage(activeSessionId, userMsg, "user");
-        setIsTyping(true);
-
-        try {
-            let success = false;
-            if (docId === "swot") {
-                success = await documentsService.generateSwot(cleanId);
-            } else if (docId === "competitor_matrix") {
-                success = await documentsService.generateCompetitorMatrix(cleanId);
-            } else if (docId === "bmc") {
-                success = await documentsService.generateBmc(cleanId);
-            } else {
-                success = await documentsService.generateMockDocument(cleanId, docConfig.name);
-            }
-
-            if (success) {
-                await fetchData();
-                // 3. AI responds with success in the chat
-                const assistantMsg = `Successfully generated the ${docConfig.name}. It is now available in your documents list.`;
-                setMessages((prev) => [...prev, { role: "assistant", content: assistantMsg }]);
-                if (activeSessionId) await documentsService.sendMessage(activeSessionId, assistantMsg, "assistant");
-
-                toast("success", "Document Generated", `${docConfig.name} has been generated successfully.`);
-            } else {
-                const failMsg = "Error: Could not generate document.";
-                setMessages((prev) => [...prev, { role: "assistant", content: failMsg }]);
-                if (activeSessionId) await documentsService.sendMessage(activeSessionId, failMsg, "assistant");
-
-                toast("error", "Generation Failed", "Could not generate document. Please try again.");
-            }
-        } catch {
-            const netErr = "Connection error while trying to generate document.";
-            setMessages((prev) => [...prev, { role: "assistant", content: netErr }]);
-            if (activeSessionId) await documentsService.sendMessage(activeSessionId, netErr, "assistant");
-            toast("error", "Connection Error", "Could not reach the server. Please try again.");
-        } finally {
-            setIsGeneratingDoc(false);
-            setIsTyping(false);
-        }
-    };
-
-    const handleEditPPT = async (file: File) => {
-        if (!cleanId) return;
-        setIsPptEditing(true);
-        try {
-            const formData = new FormData();
-            formData.append("startup_id", cleanId);
-            formData.append("ppt_file", file);
-            formData.append("use_default_colors", "true");
-
-            const response = await fetch("https://spark2scale-ai-api-server.azurewebsites.net/api/v1/ppt/edit", { method: "POST", body: formData });
-
-            if (response.ok) {
-                const data = await response.json();
-                setPptUrl(data.ppt_path ?? data.ppt_url ?? null);
-                await fetchData();
-                toast("success", "Pitch Deck Enhanced", "Your PPT has been enhanced with AI styles.");
-            } else {
-                const errText = await response.text();
-                toast("error", "Enhancement Failed", errText || "Could not enhance the file. Please try again.");
-            }
-        } catch {
-            toast("error", "Connection Error", "Could not reach the server. Please try again.");
-        } finally {
-            setIsPptEditing(false);
-        }
-    };
 
     // -----------------------------------------------------------------------
     // Chat Enhancement Handlers
     // -----------------------------------------------------------------------
-    const [isEnhancing, setIsEnhancing] = useState(false);
-    const [isApplyingBmc, setIsApplyingBmc] = useState(false);
-
-    const handleApplyBmcChanges = async () => {
-        if (!cleanId || !chatSessionId || isApplyingBmc) return;
-        setIsApplyingBmc(true);
-        try {
-            const result = await documentsService.applyBmcChanges(cleanId, chatSessionId);
-            if (!result) {
-                setMessages(prev => [...prev, { role: "assistant", content: "Error: Could not apply changes to the BMC." }]);
-                return;
-            }
-
-            const changeLog = Array.isArray(result.change_log) ? result.change_log : [];
-            const header = "BMC updated. Change log:";
-            const body = changeLog.length > 0 ? changeLog.map(c => `• ${c}`).join("\n") : "• (no change log returned)";
-
-            setMessages(prev => [...prev, { role: "assistant", content: `${header}\n\n${body}` }]);
-            await fetchData();
-        } catch {
-            setMessages(prev => [...prev, { role: "assistant", content: "Error: Apply-to-BMC failed." }]);
-        } finally {
-            setIsApplyingBmc(false);
-        }
-    };
-
-    const handleEnhanceMessage = async (_messageContent: string) => {
-        if (!chatSessionId || isEnhancing) return;
-        setIsEnhancing(true);
-        try {
-            const result = await documentsService.enhanceSession(chatSessionId);
-            if (!result) {
-                setMessages(prev => [...prev, { role: "assistant", content: "Error: Could not enhance this chat." }]);
-                return;
-            }
-            if (result.status === "NoChanges") {
-                setMessages(prev => [...prev, { role: "assistant", content: "No new messages to summarize since the last enhancement." }]);
-                return;
-            }
-
-            let changes: string[] = [];
-            try {
-                const parsed = result.summarizedChat ? (typeof result.summarizedChat === "string" ? JSON.parse(result.summarizedChat) : result.summarizedChat) : null;
-                if (parsed && Array.isArray(parsed.document_changes)) changes = parsed.document_changes as string[];
-            } catch { }
-
-            const summaryText = changes.length > 0 ? changes.map((c, i) => `${i + 1}. ${c}`).join("\n") : (typeof result.summarizedChat === "string" ? result.summarizedChat : "");
-
-            setMessages(prev => [...prev, {
-                role: "assistant",
-                content: summaryText ? `Enhanced summary — requested document changes:\n\n${summaryText}\n\nClick **Apply changes to BMC** to update the canvas.` : "Chat enhanced. No actionable document changes were detected."
-            }]);
-        } catch {
-            setMessages(prev => [...prev, { role: "assistant", content: "Error: Enhance failed." }]);
-        } finally {
-            setIsEnhancing(false);
-        }
-    };
-
-    // -----------------------------------------------------------------------
-    // Utility Status
-    // -----------------------------------------------------------------------
-    const isCurrentDocGenerated = chatContext === "pitch_deck" ? !!pptUrl : docStates.find((d) => d.configId === chatContext)?.isUploaded || false;
-    const getCurrentContextName = () => REQUIRED_DOCS.find((d) => d.id === chatContext)?.name || "Document";
->>>>>>> 39a4a5fcac3104a30e216f6bb7710f482b848703
-
-    // -----------------------------------------------------------------------
-    // Chat Enhancement Handlers
-    // -----------------------------------------------------------------------
-<<<<<<< HEAD
     const [isEnhancing, setIsEnhancing] = useState(false);
     const [isApplyingBmc, setIsApplyingBmc] = useState(false);
 
@@ -1056,10 +895,6 @@ export default function DocumentsPage() {
     // -----------------------------------------------------------------------
     const triggerUpload = (configId: string) => fileInputRefs.current[configId]?.click();
 
-=======
-    const triggerUpload = (configId: string) => fileInputRefs.current[configId]?.click();
-
->>>>>>> 39a4a5fcac3104a30e216f6bb7710f482b848703
     const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>, config: (typeof REQUIRED_DOCS)[0]) => {
         if (!e.target.files || e.target.files.length === 0 || !cleanId) return;
         const file = e.target.files[0];
@@ -1376,11 +1211,7 @@ export default function DocumentsPage() {
                                                                         {uploadingId === config.id ? <LegoSpinner className="h-3 w-3 mr-1.5 animate-spin" /> : <Upload className="h-3 w-3 mr-1.5" />} Upload
                                                                     </Button>
                                                                     <Button size="sm" className={`h-8 text-xs ${primaryBtn}`} onClick={() => handleSimulateGeneration(config.id)} disabled={isGeneratingDoc || isPptGenerating}>
-<<<<<<< HEAD
                                                                         {isGeneratingDoc ? <LegoSpinner className="h-3 w-3 mr-1.5 animate-spin" /> : <Sparkles className="h-3 w-3 mr-1.5" />} AI Generate
-=======
-                                                                        {isGeneratingDoc ? <LegoSpinner className="h-3 w-3 mr-1.5 animate-spin" /> : <Sparkles className="h-3 w-3 mr-1.5" />} Generate
->>>>>>> 39a4a5fcac3104a30e216f6bb7710f482b848703
                                                                     </Button>
                                                                 </>
                                                             )}
@@ -1524,11 +1355,7 @@ export default function DocumentsPage() {
                                                                     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.5 }}>
                                                                         <Button size="sm" variant="outline" disabled={chatContext === "pitch_deck" ? isPptGenerating : isGeneratingDoc} className="h-7 text-[10px] border-[#576238] text-[#576238] hover:bg-[#576238] hover:text-white transition-colors" onClick={() => chatContext === "pitch_deck" ? handleGeneratePPT() : handleSimulateGeneration(chatContext)}>
                                                                             {(chatContext === "pitch_deck" ? isPptGenerating : isGeneratingDoc) ? <LegoSpinner className="h-3 w-3 mr-1.5 animate-spin" /> : <Sparkles className="h-3 w-3 mr-1.5" />}
-<<<<<<< HEAD
                                                                             AI Generate {getCurrentContextName()}
-=======
-                                                                            Generate {getCurrentContextName()}
->>>>>>> 39a4a5fcac3104a30e216f6bb7710f482b848703
                                                                         </Button>
                                                                     </motion.div>
                                                                 )}
