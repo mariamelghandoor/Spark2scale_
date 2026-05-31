@@ -483,12 +483,12 @@ export const recommendationService = {
     // same real startup data (NOT a static memo) if the API is unavailable.
     // ---------------------------------------------------------
     async generateAIRecommendation(startupData?: any, evaluationContent?: any): Promise<RecommendationContent | null> {
-        // NOTE: must match the host every other AI service uses
-        // (spark2scale-ai-api-server). The old "spark2scale-ai-server" host
-        // does not resolve, which silently forced the offline fallback.
-        const AI_AGENT_URL =
+        // Use the async polling pattern (same as Evaluation + Market Research)
+        // to avoid Azure App Service's 230s front-door timeout — the sync
+        // /recommend endpoint regularly fell past that wall on cold workflows.
+        const AI_BASE =
             (process.env.NEXT_PUBLIC_PYTHON_API_URL || "https://spark2scale-ai-api-server.azurewebsites.net")
-                .replace(/\/+$/, "") + "/api/v1/recommend";
+                .replace(/\/+$/, "") + "/api/v1";
         const requestId    = `req_${Date.now()}`;
 
         // ── Helpers ──────────────────────────────────────────────────
@@ -661,7 +661,7 @@ export const recommendationService = {
                 ? mapEvaluation(evalContent, startupEval)
                 : MOCK_EVALUATION_OUTPUT;
 
-        // ── 1. Try the real AI agent ──────────────────────────────────
+        // ── 1. Try the real AI agent (async polling) ─────────────────
         try {
             const payload = {
                 raw_input:         { startup_evaluation: startupEval },
@@ -669,20 +669,50 @@ export const recommendationService = {
                 request_id:        requestId,
             };
 
-            console.log("🚀 [AI Agent] Calling real API:", AI_AGENT_URL, payload);
+            console.log("🚀 [AI Agent] Starting job at:", `${AI_BASE}/recommend/start`);
 
-            const response = await fetch(AI_AGENT_URL, {
+            // Step 1: kick off the job (returns instantly).
+            const startRes = await fetch(`${AI_BASE}/recommend/start`, {
                 method:  "POST",
                 headers: { "Content-Type": "application/json" },
                 body:    JSON.stringify(payload),
             });
-
-            if (!response.ok) {
-                const errText = await response.text();
-                throw new Error(`AI Agent ${response.status}: ${errText}`);
+            if (!startRes.ok) {
+                const errText = await startRes.text();
+                throw new Error(`AI Agent start ${startRes.status}: ${errText}`);
             }
+            const startJson = await startRes.json();
+            const jobId = startJson?.job_id as string | undefined;
+            if (!jobId) throw new Error("AI Agent did not return a job_id");
 
-            const data = await response.json();
+            // Step 2: poll status with bounded backoff (5s → 15s).
+            const deadline = Date.now() + 8 * 60 * 1000;
+            let pollDelay = 5000;
+            let data: any = null;
+            while (Date.now() < deadline) {
+                await new Promise((r) => setTimeout(r, pollDelay));
+                try {
+                    const statusRes = await fetch(`${AI_BASE}/recommend/status/${jobId}`);
+                    if (!statusRes.ok) {
+                        pollDelay = Math.min(pollDelay + 2000, 15000);
+                        continue;
+                    }
+                    const statusJson = await statusRes.json();
+                    if (statusJson?.status === "completed") {
+                        data = statusJson.result;
+                        break;
+                    }
+                    if (statusJson?.status === "failed") {
+                        throw new Error(`AI Agent failed: ${statusJson.error || "unknown"}`);
+                    }
+                    pollDelay = Math.min(pollDelay + 2000, 15000);
+                } catch (pollErr) {
+                    // Transient poll failure — keep trying until deadline.
+                    console.warn("Recommendation poll blip:", pollErr);
+                }
+            }
+            if (data === null) throw new Error("AI Agent did not complete in time");
+
             console.log("✅ [AI Agent] Response received:", data);
 
             // Prefer the backend's own extracted insights (derived from the

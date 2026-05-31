@@ -115,13 +115,105 @@ function EvaluationWizard({ data, setData, loading, onSubmit, step, setStep, pen
                         )}
 
                         {step === 2 && (
-                            <div className="grid grid-cols-2 gap-6">
-                                <div className="col-span-2"><SectionHeader num="2" title="Founder & Team" subtitle="Detail your commitment and execution velocity." /></div>
-                                <FormField label="Full-time Start Date"><Input type="date" value={data.full_time_start} onChange={e => updateField('full_time_start', e.target.value)} /></FormField>
-                                <div className="col-span-2">
-                                    <FormField label="What have you shipped so far? (with dates)" hint="List key milestones or product releases.">
-                                        <Textarea value={data.shipments} onChange={e => updateField('shipments', e.target.value)} placeholder={"2025-07: Project Kickoff\n2026-02: MVP Live"} />
-                                    </FormField>
+                            <div className="space-y-6">
+                                <SectionHeader num="2" title="Founder & Team" subtitle="Detail your team, commitment, and execution velocity." />
+
+                                {/* Founders list — drives startup_evaluation.founder_and_team.founders[].
+                                    The recommendation/evaluation agents use names, roles, ownership,
+                                    experience, and market-fit statement when scoring the Team dimension
+                                    and matching founder-related risk patterns. */}
+                                <div className="space-y-3">
+                                    <div className="flex items-center justify-between">
+                                        <Label className="text-[#576238] font-semibold">Founders *</Label>
+                                        <Button
+                                            type="button"
+                                            size="sm"
+                                            variant="outline"
+                                            className="h-7 text-xs border-[#576238] text-[#576238] hover:bg-[#576238] hover:text-white"
+                                            onClick={() => updateField('founders', [...(data.founders ?? []), { name: "", role: "", ownership_percentage: 0, prior_experience: "", years_direct_experience: 0, founder_market_fit_statement: "" }])}
+                                        >
+                                            + Add founder
+                                        </Button>
+                                    </div>
+
+                                    {(data.founders ?? []).map((f: any, idx: number) => {
+                                        const updateFounder = (key: string, value: any) => {
+                                            const next = [...(data.founders ?? [])];
+                                            next[idx] = { ...next[idx], [key]: value };
+                                            updateField('founders', next);
+                                        };
+                                        const removeFounder = () => {
+                                            const next = (data.founders ?? []).filter((_: any, i: number) => i !== idx);
+                                            updateField('founders', next);
+                                        };
+                                        return (
+                                            <div key={idx} className="rounded-xl border border-[#576238]/20 bg-[#F0EADC]/30 p-4 space-y-3">
+                                                <div className="flex items-center justify-between">
+                                                    <span className="text-xs font-bold uppercase tracking-wider text-[#576238]/70">Founder #{idx + 1}</span>
+                                                    {(data.founders ?? []).length > 1 && (
+                                                        <Button
+                                                            type="button"
+                                                            size="sm"
+                                                            variant="ghost"
+                                                            className="h-6 text-[10px] text-red-600 hover:bg-red-50 hover:text-red-700"
+                                                            onClick={removeFounder}
+                                                        >
+                                                            Remove
+                                                        </Button>
+                                                    )}
+                                                </div>
+                                                <div className="grid grid-cols-2 gap-3">
+                                                    <FormField label="Full Name *">
+                                                        <Input value={f.name ?? ""} onChange={e => updateFounder('name', e.target.value)} placeholder="Doha Hemdan" />
+                                                    </FormField>
+                                                    <FormField label="Role *">
+                                                        <Input value={f.role ?? ""} onChange={e => updateFounder('role', e.target.value)} placeholder="CEO, CTO, COO…" />
+                                                    </FormField>
+                                                    <FormField label="Ownership % *">
+                                                        <Input
+                                                            type="number"
+                                                            min={0}
+                                                            max={100}
+                                                            value={f.ownership_percentage ?? 0}
+                                                            onChange={e => updateFounder('ownership_percentage', Number(e.target.value))}
+                                                        />
+                                                    </FormField>
+                                                    <FormField label="Years of Direct Experience">
+                                                        <Input
+                                                            type="number"
+                                                            min={0}
+                                                            value={f.years_direct_experience ?? 0}
+                                                            onChange={e => updateFounder('years_direct_experience', Number(e.target.value))}
+                                                        />
+                                                    </FormField>
+                                                </div>
+                                                <FormField label="Prior Experience *" hint="Roles, companies, and domain expertise.">
+                                                    <Input value={f.prior_experience ?? ""} onChange={e => updateFounder('prior_experience', e.target.value)} placeholder="AI Engineer at Tabaani; 4 years building startup-eval tooling" />
+                                                </FormField>
+                                                <FormField label="Founder–Market Fit Statement *" hint="Why this founder uniquely solves this problem.">
+                                                    <Textarea
+                                                        value={f.founder_market_fit_statement ?? ""}
+                                                        onChange={e => updateFounder('founder_market_fit_statement', e.target.value)}
+                                                        placeholder="Built and shipped two pre-seed evaluation tools; interviewed 40+ MENA founders before writing a line of code."
+                                                    />
+                                                </FormField>
+                                            </div>
+                                        );
+                                    })}
+
+                                    {(data.founders ?? []).length === 0 && (
+                                        <p className="text-xs text-[#576238]/70 italic">Click <span className="font-semibold">Add founder</span> to add at least one team member. The AI uses these details to score the Team dimension.</p>
+                                    )}
+                                </div>
+
+                                {/* Execution */}
+                                <div className="grid grid-cols-2 gap-6 pt-2 border-t border-[#576238]/10">
+                                    <FormField label="Full-time Start Date"><Input type="date" value={data.full_time_start} onChange={e => updateField('full_time_start', e.target.value)} /></FormField>
+                                    <div className="col-span-2">
+                                        <FormField label="What have you shipped so far? (with dates)" hint="List key milestones or product releases.">
+                                            <Textarea value={data.shipments} onChange={e => updateField('shipments', e.target.value)} placeholder={"2025-07: Project Kickoff\n2026-02: MVP Live"} />
+                                        </FormField>
+                                    </div>
                                 </div>
                             </div>
                         )}
@@ -427,6 +519,7 @@ export default function FounderDashboard() {
         website_url: "", hq_location: "", date_founded: "", raised_to_date: "0",
         current_round_size: "0", target_close_date: "",
         full_time_start: "", shipments: "",
+        founders: [{ name: "", role: "", ownership_percentage: 0, prior_experience: "", years_direct_experience: 0, founder_market_fit_statement: "" }],
         customer_profile: "", problem_statement: "", current_solution: "", gap_analysis: "",
         problem_frequency: "Daily", cost_of_not_solving: "", interviews_conducted: 0, customer_quotes: "",
         product_status: "MVP", demo_link: "", core_use_case: "", differentiation: "", defensibility: "",
@@ -619,6 +712,7 @@ export default function FounderDashboard() {
             website_url: "", hq_location: "", date_founded: "", raised_to_date: "0",
             current_round_size: "0", target_close_date: "",
             full_time_start: "", shipments: "",
+            founders: [{ name: "", role: "", ownership_percentage: 0, prior_experience: "", years_direct_experience: 0, founder_market_fit_statement: "" }],
             customer_profile: "", problem_statement: "", current_solution: "", gap_analysis: "",
             problem_frequency: "Daily", cost_of_not_solving: "", interviews_conducted: 0, customer_quotes: "",
             product_status: "MVP", demo_link: "", core_use_case: "", differentiation: "", defensibility: "",
@@ -660,6 +754,25 @@ export default function FounderDashboard() {
         // Run field validation based on the required fields map
         const errors = REQUIRED_FIELDS.filter(f => !newStartup[f.id] || String(newStartup[f.id]).trim() === "");
 
+        // Founder array isn't a flat field, so it needs its own check.
+        // The Recommendation/Evaluation agents score Team on founder details,
+        // so at least one founder with name + role + prior experience + market-fit
+        // statement is required to avoid the "Sarasero / OFFLINE" empty-data trap.
+        const founders = Array.isArray(newStartup.founders) ? newStartup.founders : [];
+        const firstFounder = founders[0];
+        if (!firstFounder
+            || !String(firstFounder.name ?? "").trim()
+            || !String(firstFounder.role ?? "").trim()
+            || !String(firstFounder.prior_experience ?? "").trim()
+            || !String(firstFounder.founder_market_fit_statement ?? "").trim()
+        ) {
+            errors.push({
+                id: "founders",
+                name: "Founders (name, role, prior experience, founder–market fit statement)",
+                step: 2,
+            });
+        }
+
         if (errors.length > 0) {
             setValidationErrors(errors);
             return; // Stop submission and show error alert
@@ -680,6 +793,16 @@ export default function FounderDashboard() {
                         existing_investors: newStartup.existing_investors,
                     },
                     founder_and_team: {
+                        founders: (Array.isArray(newStartup.founders) ? newStartup.founders : [])
+                            .filter((f: any) => f && (f.name || "").trim() !== "")
+                            .map((f: any) => ({
+                                name: (f.name || "").trim(),
+                                role: (f.role || "").trim(),
+                                ownership_percentage: Number(f.ownership_percentage) || 0,
+                                prior_experience: (f.prior_experience || "").trim(),
+                                years_direct_experience: Number(f.years_direct_experience) || 0,
+                                founder_market_fit_statement: (f.founder_market_fit_statement || "").trim(),
+                            })),
                         execution: { full_time_start_date: newStartup.full_time_start, key_shipments: newStartup.shipments ? newStartup.shipments.split("\n").filter(Boolean) : [] },
                     },
                     problem_definition: {
