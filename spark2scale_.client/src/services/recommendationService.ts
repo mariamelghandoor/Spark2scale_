@@ -689,29 +689,43 @@ export const recommendationService = {
             const deadline = Date.now() + 8 * 60 * 1000;
             let pollDelay = 5000;
             let data: any = null;
+            let terminalFailure: string | null = null;
             while (Date.now() < deadline) {
                 await new Promise((r) => setTimeout(r, pollDelay));
+                let statusJson: { status?: string; result?: any; error?: string } | null = null;
                 try {
                     const statusRes = await fetch(`${AI_BASE}/recommend/status/${jobId}`);
                     if (!statusRes.ok) {
+                        // Transient HTTP error on the status call — back off and retry.
                         pollDelay = Math.min(pollDelay + 2000, 15000);
                         continue;
                     }
-                    const statusJson = await statusRes.json();
-                    if (statusJson?.status === "completed") {
-                        data = statusJson.result;
-                        break;
-                    }
-                    if (statusJson?.status === "failed") {
-                        throw new Error(`AI Agent failed: ${statusJson.error || "unknown"}`);
-                    }
-                    pollDelay = Math.min(pollDelay + 2000, 15000);
+                    statusJson = await statusRes.json();
                 } catch (pollErr) {
-                    // Transient poll failure — keep trying until deadline.
+                    // Network blip while polling — back off and retry.
                     console.warn("Recommendation poll blip:", pollErr);
+                    pollDelay = Math.min(pollDelay + 2000, 15000);
+                    continue;
                 }
+
+                if (statusJson?.status === "completed") {
+                    data = statusJson.result;
+                    break;
+                }
+                if (statusJson?.status === "failed") {
+                    // Definitive failure from the AI worker — stop polling and
+                    // surface so the outer catch can run the OFFLINE fallback.
+                    terminalFailure = statusJson.error || "unknown";
+                    break;
+                }
+                pollDelay = Math.min(pollDelay + 2000, 15000);
             }
-            if (data === null) throw new Error("AI Agent did not complete in time");
+            if (terminalFailure !== null) {
+                throw new Error(`AI Agent failed: ${terminalFailure}`);
+            }
+            if (data === null) {
+                throw new Error("AI Agent did not complete in time");
+            }
 
             console.log("✅ [AI Agent] Response received:", data);
 
