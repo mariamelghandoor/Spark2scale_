@@ -662,58 +662,79 @@ export default function FounderDashboard() {
                     .filter((f: any) => (f.name || "").trim() !== "")
                 : [];
 
+            // The AI extractor returns the canonical startup_evaluation schema:
+            // - Round info lives under company_snapshot.current_round.{target_amount, target_close_date}
+            // - Cost of not solving lives under problem_definition.impact_metrics.{cost_type, description}
+            // - Interview count + quotes live under problem_definition.evidence.{interviews_conducted, customer_quotes}
+            // - Defensibility lives under product_and_solution.defensibility_moat
+            // - Market size lives under market_and_scope.market_size_estimate
+            // - Partnerships live under traction_metrics.partnerships_and_lois
+            // - Sales cycle lives under gtm_strategy.average_sales_cycle
+            // Add canonical paths first; keep legacy flat names as fallbacks.
+            const currentRound = (snap.current_round ?? {}) as Record<string, any>;
+            const evidence = (problem.evidence ?? {}) as Record<string, any>;
+            const impact = (problem.impact_metrics ?? {}) as Record<string, any>;
+            const flattenList = (v: any): string => {
+                if (Array.isArray(v)) return v.filter(Boolean).join("\n");
+                return v ?? "";
+            };
+
             setNewStartup(prev => ({
                 ...prev,
                 name: snap.company_name || snap.name || prev.name,
                 website_url: snap.website_url || snap.website || prev.website_url,
                 hq_location: snap.hq_location || snap.hq || prev.hq_location,
                 date_founded: snap.date_founded || snap.founded_date || prev.date_founded,
-                stage: snap.stage || prev.stage,
-                raised_to_date: snap.amount_raised || snap.raised_to_date || prev.raised_to_date,
-                current_round_size: snap.round_size || snap.current_round_size || prev.current_round_size,
-                target_close_date: snap.target_close_date || prev.target_close_date,
+                stage: snap.current_stage || snap.stage || prev.stage,
+                raised_to_date: String(snap.amount_raised_to_date ?? snap.amount_raised ?? snap.raised_to_date ?? prev.raised_to_date),
+                current_round_size: String(currentRound.target_amount ?? snap.round_size ?? snap.current_round_size ?? prev.current_round_size),
+                target_close_date: currentRound.target_close_date || snap.target_close_date || prev.target_close_date,
                 existing_investors: snap.existing_investors || vis.existing_investors || prev.existing_investors,
                 full_time_start: founder.execution?.full_time_start_date || founder.full_time_start || prev.full_time_start,
-                shipments: typeof founder.execution === "string" ? founder.execution : Array.isArray(founder.execution?.key_shipments) ? founder.execution.key_shipments.join("\n") : founder.shipments || prev.shipments,
+                shipments: typeof founder.execution === "string"
+                    ? founder.execution
+                    : Array.isArray(founder.execution?.key_shipments)
+                        ? founder.execution.key_shipments.join("\n")
+                        : (founder.shipments || prev.shipments),
                 founders: extractedFounders.length > 0 ? extractedFounders : prev.founders,
                 customer_profile: (typeof problem.customer_profile === "object" ? problem.customer_profile?.description : problem.customer_profile) || problem.target_customer || prev.customer_profile,
                 problem_statement: problem.problem_statement || problem.problem || prev.problem_statement,
                 current_solution: problem.current_solution || prev.current_solution,
                 gap_analysis: problem.gap_analysis || problem.broken_solutions || prev.gap_analysis,
                 problem_frequency: problem.problem_frequency || problem.frequency || prev.problem_frequency,
-                cost_of_not_solving: problem.cost_of_not_solving || problem.cost || prev.cost_of_not_solving,
-                interviews_conducted: Number(problem.interviews_conducted || problem.interviews || prev.interviews_conducted),
-                customer_quotes: Array.isArray(problem.customer_quotes) ? problem.customer_quotes.join("\n") : (problem.customer_quotes || prev.customer_quotes),
+                cost_of_not_solving: impact.cost_type || impact.description || problem.cost_of_not_solving || problem.cost || prev.cost_of_not_solving,
+                interviews_conducted: Number(evidence.interviews_conducted ?? problem.interviews_conducted ?? problem.interviews ?? prev.interviews_conducted),
+                customer_quotes: flattenList(evidence.customer_quotes ?? problem.customer_quotes ?? prev.customer_quotes),
                 product_status: product.product_stage || product.product_status || prev.product_status,
                 demo_link: product.demo_link || prev.demo_link,
                 core_use_case: product.core_stickiness || product.core_use_case || prev.core_use_case,
                 differentiation: product.differentiation || prev.differentiation,
-                defensibility: product.defensibility || product.moat || prev.defensibility,
+                defensibility: product.defensibility_moat || product.defensibility || product.moat || prev.defensibility,
                 beachhead_market: market.beachhead_market || market.beachhead || prev.beachhead_market,
-                market_size: market.market_size || prev.market_size,
-                vision: vis.five_year_vision || vis.long_term_vision || vis.vision || prev.vision,
+                market_size: market.market_size_estimate || market.market_size || prev.market_size,
+                vision: vis.five_year_vision || vis.long_term_vision || vis.vision || market.long_term_vision || prev.vision,
                 expansion_strategy: market.expansion_strategy || prev.expansion_strategy,
-                active_users: Number(traction.user_count || traction.active_users_monthly || traction.active_users || prev.active_users),
-                design_partners: Array.isArray(traction.design_partners) ? traction.design_partners.join(", ") : (traction.design_partners || prev.design_partners),
+                active_users: Number(traction.user_count ?? traction.active_users_monthly ?? traction.active_users ?? prev.active_users),
+                design_partners: flattenList(traction.partnerships_and_lois ?? traction.design_partners ?? prev.design_partners),
                 early_revenue: traction.early_revenue || traction.revenue || prev.early_revenue,
                 rev_growth: traction.revenue_growth || traction.rev_growth || prev.rev_growth,
                 retention_metrics: traction.retention_metrics || prev.retention_metrics,
-                paying_customers: Number(traction.paying_customers || prev.paying_customers),
+                paying_customers: Number(traction.paying_customers ?? prev.paying_customers),
                 acv: traction.acv || prev.acv,
                 buyer_vs_user: gtm.buyer_persona || gtm.buyer_vs_user || prev.buyer_vs_user,
                 acquisition_channel: gtm.primary_acquisition_channel || gtm.acquisition_channel || prev.acquisition_channel,
                 sales_motion: gtm.sales_motion || prev.sales_motion,
-                avg_sales_cycle: gtm.avg_sales_cycle || prev.avg_sales_cycle,
+                avg_sales_cycle: gtm.average_sales_cycle || gtm.avg_sales_cycle || prev.avg_sales_cycle,
                 deal_closer: gtm.deal_closer || prev.deal_closer,
                 pricing_model: biz.pricing_model || prev.pricing_model,
-                avg_price: String(biz.average_price_per_customer || biz.avg_price || prev.avg_price),
-                gross_margin: String(biz.gross_margin || prev.gross_margin),
-                monthly_burn: String(biz.monthly_burn || prev.monthly_burn),
-                runway: String(biz.runway_months || biz.runway || prev.runway),
+                avg_price: String(biz.average_price_per_customer ?? biz.avg_price ?? prev.avg_price),
+                gross_margin: String(biz.gross_margin ?? prev.gross_margin),
+                monthly_burn: String(biz.monthly_burn ?? prev.monthly_burn),
+                runway: String(biz.runway_months ?? biz.runway ?? prev.runway),
                 category_definition: vis.category_definition || prev.category_definition,
                 primary_risk: vis.primary_risk || vis.risk || prev.primary_risk,
-                round_milestones: vis.round_milestones || vis.milestones || prev.round_milestones,
-                funds_priorities: vis.funds_priorities || vis.use_of_funds || prev.funds_priorities,
+                round_milestones: flattenList(vis.round_milestones ?? vis.milestones ?? prev.round_milestones),
+                funds_priorities: flattenList(vis.use_of_funds ?? vis.funds_priorities ?? prev.funds_priorities),
             }));
 
             setExtractionSuccess(true);
