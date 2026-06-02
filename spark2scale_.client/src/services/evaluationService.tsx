@@ -110,12 +110,17 @@ export const evaluationService = {
                 data: parsedForm
             };
 
+            // The AI evaluation routes are auth-protected (Supabase Bearer JWT).
+            const evalAuthToken = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
+            const evalAuthHeaders: Record<string, string> = evalAuthToken ? { Authorization: `Bearer ${evalAuthToken}` } : {};
+
             console.log("🚀 Step 2: Starting AI Job on Azure...", payload);
             const startJobRes = await fetch('https://spark2scale-ai-api-server.azurewebsites.net/api/v1/evaluation/evaluate/all', {
                 method: 'POST',
                 headers: {
                     'accept': 'application/json',
-                    'Content-Type': 'application/json'
+                    'Content-Type': 'application/json',
+                    ...evalAuthHeaders
                 },
                 body: JSON.stringify(payload)
             });
@@ -139,7 +144,9 @@ export const evaluationService = {
             while (Date.now() - startedAt < MAX_POLL_MS) {
                 let statusData: { status?: string; result?: unknown; error?: unknown } | null = null;
                 try {
-                    const statusRes = await fetch(`https://spark2scale-ai-api-server.azurewebsites.net/api/v1/evaluation/evaluate/status/${jobId}`);
+                    const statusRes = await fetch(`https://spark2scale-ai-api-server.azurewebsites.net/api/v1/evaluation/evaluate/status/${jobId}`, {
+                        headers: evalAuthHeaders
+                    });
                     if (!statusRes.ok) throw new Error(`status ${statusRes.status}`);
                     statusData = await statusRes.json();
                 } catch (pollErr) {

@@ -690,6 +690,8 @@ namespace Spark2Scale_.Server.Controllers
                     // then poll /research/status/{id} every few seconds.
                     var client = _httpClientFactory.CreateClient();
                     client.Timeout = TimeSpan.FromSeconds(30);
+                    // Forward the caller's Supabase Bearer token — the AI route is auth-protected.
+                    client.DefaultRequestHeaders.Add("Authorization", $"Bearer {GetToken()}");
                     const string AI_BASE = "https://spark2scale-ai-api-server.azurewebsites.net/api/v1/market-research";
 
                     var externalPayload = new

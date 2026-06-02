@@ -491,6 +491,8 @@ namespace Spark2Scale_.Server.Controllers
                 using (var client = new HttpClient())
                 {
                     client.Timeout = TimeSpan.FromMinutes(3);
+                    // Forward the caller's Supabase Bearer token — the AI route is auth-protected.
+                    client.DefaultRequestHeaders.Add("Authorization", $"Bearer {GetToken()}");
 
                     // FIX: JsonResponse is typed as `object` and the Supabase C# client deserializes
                     // JSONB columns into Newtonsoft JObject. System.Text.Json cannot serialize JObject
@@ -693,6 +695,8 @@ namespace Spark2Scale_.Server.Controllers
                 using (var client = new HttpClient())
                 {
                     client.Timeout = TimeSpan.FromMinutes(3);
+                    // Forward the caller's Supabase Bearer token — the AI route is auth-protected.
+                    client.DefaultRequestHeaders.Add("Authorization", $"Bearer {GetToken()}");
 
                     string mrRawJson = marketResearchDoc.JsonResponse is string alreadyString
                         ? alreadyString
@@ -914,6 +918,8 @@ namespace Spark2Scale_.Server.Controllers
                 using (var client = new HttpClient())
                 {
                     client.Timeout = TimeSpan.FromMinutes(3);
+                    // Forward the caller's Supabase Bearer token — the AI route is auth-protected.
+                    client.DefaultRequestHeaders.Add("Authorization", $"Bearer {GetToken()}");
 
                     var externalPayload = new
                     {
@@ -1116,6 +1122,8 @@ namespace Spark2Scale_.Server.Controllers
                 using (var client = new HttpClient())
                 {
                     client.Timeout = TimeSpan.FromMinutes(3);
+                    // Forward the caller's Supabase Bearer token — the AI route is auth-protected.
+                    client.DefaultRequestHeaders.Add("Authorization", $"Bearer {GetToken()}");
 
                     var externalPayload = new
                     {
