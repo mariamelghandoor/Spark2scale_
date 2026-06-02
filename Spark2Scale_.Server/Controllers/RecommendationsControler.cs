@@ -143,7 +143,15 @@ namespace Spark2Scale_.Server.Controllers
                                      $"Failed to insert recommendation: {errBody}");
                 }
 
-                // 3. Sync json_response + current_iteration on the startups row (non-fatal).
+                // 3. Bump current_iteration on the startups row (non-fatal).
+                // IMPORTANT: do NOT write json_response here. That column holds the
+                // founder's submitted form (startup_evaluation), which the
+                // recommendation agent reads back as raw_input. The previous code
+                // set it to input.Content (the recommendation report) — a raw
+                // JsonElement that the Supabase/Newtonsoft serializer turned into
+                // {"ValueKind":1}, wiping the founder's data and breaking every
+                // downstream document. Refinements have their own path
+                // (/api/Startups/{id}/apply-refinements).
                 try
                 {
                     var startupRow = await _supabase.From<Spark2Scale_.Server.Models.Startup>()
@@ -154,13 +162,12 @@ namespace Spark2Scale_.Server.Controllers
 
                     await _supabase.From<Spark2Scale_.Server.Models.Startup>()
                         .Where(s => s.Sid == input.StartupId)
-                        .Set(s => s.JsonResponse,     input.Content)
                         .Set(s => s.CurrentIteration, nextIteration)
                         .Update();
                 }
                 catch (Exception syncEx)
                 {
-                    Console.WriteLine($"[Recommendations/save] Warning – could not sync startup row: {syncEx.Message}");
+                    Console.WriteLine($"[Recommendations/save] Warning – could not bump iteration: {syncEx.Message}");
                 }
 
                 // Return the inserted row's rid so the frontend can show a delete button

@@ -303,28 +303,14 @@ export default function IdeaCheckPage() {
         if (!cleanId) return;
 
         try {
-            // STEP 1: Get AI to update startup data based on chat
-            console.log("🔄 Step 1: Sending chat to AI for startup data update...");
-            const updatedStartupData = await ideaCheckService.updateStartupDataFromChat(
-                cleanId,
-                messages,
-                startupData
-            );
-
-            // STEP 2: Save updated data to your database
-            if (updatedStartupData) {
-                console.log("🔄 Step 2: Saving AI-updated data to database...");
-                const savedToDb = await ideaCheckService.updateStartupInDatabase(cleanId, updatedStartupData);
-                if (savedToDb) {
-                    console.log("✅ Database updated with new startup data");
-                    // Update local state so subsequent calls use the latest data
-                    setStartupData(updatedStartupData);
-                } else {
-                    console.warn("⚠️ DB save failed — continuing with workflow update anyway");
-                }
-            } else {
-                console.warn("⚠️ AI returned no updated data — skipping DB save");
-            }
+            // IMPORTANT: Do NOT rewrite startups.json_response here.
+            // That column holds the founder's submitted form — the raw_input that
+            // every document generator (evaluation, market research, recommendation,
+            // BMC, SWOT, pitch deck) reads. The previous Step 1/2 rebuilt a stripped
+            // skeleton from the scalar startup columns (ignoring the rich
+            // json_response) and PUT it via update-json, wiping differentiation,
+            // vision, founders, target raise, etc. Idea Check only needs to mark the
+            // stage complete; the founder's form must stay intact.
 
             // STEP 3: Get current workflow flags (to preserve other stages)
             console.log("🔄 Step 3: Fetching current workflow state...");
