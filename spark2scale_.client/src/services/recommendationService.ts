@@ -482,7 +482,7 @@ export const recommendationService = {
     // the schema the backend expects. Falls back to a report derived from the
     // same real startup data (NOT a static memo) if the API is unavailable.
     // ---------------------------------------------------------
-    async generateAIRecommendation(startupData?: any, evaluationContent?: any): Promise<RecommendationContent | null> {
+    async generateAIRecommendation(startupData?: any, evaluationContent?: any, startupId?: string): Promise<RecommendationContent | null> {
         // Use the async polling pattern (same as Evaluation + Market Research)
         // to avoid Azure App Service's 230s front-door timeout — the sync
         // /recommend endpoint regularly fell past that wall on cold workflows.
@@ -490,6 +490,11 @@ export const recommendationService = {
             (process.env.NEXT_PUBLIC_PYTHON_API_URL || "https://spark2scale-ai-api-server.azurewebsites.net")
                 .replace(/\/+$/, "") + "/api/v1";
         const requestId    = `req_${Date.now()}`;
+
+        // The /recommend endpoints are auth-protected (Supabase Bearer JWT).
+        // Read the token using the same key as the other services / apiClient.ts.
+        const authToken = typeof window !== "undefined" ? localStorage.getItem("auth_token") : null;
+        const authHeaders: Record<string, string> = authToken ? { Authorization: `Bearer ${authToken}` } : {};
 
         // ── Helpers ──────────────────────────────────────────────────
         const parseMaybeJson = (v: any): any => {
@@ -667,6 +672,7 @@ export const recommendationService = {
                 raw_input:         { startup_evaluation: startupEval },
                 evaluation_output: evaluation_output,
                 request_id:        requestId,
+                startup_id:        startupId,
             };
 
             console.log("🚀 [AI Agent] Starting job at:", `${AI_BASE}/recommend/start`);
@@ -674,7 +680,7 @@ export const recommendationService = {
             // Step 1: kick off the job (returns instantly).
             const startRes = await fetch(`${AI_BASE}/recommend/start`, {
                 method:  "POST",
-                headers: { "Content-Type": "application/json" },
+                headers: { "Content-Type": "application/json", ...authHeaders },
                 body:    JSON.stringify(payload),
             });
             if (!startRes.ok) {
@@ -694,7 +700,9 @@ export const recommendationService = {
                 await new Promise((r) => setTimeout(r, pollDelay));
                 let statusJson: { status?: string; result?: any; error?: string } | null = null;
                 try {
-                    const statusRes = await fetch(`${AI_BASE}/recommend/status/${jobId}`);
+                    const statusRes = await fetch(`${AI_BASE}/recommend/status/${jobId}`, {
+                        headers: authHeaders,
+                    });
                     if (!statusRes.ok) {
                         // Transient HTTP error on the status call — back off and retry.
                         pollDelay = Math.min(pollDelay + 2000, 15000);

@@ -99,7 +99,7 @@ export default function RecommendationsPage() {
                 evaluationService.getEvaluationContent(cleanId),
             ]);
 
-            const aiResult = await recommendationService.generateAIRecommendation(startupData, evalContent);
+            const aiResult = await recommendationService.generateAIRecommendation(startupData, evalContent, cleanId);
             if (!aiResult) { alert("Failed to generate recommendations. Please try again."); return; }
 
             const [rid] = await Promise.all([
