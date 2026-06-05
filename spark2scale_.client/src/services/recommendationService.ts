@@ -1,6 +1,7 @@
 // services/recommendationService.ts
 
 import apiClient from "@/lib/apiClient";
+import { addStaleStages, type StageId } from "@/lib/refinementState";
 
 // --- MOCK DATA FOR TESTING ---
 const MOCK_STARTUP_DATA = {
@@ -272,9 +273,33 @@ export interface RecommendationContent {
     };
     matched_patterns?: {
         pattern_id: string;
+        name?: string;
+        severity?: string;            // "high" | "medium" | "low"
         strength_score: number;
+        strength_label?: string;      // "kill_signal" | "strong" | "moderate" | "weak"
+        confidence?: string;          // "HIGH" | "MEDIUM" | "LOW"
+        confidence_reasoning?: string;
         template: string;
     }[];
+
+    // Live market intelligence (World Bank + Tavily). Optional — older reports
+    // generated before this field existed simply won't have it.
+    market_signals?: {
+        country_risk?: {
+            [indicator: string]: {
+                value: number;
+                risk: string;          // "high" | "medium" | "low" | "unknown"
+                global_baseline?: { mean: number; std: number; n?: number; n_raw?: number; method?: string };
+            };
+        };
+        news_signals?: { title: string; url: string; source_domain: string; snippet: string; score?: number }[];
+        risk_flags?: string[];
+        funding_climate?: string;      // "Active" | "Neutral" | "Challenging"
+        confidence?: string;           // "high" | "medium" | "low"
+        tool_status?: { world_bank?: string; tavily?: string };
+        sources_used?: string[];
+    };
+
     patterns_detected?: any[]; // Deprecated/Legacy
 
     // Legacy Fields for UI Compatibility
@@ -457,14 +482,19 @@ export const recommendationService = {
     // the schema the backend expects. Falls back to a report derived from the
     // same real startup data (NOT a static memo) if the API is unavailable.
     // ---------------------------------------------------------
-    async generateAIRecommendation(startupData?: any, evaluationContent?: any): Promise<RecommendationContent | null> {
-        // NOTE: must match the host every other AI service uses
-        // (spark2scale-ai-api-server). The old "spark2scale-ai-server" host
-        // does not resolve, which silently forced the offline fallback.
-        const AI_AGENT_URL =
+    async generateAIRecommendation(startupData?: any, evaluationContent?: any, startupId?: string): Promise<RecommendationContent | null> {
+        // Use the async polling pattern (same as Evaluation + Market Research)
+        // to avoid Azure App Service's 230s front-door timeout — the sync
+        // /recommend endpoint regularly fell past that wall on cold workflows.
+        const AI_BASE =
             (process.env.NEXT_PUBLIC_PYTHON_API_URL || "https://spark2scale-ai-api-server.azurewebsites.net")
-                .replace(/\/+$/, "") + "/api/v1/recommend";
+                .replace(/\/+$/, "") + "/api/v1";
         const requestId    = `req_${Date.now()}`;
+
+        // The /recommend endpoints are auth-protected (Supabase Bearer JWT).
+        // Read the token using the same key as the other services / apiClient.ts.
+        const authToken = typeof window !== "undefined" ? localStorage.getItem("auth_token") : null;
+        const authHeaders: Record<string, string> = authToken ? { Authorization: `Bearer ${authToken}` } : {};
 
         // ── Helpers ──────────────────────────────────────────────────
         const parseMaybeJson = (v: any): any => {
@@ -636,28 +666,75 @@ export const recommendationService = {
                 ? mapEvaluation(evalContent, startupEval)
                 : MOCK_EVALUATION_OUTPUT;
 
-        // ── 1. Try the real AI agent ──────────────────────────────────
+        // ── 1. Try the real AI agent (async polling) ─────────────────
         try {
             const payload = {
                 raw_input:         { startup_evaluation: startupEval },
                 evaluation_output: evaluation_output,
                 request_id:        requestId,
+                startup_id:        startupId,
             };
 
-            console.log("🚀 [AI Agent] Calling real API:", AI_AGENT_URL, payload);
+            console.log("🚀 [AI Agent] Starting job at:", `${AI_BASE}/recommend/start`);
 
-            const response = await fetch(AI_AGENT_URL, {
+            // Step 1: kick off the job (returns instantly).
+            const startRes = await fetch(`${AI_BASE}/recommend/start`, {
                 method:  "POST",
-                headers: { "Content-Type": "application/json" },
+                headers: { "Content-Type": "application/json", ...authHeaders },
                 body:    JSON.stringify(payload),
             });
+            if (!startRes.ok) {
+                const errText = await startRes.text();
+                throw new Error(`AI Agent start ${startRes.status}: ${errText}`);
+            }
+            const startJson = await startRes.json();
+            const jobId = startJson?.job_id as string | undefined;
+            if (!jobId) throw new Error("AI Agent did not return a job_id");
 
-            if (!response.ok) {
-                const errText = await response.text();
-                throw new Error(`AI Agent ${response.status}: ${errText}`);
+            // Step 2: poll status with bounded backoff (5s → 15s).
+            const deadline = Date.now() + 8 * 60 * 1000;
+            let pollDelay = 5000;
+            let data: any = null;
+            let terminalFailure: string | null = null;
+            while (Date.now() < deadline) {
+                await new Promise((r) => setTimeout(r, pollDelay));
+                let statusJson: { status?: string; result?: any; error?: string } | null = null;
+                try {
+                    const statusRes = await fetch(`${AI_BASE}/recommend/status/${jobId}`, {
+                        headers: authHeaders,
+                    });
+                    if (!statusRes.ok) {
+                        // Transient HTTP error on the status call — back off and retry.
+                        pollDelay = Math.min(pollDelay + 2000, 15000);
+                        continue;
+                    }
+                    statusJson = await statusRes.json();
+                } catch (pollErr) {
+                    // Network blip while polling — back off and retry.
+                    console.warn("Recommendation poll blip:", pollErr);
+                    pollDelay = Math.min(pollDelay + 2000, 15000);
+                    continue;
+                }
+
+                if (statusJson?.status === "completed") {
+                    data = statusJson.result;
+                    break;
+                }
+                if (statusJson?.status === "failed") {
+                    // Definitive failure from the AI worker — stop polling and
+                    // surface so the outer catch can run the OFFLINE fallback.
+                    terminalFailure = statusJson.error || "unknown";
+                    break;
+                }
+                pollDelay = Math.min(pollDelay + 2000, 15000);
+            }
+            if (terminalFailure !== null) {
+                throw new Error(`AI Agent failed: ${terminalFailure}`);
+            }
+            if (data === null) {
+                throw new Error("AI Agent did not complete in time");
             }
 
-            const data = await response.json();
             console.log("✅ [AI Agent] Response received:", data);
 
             // Prefer the backend's own extracted insights (derived from the
@@ -674,6 +751,7 @@ export const recommendationService = {
                 insights:              apiInsights,
                 refined_statements:    data.refined_statements  || {},
                 matched_patterns:      data.matched_patterns    || [],
+                market_signals:        data.market_signals      || {},
                 patterns_detected:     [],
                 evaluation_scores:     evaluation_output.scores,
                 company_context:       evaluation_output.company_context,
@@ -718,6 +796,7 @@ ${Object.entries(evaluation_output.scores)
                 insights:              insights,
                 refined_statements:    {},
                 matched_patterns:      [],
+                market_signals:        {},
                 patterns_detected:     [],
                 evaluation_scores:     evaluation_output.scores,
                 company_context:       evaluation_output.company_context,
@@ -776,6 +855,70 @@ ${Object.entries(evaluation_output.scores)
         } catch (error) {
             console.error("Error deleting recommendation:", error);
             return false;
+        }
+    },
+
+    // Persist the founder-approved refinements onto the startup's json_response.
+    // Returns either a success result or an error payload with the message that
+    // came back from the API — the UI uses this to show specific feedback.
+    async applyRefinements(
+        startupId: string,
+        refinements: Record<string, string>
+    ): Promise<
+        | { ok: true; applied: string[]; skipped: string[] }
+        | { ok: false; status: number | null; message: string }
+    > {
+        try {
+            const response = await apiClient.post<{ applied: string[]; skipped: string[] }>(
+                `/api/Startups/${startupId}/apply-refinements`,
+                { Refinements: refinements }
+            );
+            const data = response.data ?? { applied: [], skipped: [] };
+            return { ok: true, applied: data.applied ?? [], skipped: data.skipped ?? [] };
+        } catch (error) {
+            const raw = error instanceof Error ? error.message : "";
+            const statusMatch = raw.match(/Request failed \((\d+)\)/i);
+            const status = statusMatch ? Number(statusMatch[1]) : null;
+
+            let message = "We couldn't save the refinements right now. Please try again in a moment.";
+            const bodyMatch = raw.match(/Request failed \(\d+\):\s*(.+)$/i);
+            if (bodyMatch) {
+                try {
+                    const parsed = JSON.parse(bodyMatch[1]);
+                    if (typeof parsed === "string") message = parsed;
+                    else if (parsed?.message) message = String(parsed.message);
+                    else if (parsed?.detail) message = String(parsed.detail);
+                } catch {
+                    message = bodyMatch[1].replace(/^"|"$/g, "");
+                }
+            }
+            if (status === 404) {
+                message = "The refinements endpoint isn't available — the backend may be running an older build. Please restart the API server and try again.";
+            } else if (status === 401 || status === 403) {
+                message = "You don't have permission to update this startup's data.";
+            }
+            console.error("Error applying refinements:", error);
+            return { ok: false, status, message };
+        }
+    },
+
+    // Flag downstream stages as "needs refresh" without unmarking them as
+    // complete in the database. The hint is per-browser (localStorage) and is
+    // cleared by each stage when the founder regenerates it. Returns the list
+    // of stage IDs that were flagged, so the UI can describe what's changed.
+    async markDownstreamStale(startupId: string): Promise<StageId[]> {
+        try {
+            const current = await this._getWorkflowState(startupId);
+            const flagged: StageId[] = [];
+            if (current.marketResearch) flagged.push("marketResearch");
+            if (current.evaluation) flagged.push("evaluation");
+            if (current.documents) flagged.push("documents");
+            if (current.pitchDeck) flagged.push("pitchDeck");
+            if (flagged.length > 0) addStaleStages(startupId, flagged);
+            return flagged;
+        } catch (error) {
+            console.error("Error marking downstream stale:", error);
+            return [];
         }
     },
 };

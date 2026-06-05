@@ -50,6 +50,9 @@ namespace Spark2Scale_.Server.Controllers
         {
             if (!Guid.TryParse(startupId, out Guid sId)) return BadRequest("Invalid ID");
 
+            if (!await _access.CanReadStartupDocs(GetToken(), sId, investorId))
+                return Unauthorized(new { message = "Unauthorized." });
+
             try
             {
                 var query = _supabase.From<Document>()
@@ -125,10 +128,31 @@ namespace Spark2Scale_.Server.Controllers
             catch (Exception ex) { return StatusCode(500, $"Error: {ex.Message}"); }
         }
 
+        private static readonly HashSet<string> AllowedUploadContentTypes = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "application/pdf",
+            "application/msword",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "application/vnd.ms-powerpoint",
+            "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            "application/vnd.ms-excel",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "text/plain",
+            "text/csv",
+            "image/png",
+            "image/jpeg",
+            "image/webp"
+        };
+
+        private const long MaxUploadBytes = 25 * 1024 * 1024;
+
         [HttpPost("upload")]
         public async Task<IActionResult> UploadDocument([FromForm] DocumentUploadDto form)
         {
             if (form.File == null || form.File.Length == 0) return BadRequest("No file.");
+            if (form.File.Length > MaxUploadBytes) return BadRequest($"File too large (max {MaxUploadBytes / (1024 * 1024)}MB).");
+            if (!AllowedUploadContentTypes.Contains(form.File.ContentType ?? string.Empty))
+                return BadRequest(new { message = "Unsupported file type." });
             if (!Guid.TryParse(form.StartupId, out Guid sId)) return BadRequest("Invalid Startup ID.");
 
             if (!await _access.IsFounderOrOwner(GetToken(), sId))
@@ -316,7 +340,7 @@ namespace Spark2Scale_.Server.Controllers
                 var doc = docRes.Models.FirstOrDefault();
                 if (doc == null) return NotFound();
 
-                if (!await _access.IsFounderOrOwner(GetToken(), doc.StartupId)) return Forbid();
+                if (!await _access.IsFounderOrOwner(GetToken(), doc.StartupId)) return StatusCode(403, "Forbidden");
 
                 await _supabase.From<DocumentVersion>().Where(x => x.DocumentId == dId).Delete();
                 await _supabase.From<Document>().Where(x => x.Did == dId).Delete();
@@ -467,6 +491,8 @@ namespace Spark2Scale_.Server.Controllers
                 using (var client = new HttpClient())
                 {
                     client.Timeout = TimeSpan.FromMinutes(3);
+                    // Forward the caller's Supabase Bearer token — the AI route is auth-protected.
+                    client.DefaultRequestHeaders.Add("Authorization", $"Bearer {GetToken()}");
 
                     // FIX: JsonResponse is typed as `object` and the Supabase C# client deserializes
                     // JSONB columns into Newtonsoft JObject. System.Text.Json cannot serialize JObject
@@ -669,6 +695,8 @@ namespace Spark2Scale_.Server.Controllers
                 using (var client = new HttpClient())
                 {
                     client.Timeout = TimeSpan.FromMinutes(3);
+                    // Forward the caller's Supabase Bearer token — the AI route is auth-protected.
+                    client.DefaultRequestHeaders.Add("Authorization", $"Bearer {GetToken()}");
 
                     string mrRawJson = marketResearchDoc.JsonResponse is string alreadyString
                         ? alreadyString
@@ -890,6 +918,8 @@ namespace Spark2Scale_.Server.Controllers
                 using (var client = new HttpClient())
                 {
                     client.Timeout = TimeSpan.FromMinutes(3);
+                    // Forward the caller's Supabase Bearer token — the AI route is auth-protected.
+                    client.DefaultRequestHeaders.Add("Authorization", $"Bearer {GetToken()}");
 
                     var externalPayload = new
                     {
@@ -1092,6 +1122,8 @@ namespace Spark2Scale_.Server.Controllers
                 using (var client = new HttpClient())
                 {
                     client.Timeout = TimeSpan.FromMinutes(3);
+                    // Forward the caller's Supabase Bearer token — the AI route is auth-protected.
+                    client.DefaultRequestHeaders.Add("Authorization", $"Bearer {GetToken()}");
 
                     var externalPayload = new
                     {

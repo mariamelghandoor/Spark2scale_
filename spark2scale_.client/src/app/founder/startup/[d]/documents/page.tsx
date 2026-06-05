@@ -27,6 +27,42 @@ import {
     SessionSummary,
     ChatMessage,
 } from "@/services/documentsService";
+import { generateSwotPDF } from "@/pdf-formats/swotPdf";
+import { clearStaleStage } from "@/lib/refinementState";
+
+// ---------------------------------------------------------------------------
+// Friendly error mapping
+// Backend rejections come through apiClient as
+//   Error("Request failed (400): \"Market Research document is required...\"")
+// so a raw .message would dump the wrapper + JSON-quoted body in the chat.
+// This helper pulls the backend message out and maps the well-known ones to
+// guidance the user can act on.
+// ---------------------------------------------------------------------------
+function friendlyDocsError(err: unknown, action: string): string {
+    const raw = err instanceof Error ? err.message : "";
+    const stripped = raw
+        .replace(/^Request failed \(\d+\):\s*/i, "")
+        .replace(/^"|"$/g, "")
+        .trim();
+    const lower = stripped.toLowerCase();
+
+    if (lower.includes("market research document is required")) {
+        return "Please complete the Market Research stage first — that report is needed before AI can build this document.";
+    }
+    if (lower.includes("no actionable changes")) {
+        return "There are no pending BMC changes to apply yet. Use Enhance after sending updates in the chat, then try Apply again.";
+    }
+    if (lower.includes("unauthorized") || raw.includes("(401)") || raw.includes("(403)")) {
+        return "You don't have permission to perform this action.";
+    }
+    if (raw.includes("(404)")) {
+        return "We couldn't find the resource needed to continue. Please refresh and try again.";
+    }
+    if (raw.toLowerCase().includes("fetch") || raw.toLowerCase().includes("network") || raw === "") {
+        return `We couldn't reach the server to ${action}. Please check your connection and try again.`;
+    }
+    return `We couldn't ${action} right now. Please try again in a moment.`;
+}
 
 // ---------------------------------------------------------------------------
 // Toast System
@@ -690,9 +726,6 @@ export default function DocumentsPage() {
             setMessages((prev) => [...prev, { role: "assistant", content: netErr }]);
             if (activeSessionId) await documentsService.sendMessage(activeSessionId, netErr, "assistant");
             toast("error", "Connection Error", "Could not reach the server. Please try again.");
-        } finally {
-            setIsPptGenerating(false);
-            setIsTyping(false);
         }
     };
 
@@ -726,6 +759,9 @@ export default function DocumentsPage() {
 
             if (success) {
                 await fetchData();
+                // Regenerating any doc clears the "refresh suggested" hint on
+                // the Documents stage in the dashboard.
+                if (cleanId) clearStaleStage(cleanId, "documents");
                 // 3. AI responds with success in the chat
                 const assistantMsg = `Successfully generated the ${docConfig.name}. It is now available in your documents list.`;
                 setMessages((prev) => [...prev, { role: "assistant", content: assistantMsg }]);
@@ -733,17 +769,17 @@ export default function DocumentsPage() {
 
                 toast("success", "Document Generated", `${docConfig.name} has been generated successfully.`);
             } else {
-                const failMsg = "Error: Could not generate document.";
+                const failMsg = `We couldn't generate the ${docConfig.name} right now. Please try again in a moment.`;
                 setMessages((prev) => [...prev, { role: "assistant", content: failMsg }]);
                 if (activeSessionId) await documentsService.sendMessage(activeSessionId, failMsg, "assistant");
 
-                toast("error", "Generation Failed", "Could not generate document. Please try again.");
+                toast("error", "Generation Failed", failMsg);
             }
-        } catch {
-            const netErr = "Connection error while trying to generate document.";
-            setMessages((prev) => [...prev, { role: "assistant", content: netErr }]);
-            if (activeSessionId) await documentsService.sendMessage(activeSessionId, netErr, "assistant");
-            toast("error", "Connection Error", "Could not reach the server. Please try again.");
+        } catch (err) {
+            const friendly = friendlyDocsError(err, `generate the ${docConfig.name}`);
+            setMessages((prev) => [...prev, { role: "assistant", content: friendly }]);
+            if (activeSessionId) await documentsService.sendMessage(activeSessionId, friendly, "assistant");
+            toast("error", "Generation Failed", friendly);
         } finally {
             setIsGeneratingDoc(false);
             setIsTyping(false);
@@ -789,7 +825,7 @@ export default function DocumentsPage() {
         try {
             const result = await documentsService.applyBmcChanges(cleanId, chatSessionId);
             if (!result) {
-                setMessages(prev => [...prev, { role: "assistant", content: "Error: Could not apply changes to the BMC." }]);
+                setMessages(prev => [...prev, { role: "assistant", content: "We couldn't apply the BMC changes right now. Please try again in a moment." }]);
                 return;
             }
 
@@ -799,8 +835,8 @@ export default function DocumentsPage() {
 
             setMessages(prev => [...prev, { role: "assistant", content: `${header}\n\n${body}` }]);
             await fetchData();
-        } catch {
-            setMessages(prev => [...prev, { role: "assistant", content: "Error: Apply-to-BMC failed." }]);
+        } catch (err) {
+            setMessages(prev => [...prev, { role: "assistant", content: friendlyDocsError(err, "apply the BMC changes") }]);
         } finally {
             setIsApplyingBmc(false);
         }
@@ -812,7 +848,7 @@ export default function DocumentsPage() {
         try {
             const result = await documentsService.enhanceSession(chatSessionId);
             if (!result) {
-                setMessages(prev => [...prev, { role: "assistant", content: "Error: Could not enhance this chat." }]);
+                setMessages(prev => [...prev, { role: "assistant", content: "We couldn't enhance this chat right now. Please try again in a moment." }]);
                 return;
             }
             if (result.status === "NoChanges") {
@@ -826,14 +862,23 @@ export default function DocumentsPage() {
                 if (parsed && Array.isArray(parsed.document_changes)) changes = parsed.document_changes as string[];
             } catch { }
 
-            const summaryText = changes.length > 0 ? changes.map((c, i) => `${i + 1}. ${c}`).join("\n") : (typeof result.summarizedChat === "string" ? result.summarizedChat : "");
+            if (changes.length === 0) {
+                // Empty document_changes is a normal outcome — the chat didn't include
+                // anything actionable. Don't dump the raw summary JSON on the user.
+                setMessages(prev => [...prev, {
+                    role: "assistant",
+                    content: "No new BMC changes were detected in the recent chat. Share specific updates you'd like applied (e.g. \"change the customer segment to enterprise teams\") and try Enhance again."
+                }]);
+                return;
+            }
 
+            const summaryText = changes.map((c, i) => `${i + 1}. ${c}`).join("\n");
             setMessages(prev => [...prev, {
                 role: "assistant",
-                content: summaryText ? `Enhanced summary — requested document changes:\n\n${summaryText}\n\nClick **Apply changes to BMC** to update the canvas.` : "Chat enhanced. No actionable document changes were detected."
+                content: `Enhanced summary — requested document changes:\n\n${summaryText}\n\nClick **Apply changes to BMC** to update the canvas.`
             }]);
-        } catch {
-            setMessages(prev => [...prev, { role: "assistant", content: "Error: Enhance failed." }]);
+        } catch (err) {
+            setMessages(prev => [...prev, { role: "assistant", content: friendlyDocsError(err, "enhance this chat") }]);
         } finally {
             setIsEnhancing(false);
         }
@@ -936,6 +981,38 @@ export default function DocumentsPage() {
 
     const handleEvaluate = (dbId?: string) => { if (dbId) router.push(`/founder/startup/${cleanId}/documents/${dbId}/evaluate`); };
     const handleRecommend = (dbId?: string) => { if (dbId) router.push(`/founder/startup/${cleanId}/documents/${dbId}/recommend`); };
+
+    const handleDownload = (state: DocState) => {
+        if (state.path && state.path.trim() !== "") {
+            const a = document.createElement("a");
+            a.href = state.path;
+            a.download = state.name;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            return;
+        }
+
+        if (state.jsonResponse) {
+            if (state.configId === "swot") {
+                generateSwotPDF(state.jsonResponse);
+                return;
+            }
+            if (state.configId === "competitor_matrix") {
+                const jsonString = `data:text/json;charset=utf-8,${encodeURIComponent(
+                    JSON.stringify(state.jsonResponse, null, 2)
+                )}`;
+                const a = document.createElement("a");
+                a.href = jsonString;
+                a.download = `${state.name.replace(/\s+/g, "_")}.json`;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                return;
+            }
+        }
+        alert("Nothing to download yet.");
+    };
 
     const handleCompleteStage = async () => {
         setIsCompleting(true);
@@ -1119,11 +1196,8 @@ export default function DocumentsPage() {
                                                                     )}
                                                                     {config.id !== "bmc" && (
                                                                         <>
-                                                                            <Button variant="outline" size="sm" className={`h-8 text-xs ${outlineBtn}`} onClick={() => handleEvaluate(state?.dbId)}>
-                                                                                <Star className="h-3 w-3 mr-1.5" /> Evaluate
-                                                                            </Button>
-                                                                            <Button variant="outline" size="sm" className={`h-8 text-xs ${outlineBtn}`} onClick={() => handleRecommend(state?.dbId)}>
-                                                                                <Edit className="h-3 w-3 mr-1.5" /> Recommend
+                                                                            <Button variant="outline" size="sm" className={`h-8 text-xs ${outlineBtn}`} onClick={() => state && handleDownload(state)}>
+                                                                                <Download className="h-3 w-3 mr-1.5" /> Download
                                                                             </Button>
                                                                         </>
                                                                     )}
@@ -1137,7 +1211,7 @@ export default function DocumentsPage() {
                                                                         {uploadingId === config.id ? <LegoSpinner className="h-3 w-3 mr-1.5 animate-spin" /> : <Upload className="h-3 w-3 mr-1.5" />} Upload
                                                                     </Button>
                                                                     <Button size="sm" className={`h-8 text-xs ${primaryBtn}`} onClick={() => handleSimulateGeneration(config.id)} disabled={isGeneratingDoc || isPptGenerating}>
-                                                                        {isGeneratingDoc ? <LegoSpinner className="h-3 w-3 mr-1.5 animate-spin" /> : <Sparkles className="h-3 w-3 mr-1.5" />} Generate
+                                                                        {isGeneratingDoc ? <LegoSpinner className="h-3 w-3 mr-1.5 animate-spin" /> : <Sparkles className="h-3 w-3 mr-1.5" />} AI Generate
                                                                     </Button>
                                                                 </>
                                                             )}
@@ -1281,7 +1355,7 @@ export default function DocumentsPage() {
                                                                     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.5 }}>
                                                                         <Button size="sm" variant="outline" disabled={chatContext === "pitch_deck" ? isPptGenerating : isGeneratingDoc} className="h-7 text-[10px] border-[#576238] text-[#576238] hover:bg-[#576238] hover:text-white transition-colors" onClick={() => chatContext === "pitch_deck" ? handleGeneratePPT() : handleSimulateGeneration(chatContext)}>
                                                                             {(chatContext === "pitch_deck" ? isPptGenerating : isGeneratingDoc) ? <LegoSpinner className="h-3 w-3 mr-1.5 animate-spin" /> : <Sparkles className="h-3 w-3 mr-1.5" />}
-                                                                            Generate {getCurrentContextName()}
+                                                                            AI Generate {getCurrentContextName()}
                                                                         </Button>
                                                                     </motion.div>
                                                                 )}

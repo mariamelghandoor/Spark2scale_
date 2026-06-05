@@ -20,17 +20,26 @@ namespace Spark2Scale_.Server.Controllers
         private readonly Supabase.Client _supabase;
         private readonly Services.AccessControlService _access;
         private readonly ILogger<StartupsController> _logger;
+        private readonly IHttpClientFactory _httpClientFactory;
 
         private const string SAFE_COLS = "sid,startupname,field,idea_description,region,startup_stage,founder_id,created_at,logo_path,current_iteration";
 
         public StartupsController(
             Supabase.Client supabase,
             Services.AccessControlService access,
-            ILogger<StartupsController> logger)
+            ILogger<StartupsController> logger,
+            IHttpClientFactory httpClientFactory)
         {
             _supabase = supabase;
             _access = access;
             _logger = logger;
+            _httpClientFactory = httpClientFactory;
+        }
+
+        private string GetToken()
+        {
+            var header = Request.Headers["Authorization"].FirstOrDefault();
+            return header?.StartsWith("Bearer ") == true ? header.Substring(7) : "";
         }
 
         public class MarketResearchRequest
@@ -120,13 +129,16 @@ namespace Spark2Scale_.Server.Controllers
                     ["current_iteration"] = 0
                 };
 
-                using var http = new HttpClient();
-                http.DefaultRequestHeaders.Add("apikey", supabaseKey);
-                http.DefaultRequestHeaders.Add("Authorization", $"Bearer {supabaseKey}");
-                http.DefaultRequestHeaders.Add("Prefer", "return=representation");
+                var http = _httpClientFactory.CreateClient();
+                using var postReq = new HttpRequestMessage(HttpMethod.Post, $"{supabaseUrl}/rest/v1/startups")
+                {
+                    Content = new StringContent(row.ToJsonString(), System.Text.Encoding.UTF8, "application/json")
+                };
+                postReq.Headers.Add("apikey", supabaseKey);
+                postReq.Headers.Add("Authorization", $"Bearer {supabaseKey}");
+                postReq.Headers.Add("Prefer", "return=representation");
 
-                var content = new StringContent(row.ToJsonString(), System.Text.Encoding.UTF8, "application/json");
-                var httpResp = await http.PostAsync($"{supabaseUrl}/rest/v1/startups", content);
+                var httpResp = await http.SendAsync(postReq);
 
                 if (!httpResp.IsSuccessStatusCode)
                 {
@@ -153,6 +165,10 @@ namespace Spark2Scale_.Server.Controllers
             if (!Guid.TryParse(id, out Guid sId)) return BadRequest("Invalid ID format");
             if (file == null || file.Length == 0) return BadRequest("No file provided.");
 
+            var token = GetToken();
+            if (string.IsNullOrEmpty(token)) return Unauthorized("Missing authorization token.");
+            if (!await _access.IsFounderOrOwner(token, sId)) return StatusCode(403, "Only the Founder can upload a logo.");
+
             try
             {
                 var supabaseUrl = Environment.GetEnvironmentVariable("SUPABASE_URL") ?? Environment.GetEnvironmentVariable("URL");
@@ -165,17 +181,17 @@ namespace Spark2Scale_.Server.Controllers
                 var objectPath = $"{sId}{ext}";
                 var publicUrl = $"{supabaseUrl}/storage/v1/object/public/logos/{objectPath}";
 
-                using var http = new HttpClient();
-                http.DefaultRequestHeaders.Add("apikey", supabaseKey);
-                http.DefaultRequestHeaders.Add("Authorization", $"Bearer {supabaseKey}");
+                var http = _httpClientFactory.CreateClient();
 
                 // Upsert so re-uploading works
                 var uploadContent = new ByteArrayContent(fileBytes);
                 uploadContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(file.ContentType);
-                var uploadReq = new HttpRequestMessage(HttpMethod.Post, $"{supabaseUrl}/storage/v1/object/logos/{objectPath}")
+                using var uploadReq = new HttpRequestMessage(HttpMethod.Post, $"{supabaseUrl}/storage/v1/object/logos/{objectPath}")
                 {
                     Content = uploadContent
                 };
+                uploadReq.Headers.Add("apikey", supabaseKey);
+                uploadReq.Headers.Add("Authorization", $"Bearer {supabaseKey}");
                 uploadReq.Headers.Add("x-upsert", "true");
                 var uploadResp = await http.SendAsync(uploadReq);
 
@@ -281,68 +297,299 @@ namespace Spark2Scale_.Server.Controllers
         public async Task<IActionResult> GetStartupById(string id)
         {
             if (!Guid.TryParse(id, out Guid sId)) return BadRequest("Invalid ID format");
+
+            var token = GetToken();
+            if (string.IsNullOrEmpty(token)) return Unauthorized("Missing authorization token.");
+
             try
             {
-                var startup = (await _supabase.From<Startup>().Select(SAFE_COLS).Where(s => s.Sid == sId).Get()).Models.FirstOrDefault();
+                // Fire every read that depends only on sId (or the token) in parallel.
+                // Previously these ran in series, so the page paid ~5x the network
+                // round-trip latency before it could respond. Each task swallows
+                // its own failure so a single transient error (e.g. a stale token
+                // from Supabase Auth) doesn't fail the whole page.
+                var startupTask = SafeAsync(() => _supabase.From<Startup>().Select(SAFE_COLS).Where(s => s.Sid == sId).Get(), default(Supabase.Postgrest.Responses.ModeledResponse<Startup>));
+                var workflowTask = SafeAsync(() => _supabase.From<StartupWorkflow>().Where(w => w.StartupId == sId).Get(), default(Supabase.Postgrest.Responses.ModeledResponse<StartupWorkflow>));
+                var pitchTask = SafeAsync(() => _supabase.From<PitchDeck>().Where(p => p.startup_id == sId).Get(), default(Supabase.Postgrest.Responses.ModeledResponse<PitchDeck>));
+                var jsonRawTask = FetchStartupJsonResponseAsync(sId);
+                var userTask = SafeGetUserAsync(token);
+
+                await Task.WhenAll(startupTask, workflowTask, pitchTask, jsonRawTask, userTask);
+
+                // Auth must succeed — without a resolved user we can't authorize anything.
+                var user = userTask.Result;
+                if (user == null || !Guid.TryParse(user.Id, out Guid currentUserId))
+                {
+                    return Unauthorized("Invalid or expired session token.");
+                }
+
+                var startup = startupTask.Result?.Models.FirstOrDefault();
                 if (startup == null) return NotFound("Startup not found");
 
                 string? role = null;
-                var authHeader = Request.Headers["Authorization"].FirstOrDefault();
-                if (!string.IsNullOrEmpty(authHeader) && authHeader.StartsWith("Bearer "))
+                bool isAuthorized = false;
+
+                if (startup.FounderId == currentUserId)
+                {
+                    isAuthorized = true;
+                    role = "Founder";
+                }
+                else
                 {
                     try
                     {
-                        var user = await _supabase.Auth.GetUser(authHeader.Replace("Bearer ", "").Trim());
-                        if (user != null && Guid.TryParse(user.Id, out Guid currentUserId))
+                        var contrib = await _supabase.From<StartupContributor>()
+                            .Match(new Dictionary<string, string> {
+                                { "startup_id", sId.ToString() },
+                                { "user_id", currentUserId.ToString() }
+                            })
+                            .Get();
+                        if (contrib.Models.Any())
                         {
-                            if (startup.FounderId == currentUserId) role = "Founder";
-                            else
+                            isAuthorized = true;
+                            role = contrib.Models.First().Role ?? "Contributor";
+                        }
+                        else
+                        {
+                            var investorCheck = await _supabase.From<Investor>().Where(i => i.user_id == currentUserId).Get();
+                            if (investorCheck.Models.Any())
                             {
-                                var contrib = await _supabase.From<StartupContributor>().Match(new Dictionary<string, string> { { "startup_id", sId.ToString() }, { "user_id", currentUserId.ToString() } }).Get();
-                                if (contrib.Models.Any()) role = contrib.Models.First().Role ?? "Contributor";
+                                isAuthorized = true;
+                                role = "Investor";
                             }
                         }
                     }
                     catch { }
                 }
 
-                int progressCount = 0; int totalLikes = 0; bool hasGap = false;
-                try
+                if (!isAuthorized)
                 {
-                    var wf = (await _supabase.From<StartupWorkflow>().Where(w => w.StartupId == sId).Get()).Models.FirstOrDefault();
-                    if (wf != null)
-                    {
-                        bool[] steps = { wf.IdeaCheck, wf.MarketResearch, wf.Evaluation, wf.Recommendation, wf.Documents, wf.PitchDeck };
-                        progressCount = steps.Count(step => step);
-                        bool foundFalse = false;
-                        foreach (var step in steps) { if (!step) foundFalse = true; else if (foundFalse && step) hasGap = true; }
-                    }
-                    var pdResult = await _supabase.From<PitchDeck>().Where(p => p.startup_id == sId).Get();
-                    if (pdResult.Models.Any()) totalLikes = pdResult.Models.Sum(d => d.countlikes);
+                    return StatusCode(403, new { message = "You don't have permission to view this startup." });
                 }
-                catch { }
 
-                object? safeJsonData = null;
-                try
+                int progressCount = 0;
+                int totalLikes = 0;
+                bool hasGap = false;
+                var wf = workflowTask.Result?.Models.FirstOrDefault();
+                if (wf != null)
                 {
-                    var supabaseUrl = Environment.GetEnvironmentVariable("SUPABASE_URL") ?? Environment.GetEnvironmentVariable("URL");
-                    var supabaseKey = Environment.GetEnvironmentVariable("SUPABASE_KEY") ?? Environment.GetEnvironmentVariable("KEY");
-                    using var http = new HttpClient();
-                    http.DefaultRequestHeaders.Add("apikey", supabaseKey);
-                    http.DefaultRequestHeaders.Add("Authorization", $"Bearer {supabaseKey}");
-                    var rawRes = await http.GetAsync($"{supabaseUrl}/rest/v1/startups?select=json_response&sid=eq.{sId}");
-                    if (rawRes.IsSuccessStatusCode)
+                    bool[] steps = { wf.IdeaCheck, wf.MarketResearch, wf.Evaluation, wf.Recommendation, wf.Documents, wf.PitchDeck };
+                    progressCount = steps.Count(step => step);
+                    bool foundFalse = false;
+                    foreach (var step in steps)
                     {
-                        var body = await rawRes.Content.ReadAsStringAsync();
-                        var array = JsonNode.Parse(body)?.AsArray();
-                        if (array != null && array.Count > 0) safeJsonData = array[0]["json_response"];
+                        if (!step) foundFalse = true;
+                        else if (foundFalse && step) hasGap = true;
                     }
                 }
-                catch { }
+                if (pitchTask.Result?.Models.Any() == true) totalLikes = pitchTask.Result.Models.Sum(d => d.countlikes);
 
-                return Ok(ToDto(startup, role, safeJsonData, progressCount, totalLikes, hasGap));
+                return Ok(ToDto(startup, role, jsonRawTask.Result, progressCount, totalLikes, hasGap));
             }
             catch (Exception ex) { return StatusCode(500, $"Error: {ex.Message}"); }
+        }
+
+        // Run an async task and swallow exceptions so one transient failure
+        // doesn't cause Task.WhenAll to fail the whole composite read.
+        private async Task<T?> SafeAsync<T>(Func<Task<T>> work, T? fallback)
+        {
+            try { return await work(); }
+            catch (Exception ex)
+            {
+                _logger.LogWarning("SafeAsync swallowed exception: {Message}", ex.Message);
+                return fallback;
+            }
+        }
+
+        private async Task<Supabase.Gotrue.User?> SafeGetUserAsync(string? bearer)
+        {
+            if (string.IsNullOrEmpty(bearer)) return null;
+            try { return await _supabase.Auth.GetUser(bearer); }
+            catch (Exception ex)
+            {
+                _logger.LogWarning("Auth.GetUser failed: {Message}", ex.Message);
+                return null;
+            }
+        }
+
+        // Mapping from the recommendation agent's flat refinement keys to the
+        // JSON Pointer (RFC 6901) paths inside startup_evaluation. Anything not
+        // listed here is ignored — we never accept caller-supplied paths.
+        private static readonly Dictionary<string, string> RefinementPathMap = new(StringComparer.OrdinalIgnoreCase)
+        {
+            { "problem_statement",     "/startup_evaluation/problem_definition/problem_statement" },
+            { "gap_analysis",          "/startup_evaluation/problem_definition/gap_analysis" },
+            { "current_solution",      "/startup_evaluation/problem_definition/current_solution" },
+            { "differentiation",       "/startup_evaluation/product_and_solution/differentiation" },
+            { "core_stickiness",       "/startup_evaluation/product_and_solution/core_stickiness" },
+            { "defensibility_moat",    "/startup_evaluation/product_and_solution/defensibility_moat" },
+            { "beachhead_market",      "/startup_evaluation/market_and_scope/beachhead_market" },
+            { "market_size",           "/startup_evaluation/market_and_scope/market_size_estimate" },
+            { "expansion_strategy",    "/startup_evaluation/market_and_scope/expansion_strategy" },
+            { "five_year_vision",      "/startup_evaluation/vision_and_strategy/five_year_vision" },
+            { "category_definition",   "/startup_evaluation/vision_and_strategy/category_definition" },
+            { "primary_risk",          "/startup_evaluation/vision_and_strategy/primary_risk" },
+            // Founder-level refinements apply to the first founder by convention.
+            { "founder_market_fit",    "/startup_evaluation/founder_and_team/founders/0/founder_market_fit_statement" },
+            { "founder_experience",    "/startup_evaluation/founder_and_team/founders/0/prior_experience" },
+        };
+
+        public class ApplyRefinementsDto
+        {
+            public Dictionary<string, string> Refinements { get; set; } = new();
+        }
+
+        // PATCH the startup's json_response with the user-approved refinements.
+        // Each refinement key is resolved against RefinementPathMap so callers
+        // can't write to arbitrary JSON paths.
+        [HttpPost("{id}/apply-refinements")]
+        public async Task<IActionResult> ApplyRefinements(string id, [FromBody] ApplyRefinementsDto input)
+        {
+            if (!Guid.TryParse(id, out Guid sId)) return BadRequest("Invalid ID format");
+            if (input?.Refinements == null || input.Refinements.Count == 0)
+                return BadRequest(new { message = "No refinements provided." });
+
+            var token = Request.Headers["Authorization"].FirstOrDefault()
+                ?.Replace("Bearer ", "", StringComparison.OrdinalIgnoreCase)
+                ?.Trim();
+            if (string.IsNullOrEmpty(token) || !await _access.IsFounderOrContributor(token, sId))
+                return Unauthorized(new { message = "Unauthorized." });
+
+            var supabaseUrl = Environment.GetEnvironmentVariable("SUPABASE_URL") ?? Environment.GetEnvironmentVariable("URL");
+            var supabaseKey = Environment.GetEnvironmentVariable("SUPABASE_KEY") ?? Environment.GetEnvironmentVariable("KEY");
+            if (string.IsNullOrEmpty(supabaseUrl) || string.IsNullOrEmpty(supabaseKey))
+                return StatusCode(500, new { message = "Supabase not configured." });
+
+            try
+            {
+                var http = _httpClientFactory.CreateClient();
+                using var getReq = new HttpRequestMessage(HttpMethod.Get,
+                    $"{supabaseUrl}/rest/v1/startups?select=json_response&sid=eq.{sId}");
+                getReq.Headers.Add("apikey", supabaseKey);
+                getReq.Headers.Add("Authorization", $"Bearer {supabaseKey}");
+                using var getRes = await http.SendAsync(getReq);
+                if (!getRes.IsSuccessStatusCode)
+                    return StatusCode((int)getRes.StatusCode, new { message = "Failed to read startup." });
+
+                var rows = JsonNode.Parse(await getRes.Content.ReadAsStringAsync())?.AsArray();
+                if (rows == null || rows.Count == 0)
+                    return NotFound(new { message = "Startup not found." });
+
+                var existing = rows[0]?["json_response"]?.DeepClone() ?? new JsonObject();
+                if (existing is not JsonObject jsonObj)
+                {
+                    // json_response was a string or null — start from a clean object.
+                    jsonObj = new JsonObject();
+                }
+
+                var applied = new List<string>();
+                var skipped = new List<string>();
+                foreach (var kvp in input.Refinements)
+                {
+                    if (string.IsNullOrWhiteSpace(kvp.Value)) { skipped.Add(kvp.Key); continue; }
+                    if (!RefinementPathMap.TryGetValue(kvp.Key, out var pointer)) { skipped.Add(kvp.Key); continue; }
+                    if (SetByJsonPointer(jsonObj, pointer, kvp.Value)) applied.Add(kvp.Key);
+                    else skipped.Add(kvp.Key);
+                }
+
+                if (applied.Count == 0)
+                    return BadRequest(new { message = "No supported refinement keys were provided.", skipped });
+
+                var patchPayload = new JsonObject { ["json_response"] = jsonObj };
+                using var patchReq = new HttpRequestMessage(new HttpMethod("PATCH"),
+                    $"{supabaseUrl}/rest/v1/startups?sid=eq.{sId}")
+                {
+                    Content = new StringContent(patchPayload.ToJsonString(),
+                        System.Text.Encoding.UTF8, "application/json")
+                };
+                patchReq.Headers.Add("apikey", supabaseKey);
+                patchReq.Headers.Add("Authorization", $"Bearer {supabaseKey}");
+                patchReq.Headers.Add("Prefer", "return=minimal");
+                using var patchRes = await http.SendAsync(patchReq);
+                if (!patchRes.IsSuccessStatusCode)
+                {
+                    var err = await patchRes.Content.ReadAsStringAsync();
+                    return StatusCode((int)patchRes.StatusCode, new { message = "Patch failed.", detail = err });
+                }
+
+                return Ok(new { applied, skipped });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { message = $"Error applying refinements: {ex.Message}" });
+            }
+        }
+
+        // Walk a JSON Pointer-style path (/a/b/0/c), creating intermediate
+        // objects when missing, then set the leaf to the provided string. Only
+        // existing array indices are written through; we never auto-grow arrays.
+        private static bool SetByJsonPointer(JsonObject root, string pointer, string value)
+        {
+            if (string.IsNullOrEmpty(pointer) || pointer[0] != '/') return false;
+            var parts = pointer.Substring(1).Split('/');
+            if (parts.Length == 0) return false;
+
+            JsonNode? cursor = root;
+            for (int i = 0; i < parts.Length - 1; i++)
+            {
+                var seg = parts[i];
+                if (cursor is JsonObject obj)
+                {
+                    if (obj[seg] is not JsonObject && obj[seg] is not JsonArray)
+                    {
+                        obj[seg] = new JsonObject();
+                    }
+                    cursor = obj[seg];
+                }
+                else if (cursor is JsonArray arr && int.TryParse(seg, out var idx))
+                {
+                    if (idx < 0 || idx >= arr.Count) return false;
+                    cursor = arr[idx];
+                }
+                else
+                {
+                    return false;
+                }
+            }
+
+            var leaf = parts[^1];
+            if (cursor is JsonObject leafObj)
+            {
+                leafObj[leaf] = value;
+                return true;
+            }
+            if (cursor is JsonArray leafArr && int.TryParse(leaf, out var leafIdx))
+            {
+                if (leafIdx < 0 || leafIdx >= leafArr.Count) return false;
+                leafArr[leafIdx] = value;
+                return true;
+            }
+            return false;
+        }
+
+        private async Task<object?> FetchStartupJsonResponseAsync(Guid sId)
+        {
+            try
+            {
+                var supabaseUrl = Environment.GetEnvironmentVariable("SUPABASE_URL") ?? Environment.GetEnvironmentVariable("URL");
+                var supabaseKey = Environment.GetEnvironmentVariable("SUPABASE_KEY") ?? Environment.GetEnvironmentVariable("KEY");
+                if (string.IsNullOrEmpty(supabaseUrl) || string.IsNullOrEmpty(supabaseKey)) return null;
+
+                var http = _httpClientFactory.CreateClient();
+                using var req = new HttpRequestMessage(HttpMethod.Get,
+                    $"{supabaseUrl}/rest/v1/startups?select=json_response&sid=eq.{sId}");
+                req.Headers.Add("apikey", supabaseKey);
+                req.Headers.Add("Authorization", $"Bearer {supabaseKey}");
+
+                using var rawRes = await http.SendAsync(req);
+                if (!rawRes.IsSuccessStatusCode) return null;
+
+                var body = await rawRes.Content.ReadAsStringAsync();
+                var array = JsonNode.Parse(body)?.AsArray();
+                if (array != null && array.Count > 0) return array[0]?["json_response"];
+                return null;
+            }
+            catch { return null; }
         }
 
         [HttpPut("update-idea/{id}")]
@@ -370,6 +617,10 @@ namespace Spark2Scale_.Server.Controllers
         {
             if (!Guid.TryParse(id, out Guid sId)) return BadRequest("Invalid ID format");
 
+            var token = GetToken();
+            if (string.IsNullOrEmpty(token)) return Unauthorized("Missing authorization token.");
+            if (!await _access.IsFounderOrOwner(token, sId)) return StatusCode(403, "Only the Founder can generate market research.");
+
             try
             {
                 var startup = (await _supabase.From<Startup>().Select(SAFE_COLS).Where(s => s.Sid == sId).Get()).Models.FirstOrDefault();
@@ -381,10 +632,12 @@ namespace Spark2Scale_.Server.Controllers
                 {
                     var supabaseUrl = Environment.GetEnvironmentVariable("SUPABASE_URL") ?? Environment.GetEnvironmentVariable("URL");
                     var supabaseKey = Environment.GetEnvironmentVariable("SUPABASE_KEY") ?? Environment.GetEnvironmentVariable("KEY");
-                    using var h = new HttpClient();
-                    h.DefaultRequestHeaders.Add("apikey", supabaseKey);
-                    h.DefaultRequestHeaders.Add("Authorization", $"Bearer {supabaseKey}");
-                    var rawRes = await h.GetAsync($"{supabaseUrl}/rest/v1/startups?select=json_response&sid=eq.{sId}");
+                    var h = _httpClientFactory.CreateClient();
+                    using var rawReq = new HttpRequestMessage(HttpMethod.Get,
+                        $"{supabaseUrl}/rest/v1/startups?select=json_response&sid=eq.{sId}");
+                    rawReq.Headers.Add("apikey", supabaseKey);
+                    rawReq.Headers.Add("Authorization", $"Bearer {supabaseKey}");
+                    using var rawRes = await h.SendAsync(rawReq);
                     if (rawRes.IsSuccessStatusCode)
                     {
                         var body = await rawRes.Content.ReadAsStringAsync();
@@ -428,9 +681,19 @@ namespace Spark2Scale_.Server.Controllers
                 }
 
                 string jsonContent = "";
-                using (var client = new HttpClient())
                 {
-                    client.Timeout = TimeSpan.FromMinutes(3);
+                    // Async polling pattern (mirrors Evaluation's job-id flow).
+                    // The sync /market-research/research endpoint blew past
+                    // Azure App Service's 230s front-door limit and returned
+                    // 504 on every cold workflow run. We now kick off the
+                    // workflow with /research/start (returns a job id in <1s),
+                    // then poll /research/status/{id} every few seconds.
+                    var client = _httpClientFactory.CreateClient();
+                    client.Timeout = TimeSpan.FromSeconds(30);
+                    // Forward the caller's Supabase Bearer token — the AI route is auth-protected.
+                    client.DefaultRequestHeaders.Add("Authorization", $"Bearer {GetToken()}");
+                    const string AI_BASE = "https://spark2scale-ai-api-server.azurewebsites.net/api/v1/market-research";
+
                     var externalPayload = new
                     {
                         idea = shortIdeaName,
@@ -438,13 +701,67 @@ namespace Spark2Scale_.Server.Controllers
                         region = request.Region
                     };
 
-                    var response = await client.PostAsJsonAsync("https://spark2scale-ai-api-server.azurewebsites.net/api/v1/market-research/research", externalPayload);
-                    if (!response.IsSuccessStatusCode)
+                    string? jobId = null;
+                    try
                     {
-                        var error = await response.Content.ReadAsStringAsync();
-                        return StatusCode((int)response.StatusCode, $"AI Service Failed: {error}");
+                        var startResp = await client.PostAsJsonAsync($"{AI_BASE}/research/start", externalPayload);
+                        if (!startResp.IsSuccessStatusCode)
+                        {
+                            var err = await startResp.Content.ReadAsStringAsync();
+                            return StatusCode((int)startResp.StatusCode, $"AI Service failed to start job: {err}");
+                        }
+                        var startJson = JsonNode.Parse(await startResp.Content.ReadAsStringAsync());
+                        jobId = startJson?["job_id"]?.GetValue<string>();
                     }
-                    jsonContent = await response.Content.ReadAsStringAsync();
+                    catch (Exception ex)
+                    {
+                        return StatusCode(502, $"AI Service unreachable: {ex.Message}");
+                    }
+                    if (string.IsNullOrEmpty(jobId))
+                        return StatusCode(502, "AI Service did not return a job id.");
+
+                    var deadline = DateTime.UtcNow.AddMinutes(8);
+                    var pollDelay = TimeSpan.FromSeconds(5);
+                    JsonNode? finalResult = null;
+                    string? failureMessage = null;
+                    while (DateTime.UtcNow < deadline)
+                    {
+                        await Task.Delay(pollDelay);
+                        try
+                        {
+                            var statusResp = await client.GetAsync($"{AI_BASE}/research/status/{jobId}");
+                            if (!statusResp.IsSuccessStatusCode)
+                            {
+                                if (pollDelay < TimeSpan.FromSeconds(20)) pollDelay = pollDelay.Add(TimeSpan.FromSeconds(2));
+                                continue;
+                            }
+                            var statusJson = JsonNode.Parse(await statusResp.Content.ReadAsStringAsync());
+                            var status = statusJson?["status"]?.GetValue<string>();
+                            if (status == "completed")
+                            {
+                                finalResult = statusJson?["result"];
+                                break;
+                            }
+                            if (status == "failed")
+                            {
+                                failureMessage = statusJson?["error"]?.GetValue<string>() ?? "Unknown AI failure";
+                                break;
+                            }
+                            // Mild backoff while running (5s -> 10s -> 15s max).
+                            if (pollDelay < TimeSpan.FromSeconds(15)) pollDelay = pollDelay.Add(TimeSpan.FromSeconds(2));
+                        }
+                        catch (Exception)
+                        {
+                            // Transient poll failure — keep trying until deadline.
+                        }
+                    }
+
+                    if (failureMessage != null)
+                        return StatusCode(502, $"AI Service Failed: {failureMessage}");
+                    if (finalResult == null)
+                        return StatusCode(504, "AI Service did not complete in time. Please try again.");
+
+                    jsonContent = finalResult.ToJsonString();
                 }
 
                 // 1. Safely Parse JSON
@@ -547,16 +864,27 @@ namespace Spark2Scale_.Server.Controllers
         {
             if (!Guid.TryParse(id, out Guid sId)) return BadRequest();
 
-            var rawJson = input.JsonResponse.GetRawText();
-            var supabaseSafeJson = JsonConvert.DeserializeObject<object>(rawJson);
+            var token = GetToken();
+            if (string.IsNullOrEmpty(token)) return Unauthorized("Missing authorization token.");
+            if (!await _access.IsFounderOrOwner(token, sId)) return StatusCode(403, "Only the Founder can update recommendation data.");
 
-            await _supabase.From<Startup>()
-                .Where(s => s.Sid == sId)
-                .Set(s => s.JsonResponse, supabaseSafeJson)
-                .Set(s => s.CurrentIteration, input.CurrentIteration)
-                .Update();
+            try
+            {
+                var rawJson = input.JsonResponse.GetRawText();
+                var supabaseSafeJson = JsonConvert.DeserializeObject<object>(rawJson);
 
-            return Ok(new { message = "Recommendation saved.", iteration = input.CurrentIteration });
+                await _supabase.From<Startup>()
+                    .Where(s => s.Sid == sId)
+                    .Set(s => s.JsonResponse, supabaseSafeJson)
+                    .Set(s => s.CurrentIteration, input.CurrentIteration)
+                    .Update();
+
+                return Ok(new { message = "Recommendation saved.", iteration = input.CurrentIteration });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, $"Error updating recommendation data: {ex.Message}");
+            }
         }
 
         [HttpPut("update-json/{id}")]
@@ -566,10 +894,9 @@ namespace Spark2Scale_.Server.Controllers
 
             try
             {
-                // 1. (Optional) Check Authorization just like you did in UpdateIdea
-                // var token = Request.Headers["Authorization"].FirstOrDefault()?.Replace("Bearer ", "");
-                // if (string.IsNullOrEmpty(token)) return Unauthorized("Missing authorization token.");
-                // if (!await _access.IsFounderOrOwner(token, sId)) return StatusCode(403, "Only the Founder can update data.");
+                var token = GetToken();
+                if (string.IsNullOrEmpty(token)) return Unauthorized("Missing authorization token.");
+                if (!await _access.IsFounderOrOwner(token, sId)) return StatusCode(403, "Only the Founder can update data.");
 
                 // 2. Parse the JSON safely for the Supabase C# Client
                 var rawJson = input.jsonResponse.GetRawText();
@@ -595,7 +922,7 @@ namespace Spark2Scale_.Server.Controllers
             if (!Guid.TryParse(id, out Guid sId)) return BadRequest("Invalid ID format");
             try
             {
-                var token = Request.Headers["Authorization"].FirstOrDefault()?.Replace("Bearer ", "");
+                var token = GetToken();
                 if (string.IsNullOrEmpty(token)) return Unauthorized("Missing authorization token.");
                 if (!await _access.IsFounderOrOwner(token, sId)) return StatusCode(403, "Only the Founder can delete this startup.");
 

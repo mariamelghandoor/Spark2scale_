@@ -7,10 +7,11 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
 import Link from "next/link";
 import LegoIllustration from "@/components/lego/LegoIllustration";
 import { motion } from "framer-motion";
-import { CheckCircle2, Eye, EyeOff } from "lucide-react";
+import { CheckCircle2, Eye, EyeOff, ShieldCheck } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createBrowserClient } from "@supabase/auth-helpers-nextjs";
 import LegoSpinner from "@/components/lego/LegoSpinner";
@@ -47,6 +48,15 @@ function SignupContent() {
 
         if (!supabase) {
             setError("Configuration Missing: Supabase credentials are not set in .env.local");
+            return;
+        }
+
+        if (!formData.dataConsent) {
+            setValidationErrors((prev) => ({
+                ...prev,
+                dataConsent: "You must consent to data processing to create an account",
+            }));
+            setError("Please review and accept the data processing consent before continuing.");
             return;
         }
 
@@ -95,6 +105,7 @@ function SignupContent() {
         userType: typeParam || "founder",
         addressRegion: "",
         tags: [] as string[],
+        dataConsent: false,
     });
 
     // Sync from query params if they change (e.g. initial load)
@@ -187,6 +198,10 @@ function SignupContent() {
 
         if (!formData.addressRegion && formData.userType !== "investor") {
             errors.addressRegion = "Address/Region is required";
+        }
+
+        if (!formData.dataConsent) {
+            errors.dataConsent = "You must consent to data processing to create an account";
         }
 
         setValidationErrors(errors);
@@ -766,6 +781,72 @@ function SignupContent() {
                                             {validationErrors.confirmPassword && (
                                                 <p className="text-sm text-red-500">{validationErrors.confirmPassword}</p>
                                             )}
+                                        </div>
+
+                                        <div
+                                            className={`rounded-xl border p-4 transition-colors ${
+                                                validationErrors.dataConsent
+                                                    ? "border-red-300 bg-red-50/50"
+                                                    : "border-[#576238]/20 bg-[#F0EADC]/30"
+                                            }`}
+                                        >
+                                            <div className="flex items-start gap-3">
+                                                <Checkbox
+                                                    id="dataConsent"
+                                                    checked={formData.dataConsent}
+                                                    onCheckedChange={(checked) => {
+                                                        setFormData({ ...formData, dataConsent: checked === true });
+                                                        if (checked === true && validationErrors.dataConsent) {
+                                                            setValidationErrors((prev) => {
+                                                                const next = { ...prev };
+                                                                delete next.dataConsent;
+                                                                return next;
+                                                            });
+                                                        }
+                                                    }}
+                                                    className="mt-1"
+                                                    aria-invalid={!!validationErrors.dataConsent}
+                                                    required
+                                                />
+                                                <div className="flex-1 space-y-1.5">
+                                                    <Label
+                                                        htmlFor="dataConsent"
+                                                        className="flex items-center gap-1.5 text-sm font-semibold text-[#576238] cursor-pointer"
+                                                    >
+                                                        <ShieldCheck className="h-4 w-4" />
+                                                        Data processing consent
+                                                    </Label>
+                                                    <p className="text-xs leading-relaxed text-[#576238]/80">
+                                                        I agree that Spark2Scale may securely store and process the
+                                                        information I provide and the content I create on the platform
+                                                        in order to deliver its features, generate personalized insights,
+                                                        and improve its services. I have read and accept the{" "}
+                                                        <Link
+                                                            href="/privacy"
+                                                            target="_blank"
+                                                            rel="noopener noreferrer"
+                                                            className="font-semibold text-[#576238] underline underline-offset-2 hover:text-[#6b7c3f]"
+                                                        >
+                                                            Privacy Policy
+                                                        </Link>{" "}
+                                                        and{" "}
+                                                        <Link
+                                                            href="/terms"
+                                                            target="_blank"
+                                                            rel="noopener noreferrer"
+                                                            className="font-semibold text-[#576238] underline underline-offset-2 hover:text-[#6b7c3f]"
+                                                        >
+                                                            Terms of Service
+                                                        </Link>
+                                                        .
+                                                    </p>
+                                                    {validationErrors.dataConsent && (
+                                                        <p className="text-xs font-medium text-red-600">
+                                                            {validationErrors.dataConsent}
+                                                        </p>
+                                                    )}
+                                                </div>
+                                            </div>
                                         </div>
 
                                         <Button

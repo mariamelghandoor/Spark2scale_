@@ -19,6 +19,7 @@ import { generateMarketResearchPDF } from "@/pdf-formats/marketResearchPdf";
 // Import your custom Loaders
 import LegoLoader from "@/components/lego/LegoLoader";
 import LegoResearchLoader from "@/components/lego/LegoResearchLoader";
+import { clearStaleStage } from "@/lib/refinementState";
 
 
 export default function MarketResearchPage() {
@@ -63,9 +64,8 @@ export default function MarketResearchPage() {
     }, [startupId]);
 
     const handleGenerate = async () => {
-        // Validation now only checks for Region
         if (!region) {
-            alert("Please select a Target Region");
+            setErrorMessage("Please select a target region before generating the report.");
             return;
         }
 
@@ -78,6 +78,9 @@ export default function MarketResearchPage() {
             if (jsonResult) {
                 setResearchData(jsonResult);
                 setIsWorkflowComplete(false);
+                // Successful regen clears the "refresh suggested" hint that
+                // appears after recommendation refinements are applied.
+                clearStaleStage(startupId, "marketResearch");
             }
         } catch (error: any) {
             console.error("Full Error:", error);

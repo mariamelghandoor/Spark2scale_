@@ -80,7 +80,7 @@ function EvaluationWizard({ data, setData, loading, onSubmit, step, setStep, pen
                             <div className="grid grid-cols-2 gap-6">
                                 <div className="col-span-2"><SectionHeader num="1" title="Company Snapshot" /></div>
                                 <FormField label="Company Name *"><Input value={data.name} onChange={e => updateField('name', e.target.value)} placeholder="e.g. Spark2Scale" /></FormField>
-                                <FormField label="HQ Location"><Input value={data.hq_location} onChange={e => updateField('hq_location', e.target.value)} placeholder="e.g. Egypt" /></FormField>
+                                <FormField label="HQ Location *"><Input value={data.hq_location} onChange={e => updateField('hq_location', e.target.value)} placeholder="e.g. Egypt" /></FormField>
                                 <FormField label="Website / Demo Link"><Input value={data.website_url} onChange={e => updateField('website_url', e.target.value)} placeholder="https://..." /></FormField>
                                 <FormField label="Date Founded"><Input type="date" value={data.date_founded} onChange={e => updateField('date_founded', e.target.value)} /></FormField>
                                 <FormField label="Current Stage *">
@@ -115,13 +115,105 @@ function EvaluationWizard({ data, setData, loading, onSubmit, step, setStep, pen
                         )}
 
                         {step === 2 && (
-                            <div className="grid grid-cols-2 gap-6">
-                                <div className="col-span-2"><SectionHeader num="2" title="Founder & Team" subtitle="Detail your commitment and execution velocity." /></div>
-                                <FormField label="Full-time Start Date"><Input type="date" value={data.full_time_start} onChange={e => updateField('full_time_start', e.target.value)} /></FormField>
-                                <div className="col-span-2">
-                                    <FormField label="What have you shipped so far? (with dates)" hint="List key milestones or product releases.">
-                                        <Textarea value={data.shipments} onChange={e => updateField('shipments', e.target.value)} placeholder={"2025-07: Project Kickoff\n2026-02: MVP Live"} />
-                                    </FormField>
+                            <div className="space-y-6">
+                                <SectionHeader num="2" title="Founder & Team" subtitle="Detail your team, commitment, and execution velocity." />
+
+                                {/* Founders list — drives startup_evaluation.founder_and_team.founders[].
+                                    The recommendation/evaluation agents use names, roles, ownership,
+                                    experience, and market-fit statement when scoring the Team dimension
+                                    and matching founder-related risk patterns. */}
+                                <div className="space-y-3">
+                                    <div className="flex items-center justify-between">
+                                        <Label className="text-[#576238] font-semibold">Founders *</Label>
+                                        <Button
+                                            type="button"
+                                            size="sm"
+                                            variant="outline"
+                                            className="h-7 text-xs border-[#576238] text-[#576238] hover:bg-[#576238] hover:text-white"
+                                            onClick={() => updateField('founders', [...(data.founders ?? []), { name: "", role: "", ownership_percentage: 0, prior_experience: "", years_direct_experience: 0, founder_market_fit_statement: "" }])}
+                                        >
+                                            + Add founder
+                                        </Button>
+                                    </div>
+
+                                    {(data.founders ?? []).map((f: any, idx: number) => {
+                                        const updateFounder = (key: string, value: any) => {
+                                            const next = [...(data.founders ?? [])];
+                                            next[idx] = { ...next[idx], [key]: value };
+                                            updateField('founders', next);
+                                        };
+                                        const removeFounder = () => {
+                                            const next = (data.founders ?? []).filter((_: any, i: number) => i !== idx);
+                                            updateField('founders', next);
+                                        };
+                                        return (
+                                            <div key={idx} className="rounded-xl border border-[#576238]/20 bg-[#F0EADC]/30 p-4 space-y-3">
+                                                <div className="flex items-center justify-between">
+                                                    <span className="text-xs font-bold uppercase tracking-wider text-[#576238]/70">Founder #{idx + 1}</span>
+                                                    {(data.founders ?? []).length > 1 && (
+                                                        <Button
+                                                            type="button"
+                                                            size="sm"
+                                                            variant="ghost"
+                                                            className="h-6 text-[10px] text-red-600 hover:bg-red-50 hover:text-red-700"
+                                                            onClick={removeFounder}
+                                                        >
+                                                            Remove
+                                                        </Button>
+                                                    )}
+                                                </div>
+                                                <div className="grid grid-cols-2 gap-3">
+                                                    <FormField label="Full Name *">
+                                                        <Input value={f.name ?? ""} onChange={e => updateFounder('name', e.target.value)} placeholder="Doha Hemdan" />
+                                                    </FormField>
+                                                    <FormField label="Role *">
+                                                        <Input value={f.role ?? ""} onChange={e => updateFounder('role', e.target.value)} placeholder="CEO, CTO, COO…" />
+                                                    </FormField>
+                                                    <FormField label="Ownership % *">
+                                                        <Input
+                                                            type="number"
+                                                            min={0}
+                                                            max={100}
+                                                            value={f.ownership_percentage ?? 0}
+                                                            onChange={e => updateFounder('ownership_percentage', Number(e.target.value))}
+                                                        />
+                                                    </FormField>
+                                                    <FormField label="Years of Direct Experience">
+                                                        <Input
+                                                            type="number"
+                                                            min={0}
+                                                            value={f.years_direct_experience ?? 0}
+                                                            onChange={e => updateFounder('years_direct_experience', Number(e.target.value))}
+                                                        />
+                                                    </FormField>
+                                                </div>
+                                                <FormField label="Prior Experience *" hint="Roles, companies, and domain expertise.">
+                                                    <Input value={f.prior_experience ?? ""} onChange={e => updateFounder('prior_experience', e.target.value)} placeholder="AI Engineer at Tabaani; 4 years building startup-eval tooling" />
+                                                </FormField>
+                                                <FormField label="Founder–Market Fit Statement *" hint="Why this founder uniquely solves this problem.">
+                                                    <Textarea
+                                                        value={f.founder_market_fit_statement ?? ""}
+                                                        onChange={e => updateFounder('founder_market_fit_statement', e.target.value)}
+                                                        placeholder="Built and shipped two pre-seed evaluation tools; interviewed 40+ MENA founders before writing a line of code."
+                                                    />
+                                                </FormField>
+                                            </div>
+                                        );
+                                    })}
+
+                                    {(data.founders ?? []).length === 0 && (
+                                        <p className="text-xs text-[#576238]/70 italic">Click <span className="font-semibold">Add founder</span> to add at least one team member. The AI uses these details to score the Team dimension.</p>
+                                    )}
+                                </div>
+
+                                {/* Execution */}
+                                <div className="grid grid-cols-2 gap-6 pt-2 border-t border-[#576238]/10">
+                                    <FormField label="Full-time Start Date"><Input type="date" value={data.full_time_start} onChange={e => updateField('full_time_start', e.target.value)} /></FormField>
+                                    <div className="col-span-2">
+                                        <FormField label="What have you shipped so far? (with dates)" hint="List key milestones or product releases.">
+                                            <Textarea value={data.shipments} onChange={e => updateField('shipments', e.target.value)} placeholder={"2025-07: Project Kickoff\n2026-02: MVP Live"} />
+                                        </FormField>
+                                    </div>
                                 </div>
                             </div>
                         )}
@@ -130,7 +222,7 @@ function EvaluationWizard({ data, setData, loading, onSubmit, step, setStep, pen
                             <div className="space-y-6">
                                 <SectionHeader num="3" title="Problem Definition" subtitle="Who is the customer and why is their pain urgent?" />
                                 <div className="grid grid-cols-2 gap-6">
-                                    <FormField label="Primary Customer Profile"><Input value={data.customer_profile} onChange={e => updateField('customer_profile', e.target.value)} placeholder="Role, Company Size, Industry" /></FormField>
+                                    <FormField label="Primary Customer Profile *"><Input value={data.customer_profile} onChange={e => updateField('customer_profile', e.target.value)} placeholder="Role, Company Size, Industry" /></FormField>
                                     <FormField label="Problem Frequency">
                                         <Select value={data.problem_frequency} onValueChange={v => updateField('problem_frequency', v)}>
                                             <SelectTrigger><SelectValue /></SelectTrigger>
@@ -145,7 +237,7 @@ function EvaluationWizard({ data, setData, loading, onSubmit, step, setStep, pen
                                 </div>
                                 <FormField label="Specific Problem (1-2 sentences) *"><Textarea value={data.problem_statement} onChange={e => updateField('problem_statement', e.target.value)} /></FormField>
                                 <FormField label="What is broken about current solutions? *"><Textarea value={data.gap_analysis} onChange={e => updateField('gap_analysis', e.target.value)} /></FormField>
-                                <FormField label="Cost of NOT solving this problem"><Input value={data.cost_of_not_solving} onChange={e => updateField('cost_of_not_solving', e.target.value)} placeholder="Time, Money, or Risk" /></FormField>
+                                <FormField label="Cost of NOT solving this problem *"><Input value={data.cost_of_not_solving} onChange={e => updateField('cost_of_not_solving', e.target.value)} placeholder="Time, Money, or Risk" /></FormField>
                                 <div className="grid grid-cols-2 gap-6">
                                     <FormField label="Interviews Conducted"><Input type="number" value={data.interviews_conducted} onChange={e => updateField('interviews_conducted', Number(e.target.value))} /></FormField>
                                     <FormField label="Verbatim Quotes (Top 3)"><Textarea value={data.customer_quotes} onChange={e => updateField('customer_quotes', e.target.value)} placeholder={"Quote 1...\nQuote 2..."} /></FormField>
@@ -170,7 +262,7 @@ function EvaluationWizard({ data, setData, loading, onSubmit, step, setStep, pen
                                     </FormField>
                                     <FormField label="Demo Link / Screenshots"><Input value={data.demo_link} onChange={e => updateField('demo_link', e.target.value)} /></FormField>
                                 </div>
-                                <FormField label="Core use case users come back for"><Input value={data.core_use_case} onChange={e => updateField('core_use_case', e.target.value)} /></FormField>
+                                <FormField label="Core use case users come back for *"><Input value={data.core_use_case} onChange={e => updateField('core_use_case', e.target.value)} /></FormField>
                                 <FormField label="Meaningful Differentiation *"><Textarea value={data.differentiation} onChange={e => updateField('differentiation', e.target.value)} placeholder="Why are you better than alternatives?" /></FormField>
                                 <FormField label="Hardest part to replicate (Moat)"><Input value={data.defensibility} onChange={e => updateField('defensibility', e.target.value)} /></FormField>
                             </div>
@@ -181,7 +273,7 @@ function EvaluationWizard({ data, setData, loading, onSubmit, step, setStep, pen
                                 <SectionHeader num="5" title="Market & Scope" />
                                 <FormField label="Beachhead Market *"><Input value={data.beachhead_market} onChange={e => updateField('beachhead_market', e.target.value)} /></FormField>
                                 <FormField label="Estimated Market Size (USD)"><Input value={data.market_size} onChange={e => updateField('market_size', e.target.value)} /></FormField>
-                                <FormField label="Long-term Vision"><Textarea value={data.vision} onChange={e => updateField('vision', e.target.value)} placeholder="How this becomes big..." /></FormField>
+                                <FormField label="Long-term Vision *"><Textarea value={data.vision} onChange={e => updateField('vision', e.target.value)} placeholder="How this becomes big..." /></FormField>
                                 <FormField label="Expansion Strategy"><Textarea value={data.expansion_strategy} onChange={e => updateField('expansion_strategy', e.target.value)} placeholder="New users, products, or segments" /></FormField>
                             </div>
                         )}
@@ -231,8 +323,8 @@ function EvaluationWizard({ data, setData, loading, onSubmit, step, setStep, pen
                                     <div className="grid grid-cols-2 gap-4">
                                         <FormField label="Pricing Model *"><Input value={data.pricing_model} onChange={e => updateField('pricing_model', e.target.value)} /></FormField>
                                         <FormField label="Gross Margin %"><Input value={data.gross_margin} onChange={e => updateField('gross_margin', e.target.value)} /></FormField>
-                                        <FormField label="Monthly Burn ($)"><Input value={data.monthly_burn} onChange={e => updateField('monthly_burn', e.target.value)} /></FormField>
-                                        <FormField label="Runway (Months)"><Input value={data.runway} onChange={e => updateField('runway', e.target.value)} /></FormField>
+                                        <FormField label="Monthly Burn ($) *"><Input value={data.monthly_burn} onChange={e => updateField('monthly_burn', e.target.value)} /></FormField>
+                                        <FormField label="Runway (Months) *"><Input value={data.runway} onChange={e => updateField('runway', e.target.value)} /></FormField>
                                     </div>
                                 </div>
                             </div>
@@ -242,7 +334,7 @@ function EvaluationWizard({ data, setData, loading, onSubmit, step, setStep, pen
                             <div className="space-y-6">
                                 <SectionHeader num="9" title="Vision & Strategy" />
                                 <FormField label="Category Creating/Redefining"><Input value={data.category_definition} onChange={e => updateField('category_definition', e.target.value)} /></FormField>
-                                <FormField label="Biggest Risk to Success"><Textarea value={data.primary_risk} onChange={e => updateField('primary_risk', e.target.value)} /></FormField>
+                                <FormField label="Biggest Risk to Success *"><Textarea value={data.primary_risk} onChange={e => updateField('primary_risk', e.target.value)} /></FormField>
                                 <SectionHeader num="10" title="Fundraising" />
                                 <FormField label="Key Round Milestones"><Textarea value={data.round_milestones} onChange={e => updateField('round_milestones', e.target.value)} /></FormField>
                                 <FormField label="Existing Investors"><Input value={data.existing_investors} onChange={e => updateField('existing_investors', e.target.value)} /></FormField>
@@ -269,18 +361,10 @@ function EvaluationWizard({ data, setData, loading, onSubmit, step, setStep, pen
 // 3. MAIN DASHBOARD PAGE
 // ============================================================================
 
-const REQUIRED_FIELDS = [
-    { id: "name", name: "Company Name", step: 1 },
-    { id: "stage", name: "Current Stage", step: 1 },
-    { id: "problem_statement", name: "Specific Problem (1-2 sentences)", step: 3 },
-    { id: "gap_analysis", name: "What is broken about current solutions?", step: 3 },
-    { id: "product_status", name: "Product Status", step: 4 },
-    { id: "differentiation", name: "Meaningful differentiation", step: 4 },
-    { id: "beachhead_market", name: "Beachhead market", step: 5 },
-    { id: "acquisition_channel", name: "Primary acquisition channel", step: 7 },
-    { id: "sales_motion", name: "Sales motion", step: 7 },
-    { id: "pricing_model", name: "Pricing model", step: 7 },
-];
+// All wizard fields are optional. The * markers still appear next to labels
+// as soft hints — they tell the founder which inputs the AI agents benefit
+// most from when filled — but submission is not blocked when they're empty.
+const REQUIRED_FIELDS: { id: string; name: string; step: number }[] = [];
 
 const TIPS = [
     {
@@ -404,6 +488,7 @@ export default function FounderDashboard() {
         website_url: "", hq_location: "", date_founded: "", raised_to_date: "0",
         current_round_size: "0", target_close_date: "",
         full_time_start: "", shipments: "",
+        founders: [{ name: "", role: "", ownership_percentage: 0, prior_experience: "", years_direct_experience: 0, founder_market_fit_statement: "" }],
         customer_profile: "", problem_statement: "", current_solution: "", gap_analysis: "",
         problem_frequency: "Daily", cost_of_not_solving: "", interviews_conducted: 0, customer_quotes: "",
         product_status: "MVP", demo_link: "", core_use_case: "", differentiation: "", defensibility: "",
@@ -524,8 +609,44 @@ export default function FounderDashboard() {
             const market = evaluation.market_and_scope ?? {};
             const traction = evaluation.traction_metrics ?? {};
             const gtm = evaluation.gtm_strategy ?? {};
-            const biz = evaluation.business_data ?? {};
+            // Read business_model (the canonical name used by every other
+            // part of the stack). The previous code read business_data, which
+            // silently dropped pricing_model / monthly_burn / runway etc.
+            const biz = evaluation.business_model ?? evaluation.business_data ?? {};
             const vis = evaluation.vision_and_strategy ?? {};
+
+            // Map extracted founders into the wizard's founders[] state shape.
+            // Without this, founders pulled from the pitch deck were lost and
+            // the Team dimension scored 0/5 every time.
+            const extractedFounders: any[] = Array.isArray(founder.founders)
+                ? founder.founders
+                    .map((f: any) => ({
+                        name: f?.name ?? "",
+                        role: f?.role ?? "",
+                        ownership_percentage: Number(f?.ownership_percentage ?? f?.ownership ?? 0) || 0,
+                        prior_experience: f?.prior_experience ?? f?.experience ?? "",
+                        years_direct_experience: Number(f?.years_direct_experience ?? f?.years_experience ?? 0) || 0,
+                        founder_market_fit_statement: f?.founder_market_fit_statement ?? f?.market_fit ?? "",
+                    }))
+                    .filter((f: any) => (f.name || "").trim() !== "")
+                : [];
+
+            // The AI extractor returns the canonical startup_evaluation schema:
+            // - Round info lives under company_snapshot.current_round.{target_amount, target_close_date}
+            // - Cost of not solving lives under problem_definition.impact_metrics.{cost_type, description}
+            // - Interview count + quotes live under problem_definition.evidence.{interviews_conducted, customer_quotes}
+            // - Defensibility lives under product_and_solution.defensibility_moat
+            // - Market size lives under market_and_scope.market_size_estimate
+            // - Partnerships live under traction_metrics.partnerships_and_lois
+            // - Sales cycle lives under gtm_strategy.average_sales_cycle
+            // Add canonical paths first; keep legacy flat names as fallbacks.
+            const currentRound = (snap.current_round ?? {}) as Record<string, any>;
+            const evidence = (problem.evidence ?? {}) as Record<string, any>;
+            const impact = (problem.impact_metrics ?? {}) as Record<string, any>;
+            const flattenList = (v: any): string => {
+                if (Array.isArray(v)) return v.filter(Boolean).join("\n");
+                return v ?? "";
+            };
 
             setNewStartup(prev => ({
                 ...prev,
@@ -533,51 +654,56 @@ export default function FounderDashboard() {
                 website_url: snap.website_url || snap.website || prev.website_url,
                 hq_location: snap.hq_location || snap.hq || prev.hq_location,
                 date_founded: snap.date_founded || snap.founded_date || prev.date_founded,
-                stage: snap.stage || prev.stage,
-                raised_to_date: snap.amount_raised || snap.raised_to_date || prev.raised_to_date,
-                current_round_size: snap.round_size || snap.current_round_size || prev.current_round_size,
-                target_close_date: snap.target_close_date || prev.target_close_date,
+                stage: snap.current_stage || snap.stage || prev.stage,
+                raised_to_date: String(snap.amount_raised_to_date ?? snap.amount_raised ?? snap.raised_to_date ?? prev.raised_to_date),
+                current_round_size: String(currentRound.target_amount ?? snap.round_size ?? snap.current_round_size ?? prev.current_round_size),
+                target_close_date: currentRound.target_close_date || snap.target_close_date || prev.target_close_date,
                 existing_investors: snap.existing_investors || vis.existing_investors || prev.existing_investors,
-                full_time_start: founder.full_time_start || prev.full_time_start,
-                shipments: typeof founder.execution === "string" ? founder.execution : Array.isArray(founder.execution?.key_shipments) ? founder.execution.key_shipments.join("\n") : founder.shipments || prev.shipments,
+                full_time_start: founder.execution?.full_time_start_date || founder.full_time_start || prev.full_time_start,
+                shipments: typeof founder.execution === "string"
+                    ? founder.execution
+                    : Array.isArray(founder.execution?.key_shipments)
+                        ? founder.execution.key_shipments.join("\n")
+                        : (founder.shipments || prev.shipments),
+                founders: extractedFounders.length > 0 ? extractedFounders : prev.founders,
                 customer_profile: (typeof problem.customer_profile === "object" ? problem.customer_profile?.description : problem.customer_profile) || problem.target_customer || prev.customer_profile,
                 problem_statement: problem.problem_statement || problem.problem || prev.problem_statement,
                 current_solution: problem.current_solution || prev.current_solution,
                 gap_analysis: problem.gap_analysis || problem.broken_solutions || prev.gap_analysis,
                 problem_frequency: problem.problem_frequency || problem.frequency || prev.problem_frequency,
-                cost_of_not_solving: problem.cost_of_not_solving || problem.cost || prev.cost_of_not_solving,
-                interviews_conducted: Number(problem.interviews_conducted || problem.interviews || prev.interviews_conducted),
-                customer_quotes: Array.isArray(problem.customer_quotes) ? problem.customer_quotes.join("\n") : (problem.customer_quotes || prev.customer_quotes),
+                cost_of_not_solving: impact.cost_type || impact.description || problem.cost_of_not_solving || problem.cost || prev.cost_of_not_solving,
+                interviews_conducted: Number(evidence.interviews_conducted ?? problem.interviews_conducted ?? problem.interviews ?? prev.interviews_conducted),
+                customer_quotes: flattenList(evidence.customer_quotes ?? problem.customer_quotes ?? prev.customer_quotes),
                 product_status: product.product_stage || product.product_status || prev.product_status,
                 demo_link: product.demo_link || prev.demo_link,
                 core_use_case: product.core_stickiness || product.core_use_case || prev.core_use_case,
                 differentiation: product.differentiation || prev.differentiation,
-                defensibility: product.defensibility || product.moat || prev.defensibility,
+                defensibility: product.defensibility_moat || product.defensibility || product.moat || prev.defensibility,
                 beachhead_market: market.beachhead_market || market.beachhead || prev.beachhead_market,
-                market_size: market.market_size || prev.market_size,
-                vision: vis.five_year_vision || vis.long_term_vision || vis.vision || prev.vision,
+                market_size: market.market_size_estimate || market.market_size || prev.market_size,
+                vision: vis.five_year_vision || vis.long_term_vision || vis.vision || market.long_term_vision || prev.vision,
                 expansion_strategy: market.expansion_strategy || prev.expansion_strategy,
-                active_users: Number(traction.user_count || traction.active_users_monthly || traction.active_users || prev.active_users),
-                design_partners: Array.isArray(traction.design_partners) ? traction.design_partners.join(", ") : (traction.design_partners || prev.design_partners),
+                active_users: Number(traction.user_count ?? traction.active_users_monthly ?? traction.active_users ?? prev.active_users),
+                design_partners: flattenList(traction.partnerships_and_lois ?? traction.design_partners ?? prev.design_partners),
                 early_revenue: traction.early_revenue || traction.revenue || prev.early_revenue,
                 rev_growth: traction.revenue_growth || traction.rev_growth || prev.rev_growth,
                 retention_metrics: traction.retention_metrics || prev.retention_metrics,
-                paying_customers: Number(traction.paying_customers || prev.paying_customers),
+                paying_customers: Number(traction.paying_customers ?? prev.paying_customers),
                 acv: traction.acv || prev.acv,
                 buyer_vs_user: gtm.buyer_persona || gtm.buyer_vs_user || prev.buyer_vs_user,
                 acquisition_channel: gtm.primary_acquisition_channel || gtm.acquisition_channel || prev.acquisition_channel,
                 sales_motion: gtm.sales_motion || prev.sales_motion,
-                avg_sales_cycle: gtm.avg_sales_cycle || prev.avg_sales_cycle,
+                avg_sales_cycle: gtm.average_sales_cycle || gtm.avg_sales_cycle || prev.avg_sales_cycle,
                 deal_closer: gtm.deal_closer || prev.deal_closer,
                 pricing_model: biz.pricing_model || prev.pricing_model,
-                avg_price: String(biz.average_price_per_customer || biz.avg_price || prev.avg_price),
-                gross_margin: String(biz.gross_margin || prev.gross_margin),
-                monthly_burn: String(biz.monthly_burn || prev.monthly_burn),
-                runway: String(biz.runway_months || biz.runway || prev.runway),
+                avg_price: String(biz.average_price_per_customer ?? biz.avg_price ?? prev.avg_price),
+                gross_margin: String(biz.gross_margin ?? prev.gross_margin),
+                monthly_burn: String(biz.monthly_burn ?? prev.monthly_burn),
+                runway: String(biz.runway_months ?? biz.runway ?? prev.runway),
                 category_definition: vis.category_definition || prev.category_definition,
                 primary_risk: vis.primary_risk || vis.risk || prev.primary_risk,
-                round_milestones: vis.round_milestones || vis.milestones || prev.round_milestones,
-                funds_priorities: vis.funds_priorities || vis.use_of_funds || prev.funds_priorities,
+                round_milestones: flattenList(vis.round_milestones ?? vis.milestones ?? prev.round_milestones),
+                funds_priorities: flattenList(vis.use_of_funds ?? vis.funds_priorities ?? prev.funds_priorities),
             }));
 
             setExtractionSuccess(true);
@@ -596,6 +722,7 @@ export default function FounderDashboard() {
             website_url: "", hq_location: "", date_founded: "", raised_to_date: "0",
             current_round_size: "0", target_close_date: "",
             full_time_start: "", shipments: "",
+            founders: [{ name: "", role: "", ownership_percentage: 0, prior_experience: "", years_direct_experience: 0, founder_market_fit_statement: "" }],
             customer_profile: "", problem_statement: "", current_solution: "", gap_analysis: "",
             problem_frequency: "Daily", cost_of_not_solving: "", interviews_conducted: 0, customer_quotes: "",
             product_status: "MVP", demo_link: "", core_use_case: "", differentiation: "", defensibility: "",
@@ -634,13 +761,7 @@ export default function FounderDashboard() {
     };
 
     const handleAddStartup = async () => {
-        // Run field validation based on the required fields map
-        const errors = REQUIRED_FIELDS.filter(f => !newStartup[f.id] || String(newStartup[f.id]).trim() === "");
-
-        if (errors.length > 0) {
-            setValidationErrors(errors);
-            return; // Stop submission and show error alert
-        }
+        // All fields are now optional. No pre-submit validation runs.
 
         if (!user?.id) { alert("User not authenticated."); return; }
         setIsCreating(true);
@@ -657,6 +778,16 @@ export default function FounderDashboard() {
                         existing_investors: newStartup.existing_investors,
                     },
                     founder_and_team: {
+                        founders: (Array.isArray(newStartup.founders) ? newStartup.founders : [])
+                            .filter((f: any) => f && (f.name || "").trim() !== "")
+                            .map((f: any) => ({
+                                name: (f.name || "").trim(),
+                                role: (f.role || "").trim(),
+                                ownership_percentage: Number(f.ownership_percentage) || 0,
+                                prior_experience: (f.prior_experience || "").trim(),
+                                years_direct_experience: Number(f.years_direct_experience) || 0,
+                                founder_market_fit_statement: (f.founder_market_fit_statement || "").trim(),
+                            })),
                         execution: { full_time_start_date: newStartup.full_time_start, key_shipments: newStartup.shipments ? newStartup.shipments.split("\n").filter(Boolean) : [] },
                     },
                     problem_definition: {

@@ -143,7 +143,7 @@ namespace Spark2Scale_.Server.Controllers
                 var redirectUrl = !string.IsNullOrEmpty(request.RedirectUrl)
                         ? request.RedirectUrl
                         : $"{Request.Scheme}://localhost:3000/auth/callback";
-                
+
                 Console.WriteLine($"[SignUp] Using RedirectURL: {redirectUrl}");
 
                 var options = new Supabase.Gotrue.SignUpOptions
@@ -169,10 +169,10 @@ namespace Spark2Scale_.Server.Controllers
                 // ROBUST SIGNUP: Use Admin API to create user without sending default email
                 // This prevents duplicate emails (Supabase Default + Our Custom One)
                 Console.WriteLine("[SignUp] Creating user via Admin API to suppress default email...");
-                
+
                 var supabaseUrl = _configuration["Supabase:Url"] ?? _configuration["SUPABASE_URL"];
                 var supabaseKey = _configuration["Supabase:Key"] ?? _configuration["SUPABASE_KEY"];
-                
+
                 string? authUserId = null;
                 bool requiresEmailConfirmation = true; // Always require verification with this flow
                 string? accessToken = null;
@@ -240,9 +240,9 @@ namespace Spark2Scale_.Server.Controllers
                         {
                             return BadRequest(new { message = "Signup failed. Please check your details and try again." });
                         }
-                        
+
                         Console.WriteLine("[SignUp] Falling back to standard SignUp because Admin API failed.");
-                        try 
+                        try
                         {
                             var authSession = await _supabase.Auth.SignUp(email, request.Password, options);
                             if (authSession?.User != null)
@@ -255,34 +255,34 @@ namespace Spark2Scale_.Server.Controllers
                             {
                                 throw new Exception($"Admin Create Failed: {errorBody}");
                             }
-                        } 
-                        catch (Exception fallbackEx) 
+                        }
+                        catch (Exception fallbackEx)
                         {
                             throw new Exception($"Standard SignUp Fallback Failed: {fallbackEx.Message}. Original Admin Error: {errorBody}");
                         }
                     }
                 }
-                
+
                 // If we failed to get ID (and didn't return), we can't proceed
                 if (string.IsNullOrEmpty(authUserId))
                 {
-                     // Fallback to original method? Or just fail?
-                     // Let's fail safety.
-                     return StatusCode(500, new { message = "Failed to create user account." });
+                    // Fallback to original method? Or just fail?
+                    // Let's fail safety.
+                    return StatusCode(500, new { message = "Failed to create user account." });
                 }
 
                 Console.WriteLine($"[SignUp] User created. proceedStep: {authUserId}");
-                
-                    if (requiresEmailConfirmation)
-                    {
-                        // ROBUST EMAIL SENDING: Manually generate link and send via EmailService
-                        try 
-                        {
-                            Console.WriteLine($"[SignUp] Generating Admin Link for {email}...");
-                            // Variables supabaseUrl and supabaseKey are already defined in outer scope
 
-                            if (!string.IsNullOrEmpty(supabaseUrl) && !string.IsNullOrEmpty(supabaseKey))
-                            {
+                if (requiresEmailConfirmation)
+                {
+                    // ROBUST EMAIL SENDING: Manually generate link and send via EmailService
+                    try
+                    {
+                        Console.WriteLine($"[SignUp] Generating Admin Link for {email}...");
+                        // Variables supabaseUrl and supabaseKey are already defined in outer scope
+
+                        if (!string.IsNullOrEmpty(supabaseUrl) && !string.IsNullOrEmpty(supabaseKey))
+                        {
                             using var client = new HttpClient();
                             client.DefaultRequestHeaders.Add("apikey", supabaseKey);
                             client.DefaultRequestHeaders.Add("Authorization", $"Bearer {supabaseKey}");
@@ -308,7 +308,7 @@ namespace Spark2Scale_.Server.Controllers
                                 {
                                     var actionLink = actionLinkProp.GetString();
                                     Console.WriteLine($"[SignUp] Link Generated: {actionLink}");
-                                    
+
                                     // Send via custom EmailService
                                     await _emailService.SendVerificationEmailAsync(email, request.Name, actionLink);
                                     Console.WriteLine("[SignUp] Verification email sent via EmailService.");
@@ -348,11 +348,11 @@ namespace Spark2Scale_.Server.Controllers
                     {
                         await LinkContributorToStartup(uid, request.StartupId, email);
                     }
-                    else if (userType == "founder") 
+                    else if (userType == "founder")
                     {
                         await EnsureFounderRole(uid);
                     }
-                     else if (userType == "investor")
+                    else if (userType == "investor")
                     {
                         await EnsureInvestorRole(uid, request.Tags);
                     }
@@ -372,7 +372,7 @@ namespace Spark2Scale_.Server.Controllers
                     requiresConfirmation = true
                 });
             }
-           catch (Exception ex)
+            catch (Exception ex)
             {
                 Console.WriteLine($"[SignUp] ERROR: {ex.Message}");
                 Console.WriteLine($"[SignUp] StackTrace: {ex.StackTrace}");
@@ -676,10 +676,10 @@ namespace Spark2Scale_.Server.Controllers
                     if (user.UserMetadata.TryGetValue("phone", out var phoneObj)) phone = phoneObj?.ToString() ?? "";
                     if (user.UserMetadata.TryGetValue("address_region", out var regionObj)) addressRegion = regionObj?.ToString() ?? "";
                     if (user.UserMetadata.TryGetValue("user_type", out var typeObj)) userType = typeObj?.ToString() ?? "founder";
-                    
+
                     if (user.UserMetadata.TryGetValue("tags", out var tagsObj))
                     {
-                        try 
+                        try
                         {
                             var jsonTags = System.Text.Json.JsonSerializer.Serialize(tagsObj);
                             tags = System.Text.Json.JsonSerializer.Deserialize<string[]>(jsonTags) ?? Array.Empty<string>();
@@ -693,22 +693,22 @@ namespace Spark2Scale_.Server.Controllers
                 Console.WriteLine($"[VerifyEmail] User: {userEmail}, Type: {userType}, StartupId: {startupIdStr}");
 
                 var (fname, lname) = SplitName(name);
-                
+
                 // Ensure profile exists or is updated
                 try
                 {
-                    var profileRequest = new FullSignUpRequest 
-                    { 
-                        Phone = phone, 
-                        AddressRegion = addressRegion, 
-                        UserType = userType 
+                    var profileRequest = new FullSignUpRequest
+                    {
+                        Phone = phone,
+                        AddressRegion = addressRegion,
+                        UserType = userType
                     };
                     await EnsureProfileExists(uid, userEmail, fname, lname, profileRequest);
                 }
                 catch (Exception profEx)
                 {
-                     Console.WriteLine($"[VerifyEmail] Profile creation error: {profEx.Message}");
-                     // Continue, checking if we can still link roles
+                    Console.WriteLine($"[VerifyEmail] Profile creation error: {profEx.Message}");
+                    // Continue, checking if we can still link roles
                 }
 
                 // Create role-specific entry
@@ -726,7 +726,7 @@ namespace Spark2Scale_.Server.Controllers
                             Guid? sid = null;
                             if (!string.IsNullOrEmpty(startupIdStr) && Guid.TryParse(startupIdStr, out var parsedSid))
                                 sid = parsedSid;
-                            
+
                             await LinkContributorToStartup(uid, sid, userEmail);
                             break;
                     }
@@ -745,8 +745,8 @@ namespace Spark2Scale_.Server.Controllers
                         .Filter("uid", Supabase.Postgrest.Constants.Operator.Equals, uid.ToString())
                         .Get();
                     refreshedProfile = refreshedProfileResult.Models.FirstOrDefault();
-                } 
-                catch {}
+                }
+                catch { }
 
                 return Ok(new
                 {
@@ -902,14 +902,14 @@ namespace Spark2Scale_.Server.Controllers
 
         private async Task EnsureProfileExists(Guid uid, string email, string fname, string lname, FullSignUpRequest? request)
         {
-             // 2️⃣ Create profile (check if it already exists)
+            // 2️⃣ Create profile (check if it already exists)
             var existingProfileResult = await _supabase
                 .From<PublicUser>()
                 .Filter("uid", Supabase.Postgrest.Constants.Operator.Equals, uid.ToString())
                 .Get();
 
             var existingProfile = existingProfileResult.Models.FirstOrDefault();
-            
+
             if (existingProfile == null)
             {
                 var profile = new PublicUser
@@ -924,20 +924,20 @@ namespace Spark2Scale_.Server.Controllers
                     created_at = DateTime.UtcNow,
                     user_type = request?.UserType?.ToLower() ?? "founder"
                 };
-                 await _supabase.From<PublicUser>().Insert(profile);
+                await _supabase.From<PublicUser>().Insert(profile);
             }
-             else
+            else
             {
-                 // Update if needed
-                 if (string.IsNullOrEmpty(existingProfile.fname))
-                 {
+                // Update if needed
+                if (string.IsNullOrEmpty(existingProfile.fname))
+                {
                     existingProfile.fname = fname;
-                    existingProfile.lname = lname; 
+                    existingProfile.lname = lname;
                     existingProfile.phone_number = request?.Phone ?? "";
                     existingProfile.address_region = request?.AddressRegion ?? "";
                     existingProfile.user_type = request?.UserType?.ToLower() ?? "founder";
                     await _supabase.From<PublicUser>().Upsert(existingProfile);
-                 }
+                }
             }
         }
 
@@ -966,7 +966,7 @@ namespace Spark2Scale_.Server.Controllers
         private async Task LinkContributorToStartup(Guid uid, Guid? startupId, string email)
         {
             Console.WriteLine($"[LinkContributorToStartup] Start: uid={uid}, sid={startupId}, email={email}");
-            if (!startupId.HasValue || startupId == Guid.Empty) 
+            if (!startupId.HasValue || startupId == Guid.Empty)
             {
                 Console.WriteLine("[LinkContributorToStartup] Aborting: No valid StartupId.");
                 return;
@@ -980,11 +980,11 @@ namespace Spark2Scale_.Server.Controllers
                     { "startup_id", startupId.Value.ToString() }
                 })
                 .Get();
-            
+
             if (contributorCheck.Models.Count == 0)
             {
-                var contributor = new StartupContributor 
-                { 
+                var contributor = new StartupContributor
+                {
                     ContributorId = uid,
                     StartupId = startupId.Value,
                     Role = "Contributor",
@@ -992,19 +992,19 @@ namespace Spark2Scale_.Server.Controllers
                 };
 
                 // Try to find who invited them (optional, for metadata)
-                 var inviteRes = await _supabase.From<Invitation>()
-                    .Match(new Dictionary<string, string> {
+                var inviteRes = await _supabase.From<Invitation>()
+                   .Match(new Dictionary<string, string> {
                         { "email", email },
                         { "startup_id", startupId.Value.ToString() },
                         { "status", "Pending" }
-                    })
-                    .Get();
-                
+                   })
+                   .Get();
+
                 var invite = inviteRes.Models.FirstOrDefault();
                 if (invite != null)
                 {
                     contributor.InvitedBy = invite.InvitedBy;
-                    
+
                     // 2. Update Invitation to Accepted
                     await _supabase.From<Invitation>()
                         .Where(i => i.Id == invite.Id)

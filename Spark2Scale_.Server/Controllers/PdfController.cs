@@ -48,13 +48,19 @@ namespace Spark2Scale_.Server.Controllers
 
             // Any authenticated user can use this — they're typically about to create a startup,
             // so there's no startup_id to authorise against yet. Just require a valid token.
-            var userId = await _access.GetUserId(GetToken());
+            var token = GetToken();
+            var userId = await _access.GetUserId(token);
             if (string.IsNullOrEmpty(userId)) return Unauthorized(new { message = "Authentication required." });
 
             try
             {
                 using var http = _httpClientFactory.CreateClient();
                 http.Timeout = TimeSpan.FromMinutes(2);
+
+                // The AI server's /extract-from-pdf now requires authentication —
+                // forward the caller's Supabase Bearer token to it.
+                http.DefaultRequestHeaders.Authorization =
+                    new AuthenticationHeaderValue("Bearer", token);
 
                 using var content = new MultipartFormDataContent();
                 using var ms = new MemoryStream();
@@ -87,7 +93,8 @@ namespace Spark2Scale_.Server.Controllers
         [HttpPost("generate-report")]
         public async Task<IActionResult> GenerateReport()
         {
-            var userId = await _access.GetUserId(GetToken());
+            var token = GetToken();
+            var userId = await _access.GetUserId(token);
             if (string.IsNullOrEmpty(userId)) return Unauthorized(new { message = "Authentication required." });
 
             string jsonBody;
@@ -102,6 +109,11 @@ namespace Spark2Scale_.Server.Controllers
             {
                 using var http = _httpClientFactory.CreateClient();
                 http.Timeout = TimeSpan.FromMinutes(2);
+
+                // Forward the caller's Supabase Bearer token so the call still
+                // succeeds if/when the AI server protects this route too.
+                http.DefaultRequestHeaders.Authorization =
+                    new AuthenticationHeaderValue("Bearer", token);
 
                 using var content = new StringContent(jsonBody, Encoding.UTF8, "application/json");
                 var aiResp = await http.PostAsync($"{AI_SERVER_BASE}/api/v1/evaluation/generate-report", content);

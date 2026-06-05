@@ -110,12 +110,17 @@ export const evaluationService = {
                 data: parsedForm
             };
 
+            // The AI evaluation routes are auth-protected (Supabase Bearer JWT).
+            const evalAuthToken = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
+            const evalAuthHeaders: Record<string, string> = evalAuthToken ? { Authorization: `Bearer ${evalAuthToken}` } : {};
+
             console.log("🚀 Step 2: Starting AI Job on Azure...", payload);
             const startJobRes = await fetch('https://spark2scale-ai-api-server.azurewebsites.net/api/v1/evaluation/evaluate/all', {
                 method: 'POST',
                 headers: {
                     'accept': 'application/json',
-                    'Content-Type': 'application/json'
+                    'Content-Type': 'application/json',
+                    ...evalAuthHeaders
                 },
                 body: JSON.stringify(payload)
             });
@@ -130,20 +135,41 @@ export const evaluationService = {
             console.log(`⏳ Step 3: Polling AI Server for Job ${jobId}...`);
             let finalResult = null;
 
-            while (true) {
-                const statusRes = await fetch(`https://spark2scale-ai-api-server.azurewebsites.net/api/v1/evaluation/evaluate/status/${jobId}`);
-                const statusData = await statusRes.json();
+            // Bounded polling: cap total wait at ~10 min with exponential backoff
+            // (5s → 8s → 12s → 18s → ... → 60s max). Prevents infinite hangs if the
+            // AI server stops responding without emitting a terminal status.
+            const MAX_POLL_MS = 10 * 60 * 1000;
+            const startedAt = Date.now();
+            let delay = 5000;
+            while (Date.now() - startedAt < MAX_POLL_MS) {
+                let statusData: { status?: string; result?: unknown; error?: unknown } | null = null;
+                try {
+                    const statusRes = await fetch(`https://spark2scale-ai-api-server.azurewebsites.net/api/v1/evaluation/evaluate/status/${jobId}`, {
+                        headers: evalAuthHeaders
+                    });
+                    if (!statusRes.ok) throw new Error(`status ${statusRes.status}`);
+                    statusData = await statusRes.json();
+                } catch (pollErr) {
+                    console.warn("Evaluation poll failed (will retry):", pollErr);
+                }
 
-                if (statusData.status === 'completed') {
+                if (statusData?.status === 'completed') {
                     finalResult = statusData.result;
                     console.log("✅ AI Evaluation Finished!", finalResult);
                     break;
-                } else if (statusData.status === 'failed') {
+                }
+                if (statusData?.status === 'failed') {
                     console.error("❌ AI Job Failed:", statusData.error);
                     return false;
                 }
 
-                await new Promise(resolve => setTimeout(resolve, 5000));
+                await new Promise(resolve => setTimeout(resolve, delay));
+                delay = Math.min(delay * 1.5, 60000);
+            }
+
+            if (finalResult === null) {
+                console.error("❌ AI Evaluation timed out after 10 minutes.");
+                return false;
             }
 
             console.log("📦 Step 4: Requesting PDFs via backend proxy...");

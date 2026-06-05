@@ -9,6 +9,7 @@ import { recommendationService, DBRecommendation } from "@/services/recommendati
 import { startupService } from "@/services/startupService";
 import { evaluationService } from "@/services/evaluationService";
 import { RecommendationCard } from "@/components/recommendations/RecommendationCard";
+import RefinementStep from "@/components/recommendations/RefinementStep";
 import LegoSpinner from "@/components/lego/LegoSpinner";
 
 interface NamedRecommendation {
@@ -84,12 +85,21 @@ export default function RecommendationsPage() {
         if (!cleanId) return;
         setIsGenerating(true);
         try {
+            // Gate generation on the evaluation stage being complete — otherwise
+            // we feed the recommendation agent stale or mock evaluation data and
+            // produce misleading output.
+            const workflow = await recommendationService._getWorkflowState(cleanId);
+            if (!workflow.evaluation) {
+                alert("Please complete the Evaluation stage before generating recommendations.");
+                return;
+            }
+
             const [startupData, evalContent] = await Promise.all([
                 startupService.getById(cleanId),
                 evaluationService.getEvaluationContent(cleanId),
             ]);
 
-            const aiResult = await recommendationService.generateAIRecommendation(startupData, evalContent);
+            const aiResult = await recommendationService.generateAIRecommendation(startupData, evalContent, cleanId);
             if (!aiResult) { alert("Failed to generate recommendations. Please try again."); return; }
 
             const [rid] = await Promise.all([
@@ -240,6 +250,21 @@ export default function RecommendationsPage() {
                         </Button>
                     </div>
                 )}
+
+                {/* ── Refinement step (latest report's suggested startup updates) ── */}
+                {!isLoadingHistory && hasItems && cleanId && (() => {
+                    const latest = items[0]?.rec?.Content?.refined_statements;
+                    if (!latest || typeof latest !== "object" || Object.keys(latest).length === 0) {
+                        return null;
+                    }
+                    return (
+                        <RefinementStep
+                            key={items[0].rec.Id}
+                            startupId={cleanId}
+                            refinedStatements={latest}
+                        />
+                    );
+                })()}
 
                 {/* ── Recommendation history (newest first) ── */}
                 {!isLoadingHistory && hasItems && (

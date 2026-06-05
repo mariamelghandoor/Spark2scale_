@@ -7,8 +7,9 @@ import {
     ArrowLeft, Share2, FolderOpen, Video, Calendar as CalendarIcon,
     ChevronLeft, ChevronRight, User, Lightbulb, FileText,
     BarChart3, Target, RefreshCw, Presentation, Check, AlertCircle,
-    Link as LinkIcon, AlertOctagon, Timer, Info, Clock, Lock
+    Link as LinkIcon, AlertOctagon, Timer, Info, Clock, Lock, Sparkles
 } from "lucide-react";
+import { getStaleStages, type StageId } from "@/lib/refinementState";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import LegoProgress from "@/components/lego/LegoProgress";
@@ -44,6 +45,8 @@ export default function StartupDashboard() {
 
     const [logoPath, setLogoPath] = useState<string | null>(null);
     const [isUploadingLogo, setIsUploadingLogo] = useState(false);
+    const [staleStages, setStaleStages] = useState<Set<StageId>>(new Set());
+    const [error, setError] = useState<string | null>(null);
 
     // Meeting & Calendar State
     const [currentMonthDate, setCurrentMonthDate] = useState(new Date());
@@ -91,14 +94,7 @@ export default function StartupDashboard() {
             try {
                 const data = await startupDashboardService.getDashboardData(cleanId, user.id);
                 
-                // Fetch logo_path from the startup detail
-                const startupDetail = await fetch(
-                    `${(process.env.NEXT_PUBLIC_API_URL || "http://localhost:5231").replace(/\/$/, "").replace(/\/api$/, "")}/api/Startups/${cleanId}`
-                ).then(r => r.ok ? r.json() : null);
-                
-                const finalLogoPath = startupDetail?.logo_path || null;
-                
-                if (finalLogoPath) setLogoPath(finalLogoPath);
+                if (data.logoPath) setLogoPath(data.logoPath);
                 
                 setWorkflowData(data.workflow);
                 setStartupName(data.startupName);
@@ -111,20 +107,44 @@ export default function StartupDashboard() {
                 sessionStorage.setItem(cacheKey, JSON.stringify({
                     workflow: data.workflow,
                     startupName: data.startupName,
-                    logoPath: finalLogoPath,
+                    logoPath: data.logoPath,
                     role: data.role,
                     docCount: data.docCount,
                     videoCount: data.videoCount,
                     meetings: data.meetings,
                 }));
-            } catch (error) {
-                console.error("Dashboard load failed", error);
+            } catch (err: any) {
+                console.error("Dashboard load failed", err);
+                const msg = err.message || "";
+                if (msg.includes("403")) {
+                    setError("Forbidden");
+                } else if (msg.includes("401")) {
+                    setError("Unauthorized");
+                } else {
+                    setError("Error");
+                }
             } finally {
                 setIsLoading(false);
             }
         };
         init();
     }, [cleanId, user, loading]);
+
+    // Re-read the refinement "needs refresh" hints whenever the page becomes
+    // visible. This lets the yellow accent disappear automatically after the
+    // founder regenerates a stage on another tab/page and returns here.
+    useEffect(() => {
+        if (!cleanId) return;
+        const refresh = () => setStaleStages(getStaleStages(cleanId));
+        refresh();
+        const onVisible = () => { if (document.visibilityState === "visible") refresh(); };
+        window.addEventListener("focus", refresh);
+        document.addEventListener("visibilitychange", onVisible);
+        return () => {
+            window.removeEventListener("focus", refresh);
+            document.removeEventListener("visibilitychange", onVisible);
+        };
+    }, [cleanId]);
 
     // Derived User Name
     const userName = user?.fname || "Founder";
@@ -140,13 +160,13 @@ export default function StartupDashboard() {
     };
 
     const stages = [
-        { id: 1, name: "Idea Check", icon: Lightbulb, completed: currentData.ideaCheck, hasError: false, path: `/founder/startup/${cleanId}/idea-check` },
-        { id: 2, name: "Market Research", icon: BarChart3, completed: currentData.marketResearch, hasError: false, errorMessage: "Missing required data", path: `/founder/startup/${cleanId}/market-research` },
-        { id: 3, name: "Evaluation", icon: Target, completed: currentData.evaluation, hasError: false, path: `/founder/startup/${cleanId}/evaluate` },
-        { id: 4, name: "Recommendation", icon: RefreshCw, completed: currentData.recommendation, hasError: false, path: `/founder/startup/${cleanId}/recommendations` },
-        { id: 5, name: "Documents", icon: FileText, completed: currentData.documents, hasError: false, path: `/founder/startup/${cleanId}/documents` },
-        { id: 6, name: "Pitch Deck", icon: Presentation, completed: currentData.pitchDeck, hasError: false, path: `/founder/startup/${cleanId}/pitch-deck` },
-    ];
+        { id: 1, stageId: "ideaCheck"      as StageId, name: "Idea Check",      icon: Lightbulb,    completed: currentData.ideaCheck,      hasError: false, path: `/founder/startup/${cleanId}/idea-check` },
+        { id: 2, stageId: "marketResearch" as StageId, name: "Market Research", icon: BarChart3,    completed: currentData.marketResearch, hasError: false, errorMessage: "Missing required data", path: `/founder/startup/${cleanId}/market-research` },
+        { id: 3, stageId: "evaluation"     as StageId, name: "Evaluation",      icon: Target,       completed: currentData.evaluation,     hasError: false, path: `/founder/startup/${cleanId}/evaluate` },
+        { id: 4, stageId: "recommendation" as StageId, name: "Recommendation",  icon: RefreshCw,    completed: currentData.recommendation, hasError: false, path: `/founder/startup/${cleanId}/recommendations` },
+        { id: 5, stageId: "documents"      as StageId, name: "Documents",       icon: FileText,     completed: currentData.documents,      hasError: false, path: `/founder/startup/${cleanId}/documents` },
+        { id: 6, stageId: "pitchDeck"      as StageId, name: "Pitch Deck",      icon: Presentation, completed: currentData.pitchDeck,      hasError: false, path: `/founder/startup/${cleanId}/pitch-deck` },
+    ].map(s => ({ ...s, needsRefresh: s.completed && staleStages.has(s.stageId) }));
 
     const completedCount = stages.filter(stage => stage.completed).length;
     const stageErrors = stages.map(stage => stage.hasError || false);
@@ -231,6 +251,89 @@ export default function StartupDashboard() {
         return (
             <div className="h-screen w-full flex items-center justify-center bg-[#F0EADC]">
                 <LegoLoader />
+            </div>
+        );
+    }
+
+    if (error === "Forbidden" || error === "Unauthorized") {
+        return (
+            <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-[#F0EADC] via-[#fff] to-[#FFD95D]/20 px-4 text-center">
+                <motion.div 
+                    initial={{ opacity: 0, scale: 0.9 }} 
+                    animate={{ opacity: 1, scale: 1 }} 
+                    transition={{ type: "spring", stiffness: 100, damping: 15 }}
+                    className="bg-white p-8 md:p-12 rounded-[2.5rem] shadow-2xl max-w-lg border-2 border-red-200 flex flex-col items-center relative overflow-hidden"
+                >
+                    {/* Floating background blocks */}
+                    <div className="absolute top-0 right-0 w-24 h-24 bg-red-100 rounded-full blur-3xl opacity-50 pointer-events-none" />
+                    <div className="absolute bottom-0 left-0 w-24 h-24 bg-orange-100 rounded-full blur-3xl opacity-50 pointer-events-none" />
+
+                    {/* Speech Bubble */}
+                    <motion.div 
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: 0.5 }}
+                        className="bg-[#576238] text-[#FFD95D] px-6 py-3 rounded-2xl text-xs font-black relative mb-8 shadow-md border border-[#576238] after:content-[''] after:absolute after:top-full after:left-1/2 after:-translate-x-1/2 after:border-8 after:border-transparent after:border-t-[#576238]"
+                    >
+                        "Hey! Where do you think you're going?!"
+                    </motion.div>
+
+                    {/* Shaking Angry Lego Brick */}
+                    <motion.div 
+                        animate={{ 
+                            x: [0, -2, 2, -2, 2, 0],
+                            y: [0, 1, -1, 1, -1, 0]
+                        }}
+                        transition={{ 
+                            repeat: Infinity, 
+                            repeatType: "mirror", 
+                            duration: 1.5, 
+                            ease: "easeInOut" 
+                        }}
+                        className="relative w-36 h-28 bg-red-600 rounded-2xl shadow-[inset_-8px_-8px_0px_rgba(0,0,0,0.2),8px_8px_16px_rgba(0,0,0,0.15)] flex flex-col items-center justify-center mb-8 border border-red-700 cursor-pointer"
+                    >
+                        {/* Lego Studs */}
+                        <div className="absolute -top-3 left-6 w-6 h-3 bg-red-500 rounded-t-md border-t border-red-400 shadow-[inset_-2px_0_0_rgba(0,0,0,0.1)]" />
+                        <div className="absolute -top-3 left-15 w-6 h-3 bg-red-500 rounded-t-md border-t border-red-400 shadow-[inset_-2px_0_0_rgba(0,0,0,0.1)]" />
+                        <div className="absolute -top-3 left-24 w-6 h-3 bg-red-500 rounded-t-md border-t border-red-400 shadow-[inset_-2px_0_0_rgba(0,0,0,0.1)]" />
+
+                        {/* Angry Face */}
+                        <div className="flex flex-col items-center gap-1.5 w-full px-4">
+                            {/* Eyebrows & Eyes */}
+                            <div className="flex justify-between w-full px-2">
+                                {/* Left Eye + Eyebrow */}
+                                <div className="relative flex flex-col items-center">
+                                    <div className="w-6 h-1.5 bg-black rounded-full rotate-[20deg] absolute -top-1" />
+                                    <div className="w-5 h-5 bg-white rounded-full flex items-center justify-center overflow-hidden shadow-inner border border-red-800">
+                                        <div className="w-2.5 h-2.5 bg-black rounded-full absolute translate-y-0.5" />
+                                    </div>
+                                </div>
+                                {/* Right Eye + Eyebrow */}
+                                <div className="relative flex flex-col items-center">
+                                    <div className="w-6 h-1.5 bg-black rounded-full -rotate-[20deg] absolute -top-1" />
+                                    <div className="w-5 h-5 bg-white rounded-full flex items-center justify-center overflow-hidden shadow-inner border border-red-800">
+                                        <div className="w-2.5 h-2.5 bg-black rounded-full absolute translate-y-0.5" />
+                                    </div>
+                                </div>
+                            </div>
+                            {/* Angry Mouth */}
+                            <svg className="w-10 h-4 mt-1 text-black" viewBox="0 0 100 40">
+                                <path d="M 10 30 Q 50 5 90 30" fill="none" stroke="black" strokeWidth="12" strokeLinecap="round" />
+                            </svg>
+                        </div>
+                    </motion.div>
+
+                    <h2 className="text-2xl font-black text-[#576238] mb-3">Access Blocked</h2>
+                    <p className="text-slate-600 mb-8 font-serif leading-relaxed text-sm max-w-sm">
+                        This startup belongs to another user. You do not have permission to view or edit this dashboard.
+                    </p>
+
+                    <Link href="/founder/dashboard">
+                        <Button className="bg-[#576238] hover:bg-[#576238]/90 text-white font-bold px-8 py-3 rounded-2xl shadow-lg hover:shadow-xl transition-all duration-300 transform hover:-translate-y-0.5">
+                            Back to Dashboard
+                        </Button>
+                    </Link>
+                </motion.div>
             </div>
         );
     }
@@ -353,9 +456,11 @@ export default function StartupDashboard() {
                                                                         ? "bg-gray-50/80 border-gray-200 cursor-not-allowed" // Professional Locked Look
                                                                         : stage.hasError
                                                                             ? "bg-red-50 hover:bg-red-100 border-red-400 cursor-pointer"
-                                                                            : stage.completed
-                                                                                ? "bg-[#F0EADC] hover:bg-[#e8e2d4] border-[#d4cbb8] cursor-pointer"
-                                                                                : "bg-white hover:border-[#d4cbb8] cursor-pointer hover:-translate-y-1 hover:shadow-md"
+                                                                            : stage.needsRefresh
+                                                                                ? "bg-[#FFD95D]/25 hover:bg-[#FFD95D]/40 border-[#FFD95D] cursor-pointer ring-2 ring-[#FFD95D]/40 ring-offset-1"
+                                                                                : stage.completed
+                                                                                    ? "bg-[#F0EADC] hover:bg-[#e8e2d4] border-[#d4cbb8] cursor-pointer"
+                                                                                    : "bg-white hover:border-[#d4cbb8] cursor-pointer hover:-translate-y-1 hover:shadow-md"
                                                                     }
                                                                 `}
                                                                 onClick={() => {
@@ -372,16 +477,18 @@ export default function StartupDashboard() {
                                                                                 ? "bg-white border border-gray-100" // Locked Icon Bg
                                                                                 : stage.hasError
                                                                                     ? "bg-red-500"
-                                                                                    : stage.completed
+                                                                                    : stage.needsRefresh
                                                                                         ? "bg-[#576238]"
-                                                                                        : "bg-gray-100 group-hover:bg-[#576238]/10"
+                                                                                        : stage.completed
+                                                                                            ? "bg-[#576238]"
+                                                                                            : "bg-gray-100 group-hover:bg-[#576238]/10"
                                                                             }`}
                                                                         >
                                                                             <IconComponent
-                                                                                className={`w-6 h-6 
+                                                                                className={`w-6 h-6
                                                                                     ${isLocked
                                                                                         ? "text-gray-300" // Faded icon when locked
-                                                                                        : stage.hasError || stage.completed
+                                                                                        : stage.hasError || stage.completed || stage.needsRefresh
                                                                                             ? "text-white"
                                                                                             : "text-gray-500 group-hover:text-[#576238]"
                                                                                     }`}
@@ -394,21 +501,37 @@ export default function StartupDashboard() {
                                                                                 <Lock className="w-3 h-3 text-gray-400" />
                                                                             </div>
                                                                         )}
+
+                                                                        {/* REFRESH HINT BADGE — appears for completed stages
+                                                                            after the founder applied recommendation refinements.
+                                                                            The card stays clickable & "completed" — this is just
+                                                                            a nudge to optionally regenerate. */}
+                                                                        {stage.needsRefresh && (
+                                                                            <div className="absolute -bottom-1 -right-1 bg-white rounded-full p-1 shadow-sm border border-[#FFD95D]">
+                                                                                <Sparkles className="w-3 h-3 text-[#576238]" />
+                                                                            </div>
+                                                                        )}
                                                                     </div>
 
                                                                     {/* NAME - Readable but Styled as Inactive */}
-                                                                    <h3 className={`font-semibold text-xs leading-tight 
+                                                                    <h3 className={`font-semibold text-xs leading-tight
                                                                         ${isLocked
                                                                             ? "text-slate-500 font-medium" // Readable slate color
                                                                             : stage.hasError
                                                                                 ? "text-red-700"
-                                                                                : stage.completed
+                                                                                : stage.completed || stage.needsRefresh
                                                                                     ? "text-[#576238]"
                                                                                     : "text-gray-600"
                                                                         }`}
                                                                     >
                                                                         {stage.name}
                                                                     </h3>
+
+                                                                    {stage.needsRefresh && (
+                                                                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-[#576238] text-white text-[10px] font-bold uppercase tracking-wider">
+                                                                            Refresh suggested
+                                                                        </span>
+                                                                    )}
                                                                 </div>
 
                                                                 {/* BOTTOM INDICATOR */}

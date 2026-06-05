@@ -20,11 +20,34 @@ namespace Spark2Scale_.Server.Controllers
 
         private readonly Client _supabase;
         private readonly IHttpClientFactory _httpClientFactory;
+        private readonly Spark2Scale_.Server.Services.AccessControlService _access;
 
-        public ChatController(Client supabase, IHttpClientFactory httpClientFactory)
+        public ChatController(
+            Client supabase,
+            IHttpClientFactory httpClientFactory,
+            Spark2Scale_.Server.Services.AccessControlService access)
         {
             _supabase = supabase;
             _httpClientFactory = httpClientFactory;
+            _access = access;
+        }
+
+        private string GetToken()
+        {
+            var header = Request.Headers["Authorization"].FirstOrDefault();
+            return header?.StartsWith("Bearer ") == true ? header.Substring("Bearer ".Length).Trim() : "";
+        }
+
+        private async Task<(bool ok, Guid startupId)> ResolveSessionAccess(Guid sessionId)
+        {
+            var lookup = await _supabase.From<ChatSession>()
+                .Select("session_id,startup_id")
+                .Where(x => x.SessionId == sessionId)
+                .Get();
+            var session = lookup.Models.FirstOrDefault();
+            if (session == null) return (false, Guid.Empty);
+            var allowed = await _access.IsFounderOrContributor(GetToken(), session.StartupId);
+            return (allowed, session.StartupId);
         }
 
         // GET: api/Chat/sessions/{startupId}/{featureType}
@@ -33,6 +56,8 @@ namespace Spark2Scale_.Server.Controllers
         public async Task<IActionResult> GetSessions(string startupId, string featureType)
         {
             if (!Guid.TryParse(startupId, out Guid sId)) return BadRequest("Invalid ID");
+            if (!await _access.IsFounderOrContributor(GetToken(), sId))
+                return Unauthorized(new { message = "Unauthorized." });
 
             try
             {
@@ -71,9 +96,12 @@ namespace Spark2Scale_.Server.Controllers
                     .Get();
 
                 var session = result.Models.FirstOrDefault();
+                if (session == null) return Ok(new List<ChatMessage>());
 
-                // Return empty list if session not found, or the actual messages
-                return Ok(session?.Messages ?? new List<ChatMessage>());
+                if (!await _access.IsFounderOrContributor(GetToken(), session.StartupId))
+                    return Unauthorized(new { message = "Unauthorized." });
+
+                return Ok(session.Messages ?? new List<ChatMessage>());
             }
             catch (Exception ex)
             {
@@ -86,6 +114,9 @@ namespace Spark2Scale_.Server.Controllers
         [HttpPost("start-new")]
         public async Task<IActionResult> StartNewSession([FromBody] SendMessageDto input)
         {
+            if (!await _access.IsFounderOrContributor(GetToken(), input.StartupId))
+                return Unauthorized(new { message = "Unauthorized." });
+
             try
             {
                 // 1. Find the highest existing number for this feature
@@ -143,6 +174,9 @@ namespace Spark2Scale_.Server.Controllers
                 var session = result.Models.FirstOrDefault();
                 if (session == null) return NotFound("Session not found");
 
+                if (!await _access.IsFounderOrContributor(GetToken(), session.StartupId))
+                    return Unauthorized(new { message = "Unauthorized." });
+
                 // 2. Append Message to the List
                 // Initialize list if null (safety check)
                 if (session.Messages == null) session.Messages = new List<ChatMessage>();
@@ -181,6 +215,9 @@ namespace Spark2Scale_.Server.Controllers
 
                 var session = result.Models.FirstOrDefault();
                 if (session == null) return NotFound("Session not found");
+
+                if (!await _access.IsFounderOrContributor(GetToken(), session.StartupId))
+                    return Unauthorized(new { message = "Unauthorized." });
 
                 var allMessages = session.Messages ?? new List<ChatMessage>();
                 var cutoff = session.LastEnhancedAt;
@@ -264,6 +301,9 @@ namespace Spark2Scale_.Server.Controllers
         public async Task<IActionResult> DeleteSession(string sessionId)
         {
             if (!Guid.TryParse(sessionId, out Guid sessId)) return BadRequest("Invalid ID");
+
+            var (allowed, _) = await ResolveSessionAccess(sessId);
+            if (!allowed) return Unauthorized(new { message = "Unauthorized." });
 
             try
             {

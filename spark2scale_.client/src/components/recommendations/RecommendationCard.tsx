@@ -110,6 +110,10 @@ function renderInline(
     pdf.setFontSize(fontSize);
     pdf.setTextColor(...color);
 
+    // jsPDF can't render clickable inline links, so flatten [text](url) -> "text (url)"
+    // and keep the URL visible for credibility.
+    rawText = rawText.replace(/\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g, "$1 ($2)");
+
     const segments: { text: string; bold: boolean }[] = [];
     rawText.split(/(\*\*[^*]+\*\*)/g).forEach(part => {
         if (!part) return;
@@ -375,6 +379,158 @@ function exportToPDF(contentData: any, _cardName: string, filename: string): voi
         });
 
         y += 24;
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // 3b.  Market Intelligence  (live World Bank + Tavily)
+    // ─────────────────────────────────────────────────────────────────────
+    const market: any = contentData?.market_signals ?? {};
+    const countryRisk: Record<string, any> = market?.country_risk ?? {};
+    const riskFlags: string[] = Array.isArray(market?.risk_flags) ? market.risk_flags : [];
+    const riskIndicators = Object.entries(countryRisk);
+
+    const PDF_INDICATOR_LABELS: Record<string, string> = {
+        inflation_rate: "Inflation Rate",
+        gdp_growth_rate: "GDP Growth Rate",
+        unemployment_rate: "Unemployment Rate",
+        "government_debt_%_of_gdp": "Government Debt (% of GDP)",
+        ease_of_doing_business_score: "Ease of Doing Business",
+    };
+    const prettyInd = (k: string): string =>
+        PDF_INDICATOR_LABELS[k] ?? k.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase()).replace(/Gdp/g, "GDP");
+
+    if (riskIndicators.length > 0 || riskFlags.length > 0 || market?.funding_climate) {
+        check(70);
+        y = pdfSectionHeader(pdf, "Market Intelligence", M, y, maxW);
+
+        const fc   = market?.funding_climate ? `Funding Climate: ${market.funding_climate}` : "";
+        const conf = market?.confidence ? `Intel Confidence: ${String(market.confidence).toUpperCase()}` : "";
+        const metaLine = [fc, conf].filter(Boolean).join("     |     ");
+        if (metaLine) {
+            pdf.setFont("helvetica", "bold");
+            pdf.setFontSize(9);
+            pdf.setTextColor(...OLIVE);
+            pdf.text(metaLine, M, y);
+            y += 16;
+        }
+
+        if (riskIndicators.length > 0) {
+            const c0 = maxW * 0.5, c1 = maxW * 0.2;
+            const HDR_H = 18;
+            pdf.setFillColor(...OLIVE);
+            pdf.rect(M, y, maxW, HDR_H, "F");
+            pdf.setFont("helvetica", "bold"); pdf.setFontSize(8); pdf.setTextColor(...WHITE);
+            pdf.text("MACRO INDICATOR", M + 6, y + 12);
+            pdf.text("VALUE", M + c0 + 6, y + 12);
+            pdf.text("RISK", M + c0 + c1 + 6, y + 12);
+            pdf.setDrawColor(200, 200, 200); pdf.setLineWidth(0.3); pdf.rect(M, y, maxW, HDR_H, "S");
+            pdf.line(M + c0, y, M + c0, y + HDR_H); pdf.line(M + c0 + c1, y, M + c0 + c1, y + HDR_H);
+            y += HDR_H;
+            riskIndicators.forEach(([k, d]: [string, any], ri) => {
+                const rowH = 18;
+                check(rowH);
+                pdf.setFillColor(...(ri % 2 === 0 ? ALT_ROW : WHITE));
+                pdf.rect(M, y, maxW, rowH, "F");
+                pdf.setDrawColor(200, 200, 200); pdf.setLineWidth(0.3); pdf.rect(M, y, maxW, rowH, "S");
+                pdf.line(M + c0, y, M + c0, y + rowH); pdf.line(M + c0 + c1, y, M + c0 + c1, y + rowH);
+                pdf.setFont("helvetica", "bold"); pdf.setFontSize(8.5); pdf.setTextColor(...OLIVE);
+                pdf.text(pdf.splitTextToSize(prettyInd(k), c0 - 10)[0] ?? k, M + 6, y + 12);
+                pdf.setFont("helvetica", "normal"); pdf.setTextColor(...DARK);
+                pdf.text(d?.value != null ? `${d.value}%` : "—", M + c0 + 6, y + 12);
+                pdf.text(String(d?.risk ?? "unknown"), M + c0 + c1 + 6, y + 12);
+                y += rowH;
+            });
+            y += 8;
+        }
+
+        const bl = countryRisk?.inflation_rate?.global_baseline;
+        if (bl && bl.mean != null) {
+            const note = `Inflation benchmarked against a live global average of ${bl.mean}%` +
+                (bl.std != null ? ` (±${bl.std}` : "") +
+                (bl.n != null ? `, n=${bl.n} countries` : "") +
+                (bl.std != null ? ", outlier-trimmed)" : "") + ".";
+            pdf.setFont("helvetica", "italic"); pdf.setFontSize(8); pdf.setTextColor(...MID);
+            const noteLines = pdf.splitTextToSize(note, maxW);
+            check(noteLines.length * 11 + 4);
+            pdf.text(noteLines, M, y);
+            y += noteLines.length * 11 + 6;
+        }
+
+        if (riskFlags.length > 0) {
+            check(16);
+            pdf.setFont("helvetica", "bold"); pdf.setFontSize(9); pdf.setTextColor(...DARK);
+            pdf.text("Auto-Generated Risk Flags", M, y); y += 14;
+            riskFlags.forEach(flag => {
+                const flagLines = pdf.splitTextToSize(String(flag), maxW - 14);
+                const h = flagLines.length * LINE_H;
+                check(h + 2);
+                pdf.setFillColor(...MUSTARD); pdf.circle(M + 5, y - 3.5, 2.5, "F");
+                pdf.setFont("helvetica", "normal"); pdf.setFontSize(9); pdf.setTextColor(...DARK);
+                pdf.text(flagLines, M + 14, y);
+                y += h + 2;
+            });
+        }
+        y += 18;
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // 3c.  Detected Failure Patterns  (stage-weighted)
+    // ─────────────────────────────────────────────────────────────────────
+    const patterns: any[] = Array.isArray(contentData?.matched_patterns) ? contentData.matched_patterns : [];
+    if (patterns.length > 0) {
+        check(60);
+        y = pdfSectionHeader(pdf, "Detected Failure Patterns", M, y, maxW);
+
+        const wPat = maxW * 0.24, wSev = maxW * 0.12, wStr = maxW * 0.16, wConf = maxW * 0.12;
+        const wAct = maxW - wPat - wSev - wStr - wConf;
+        const offs = [0, wPat, wPat + wSev, wPat + wSev + wStr, wPat + wSev + wStr + wConf];
+        const PADX = 5, cellFont = 7.5;
+
+        const drawPatHeader = () => {
+            const HDR_H = 18;
+            pdf.setFillColor(...OLIVE); pdf.rect(M, y, maxW, HDR_H, "F");
+            pdf.setFont("helvetica", "bold"); pdf.setFontSize(7); pdf.setTextColor(...WHITE);
+            ["PATTERN", "SEVERITY", "STRENGTH", "CONF.", "RECOMMENDED ACTION"].forEach((h, ci) =>
+                pdf.text(h, M + offs[ci] + PADX, y + 12));
+            pdf.setDrawColor(200, 200, 200); pdf.setLineWidth(0.3); pdf.rect(M, y, maxW, HDR_H, "S");
+            offs.slice(1).forEach(o => pdf.line(M + o, y, M + o, y + HDR_H));
+            y += HDR_H;
+        };
+        check(40); drawPatHeader();
+
+        patterns.forEach((p: any, ri) => {
+            pdf.setFontSize(cellFont);
+            const name = pdf.splitTextToSize(String(p?.name ?? p?.pattern_id ?? "—"), wPat - 2 * PADX);
+            const sev  = pdf.splitTextToSize(String(p?.severity ?? "—"), wSev - 2 * PADX);
+            const strg = pdf.splitTextToSize(
+                (p?.strength_score != null ? Number(p.strength_score).toFixed(2) : "—") +
+                (p?.strength_label ? ` ${String(p.strength_label).replace(/_/g, " ")}` : ""), wStr - 2 * PADX);
+            const conf = pdf.splitTextToSize(String(p?.confidence ?? "—"), wConf - 2 * PADX);
+            const act  = pdf.splitTextToSize(String(p?.template ?? "—"), wAct - 2 * PADX);
+            const maxLines = Math.max(name.length, sev.length, strg.length, conf.length, act.length);
+            const rowH = maxLines * 10 + 10;
+
+            if (y + rowH > pageH - FOOTER_H - M) { addPage(); check(40); drawPatHeader(); }
+
+            const isKill = String(p?.strength_label).toLowerCase() === "kill_signal";
+            const rowColor: RGB = isKill ? [253, 232, 232] : (ri % 2 === 0 ? ALT_ROW : WHITE);
+            pdf.setFillColor(...rowColor);
+            pdf.rect(M, y, maxW, rowH, "F");
+            pdf.setDrawColor(200, 200, 200); pdf.setLineWidth(0.3); pdf.rect(M, y, maxW, rowH, "S");
+            offs.slice(1).forEach(o => pdf.line(M + o, y, M + o, y + rowH));
+
+            const ty = y + 10;
+            const nameColor: RGB = isKill ? [185, 28, 28] : OLIVE;
+            pdf.setFont("helvetica", "bold"); pdf.setTextColor(...nameColor);
+            pdf.text(name, M + offs[0] + PADX, ty);
+            pdf.setFont("helvetica", "normal"); pdf.setTextColor(...DARK);
+            pdf.text(sev,  M + offs[1] + PADX, ty);
+            pdf.text(strg, M + offs[2] + PADX, ty);
+            pdf.text(conf, M + offs[3] + PADX, ty);
+            pdf.text(act,  M + offs[4] + PADX, ty);
+            y += rowH;
+        });
+        y += 20;
     }
 
     // ─────────────────────────────────────────────────────────────────────

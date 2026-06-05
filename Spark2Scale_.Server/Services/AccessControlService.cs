@@ -67,5 +67,50 @@ namespace Spark2Scale_.Server.Services
             }
             catch { return null; }
         }
+
+        public async Task<bool> IsFounderOrContributor(string token, Guid startupId)
+        {
+            if (string.IsNullOrWhiteSpace(token)) return false;
+
+            try
+            {
+                var user = await _supabase.Auth.GetUser(token);
+                if (user?.Id == null) return false;
+                var userId = Guid.Parse(user.Id);
+
+                // Run founder + contributor lookups concurrently so this gate
+                // costs one round-trip's worth of latency instead of two.
+                var founderTask = _supabase.From<Startup>()
+                    .Select("sid,founder_id")
+                    .Where(s => s.Sid == startupId && s.FounderId == userId)
+                    .Get();
+                var contributorTask = _supabase.From<StartupContributor>()
+                    .Where(c => c.StartupId == startupId && c.ContributorId == userId)
+                    .Get();
+                await Task.WhenAll(founderTask, contributorTask);
+
+                return founderTask.Result.Models.Any()
+                    || contributorTask.Result.Models.Any();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[AuthDebug] IsFounderOrContributor failed: {ex.Message}");
+                return false;
+            }
+        }
+
+        public async Task<bool> CanReadStartupDocs(string token, Guid startupId, string? investorId)
+        {
+            if (string.IsNullOrWhiteSpace(token)) return false;
+
+            if (!string.IsNullOrWhiteSpace(investorId))
+            {
+                var callerId = await GetUserId(token);
+                return callerId != null
+                    && string.Equals(callerId, investorId, StringComparison.OrdinalIgnoreCase);
+            }
+
+            return await IsFounderOrContributor(token, startupId);
+        }
     }
 }

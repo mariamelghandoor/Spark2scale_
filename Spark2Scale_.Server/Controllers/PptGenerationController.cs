@@ -167,6 +167,8 @@ namespace Spark2Scale_.Server.Controllers
                 // ----------------------------------------------------------------
                 var aiClient = _httpClientFactory.CreateClient("AiServer");
                 aiClient.Timeout = TimeSpan.FromMinutes(10);
+                // Forward the caller's Supabase Bearer token — the AI route is auth-protected.
+                aiClient.DefaultRequestHeaders.Add("Authorization", $"Bearer {GetToken()}");
 
                 Console.WriteLine("[PptGeneration] Calling AI server...");
                 var aiResponse = await aiClient.PostAsync(
@@ -388,6 +390,8 @@ namespace Spark2Scale_.Server.Controllers
                 // ----------------------------------------------------------------
                 var aiClient = _httpClientFactory.CreateClient("AiServer");
                 aiClient.Timeout = TimeSpan.FromMinutes(10);
+                // Forward the caller's Supabase Bearer token — the AI route is auth-protected.
+                aiClient.DefaultRequestHeaders.Add("Authorization", $"Bearer {GetToken()}");
 
                 Console.WriteLine("[PptEdit] Calling AI edit endpoint...");
                 var aiResponse = await aiClient.PostAsync(
