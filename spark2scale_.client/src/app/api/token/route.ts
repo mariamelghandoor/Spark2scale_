@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { cookies } from 'next/headers';
 import { AccessToken, VideoGrant } from 'livekit-server-sdk';
 
 type ConnectionDetails = {
@@ -27,10 +28,21 @@ export async function POST(_req: Request) {
 
     // 1. Fire-and-forget: wake up the Python LiveKit AI Worker (do NOT await — this takes 60s!)
     //    We intentionally skip awaiting so the token is returned immediately.
+    //    The Python /start endpoint requires a valid Supabase Bearer JWT, so forward the
+    //    user's auth_token cookie (set at sign-in). Without it the call returns 401 and the
+    //    worker never starts.
     const pythonApiUrl = process.env.PYTHON_API_URL || 'https://spark2scale-ai-api-server.azurewebsites.net';
-    fetch(`${pythonApiUrl}/api/v1/pitch-analyzer/start`, { method: 'POST' })
-      .then(() => console.log('[Token Route] Python AI worker pinged successfully'))
-      .catch((e) => console.error('[Token Route] Failed to ping Python AI worker:', e));
+    const authToken = (await cookies()).get('auth_token')?.value;
+    if (!authToken) {
+      console.warn('[Token Route] No auth_token cookie — Python worker /start will be skipped (would 401).');
+    } else {
+      fetch(`${pythonApiUrl}/api/v1/pitch-analyzer/start`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${authToken}` },
+      })
+        .then((r) => console.log(`[Token Route] Python AI worker pinged (status ${r.status})`))
+        .catch((e) => console.error('[Token Route] Failed to ping Python AI worker:', e));
+    }
 
     // 2. Generate the LiveKit JWT directly (same approach as the working standalone UI)
     const at = new AccessToken(API_KEY, API_SECRET, {
