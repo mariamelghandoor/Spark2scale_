@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
@@ -51,13 +51,17 @@ export default function ContributorSchedulePage() {
     };
 
     const formatDate = (dateString: string) => {
-        if (!dateString) return "";
-        const date = new Date(dateString);
-        return date.toLocaleDateString("en-US", {
-            weekday: "long",
-            month: "long",
-            day: "numeric",
-        });
+        if (!dateString) return "Invalid Date";
+        try {
+            const date = new Date(dateString);
+            return date.toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
+        } catch {
+            return "Invalid Date";
+        }
+    };
+
+    const getMeetingDateTime = (m: MeetingDto) => {
+        return new Date(`${m.meeting_date}T${m.meeting_time}`);
     };
 
     const today = new Date();
@@ -65,13 +69,16 @@ export default function ContributorSchedulePage() {
 
     const upcomingMeetings = meetings.filter(m => {
         const mDate = new Date(m.meeting_date);
-        return mDate >= today && m.status !== 'canceled' && m.status !== 'rejected';
+        return mDate >= today && m.status?.toLowerCase() !== 'canceled' && m.status?.toLowerCase() !== 'rejected';
     });
 
-    const pastMeetings = meetings.filter(m => {
-        const mDate = new Date(m.meeting_date);
-        return mDate < today || m.status === 'canceled' || m.status === 'rejected';
-    });
+    const pastMeetings = meetings
+        .filter(m => {
+            const mDate = new Date(m.meeting_date);
+            mDate.setHours(0, 0, 0, 0);
+            return mDate < today || m.status?.toLowerCase() === 'canceled' || m.status?.toLowerCase() === 'rejected';
+        })
+        .sort((a, b) => getMeetingDateTime(b).getTime() - getMeetingDateTime(a).getTime());
 
     return (
         <div className="min-h-screen bg-gradient-to-br from-[#F0EADC] via-[#fff] to-[#FFD95D]/20">

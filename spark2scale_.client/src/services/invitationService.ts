@@ -16,7 +16,7 @@ export interface InvitationResponse {
 
 export interface SendInvitationRequest {
     startupId: string;
-    email: string;
+    emails: string[];
     role?: string;
     invitedBy?: string;
 }
@@ -29,7 +29,12 @@ export interface RespondInvitationRequest {
 
 export const invitationService = {
     send: async (data: SendInvitationRequest) => {
-        const response = await apiClient.post('/api/Invitation/send', data);
+        const response = await apiClient.post('/api/Invitation/send', {
+            startupId: data.startupId,
+            emails: data.emails,
+            role: data.role,
+            invitedBy: data.invitedBy,
+        });
         return response.data;
     },
 

@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useState, useEffect, useMemo, useRef } from "react";
 import { Button } from "@/components/ui/button";
@@ -129,7 +129,7 @@ const FounderView = ({ data }: { data: any }) => {
 
                     <div className="flex-grow w-full min-h-[280px] mt-auto flex items-center justify-center">
                         <ResponsiveContainer width="100%" height="100%">
-                            <RadarChart cx="50%" cy="50%" outerRadius="75%" data={chartData} onClick={(e) => { if (e?.activePayload?.length > 0) setActiveDimension(e.activePayload[0].payload.originalName); }}>
+                            <RadarChart cx="50%" cy="50%" outerRadius="75%" data={chartData} onClick={(e: any) => { if (e && e.activePayload && e.activePayload.length > 0) setActiveDimension(e.activePayload[0].payload.originalName); }}>
                                 <PolarGrid stroke="#e2e8f0" />
                                 <PolarAngleAxis dataKey="subject" tick={{ fill: '#64748b', fontSize: 10, fontWeight: 600 }} />
                                 <PolarRadiusAxis angle={30} domain={[0, 5]} tick={false} axisLine={false} />

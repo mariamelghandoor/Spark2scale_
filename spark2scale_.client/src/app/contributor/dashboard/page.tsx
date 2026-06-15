@@ -8,7 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Calendar, User, FolderOpen, Video } from "lucide-react";
 import Link from "next/link";
 import { motion } from "framer-motion";
-import ContributorHeader from "@/components/contributor/ContributorHeader";
+import NotificationsDropdown from "@/components/shared/NotificationsDropdown";
 import { useAuth } from "@/context/AuthContext";
 
 interface StartupApiResponse {
@@ -94,7 +94,7 @@ export default function ContributorDashboard() {
                 import('@/services/invitationService').then(async m => {
                     try {
                         const invites = await m.invitationService.getMyPending();
-                        setPendingInvites(invites);
+                        setPendingInvites(invites as any);
                     } catch (e) {
                         console.error("Failed to fetch pending invites", e);
                     }
@@ -179,12 +179,23 @@ export default function ContributorDashboard() {
     }
 
     return (
-        <div className="min-h-screen bg-gradient-to-br from-[#F0EADC] via-[#fff] to-[#FFD95D]/20">
+        <div className="min-h-screen bg-[#F0EADC] flex flex-col">
             {/* Top Navigation Bar */}
-            <ContributorHeader
-                title={`Hello ${userName}!`}
-                subtitle="Contributor Dashboard"
-            />
+            <div className="border-b bg-white sticky top-0 z-50">
+                <div className="flex w-full items-center justify-between px-6 md:px-12 py-3">
+                    <div className="flex items-center gap-4">
+                        <div className="flex flex-col">
+                            <h1 className="text-xl font-bold text-[#576238] leading-tight">Welcome, {userName}</h1>
+                            <p className="text-xs text-muted-foreground">Manage your contributed projects</p>
+                        </div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                        <Link href="/contributor/schedule"><Button variant="ghost" size="icon" className="text-[#576238] hover:bg-[#576238]/10"><Calendar className="h-5 w-5" /></Button></Link>
+                        <NotificationsDropdown />
+                        <Link href="/profile"><Button variant="ghost" size="icon" className="text-[#576238] hover:bg-[#576238]/10"><User className="h-5 w-5" /></Button></Link>
+                    </div>
+                </div>
+            </div>
 
             <main className="container mx-auto px-4 py-8">
                 {/* Pending Invitations Section */}

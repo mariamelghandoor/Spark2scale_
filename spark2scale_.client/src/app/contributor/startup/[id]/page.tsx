@@ -17,7 +17,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { useAuth } from "@/context/AuthContext";
 import { startupDashboardService, WorkflowData, Meeting } from "@/services/startupDashboardService";
 import { startupService, StartupResponse } from "@/services/startupService";
-import ContributorHeader from "@/components/contributor/ContributorHeader";
+import NotificationsDropdown from "@/components/shared/NotificationsDropdown";
 
 export default function ContributorStartupPage() {
     const params = useParams();
@@ -187,8 +187,8 @@ export default function ContributorStartupPage() {
         const mDate = new Date(m.meeting_date);
         return mDate >= now || (mDate.getDate() === now.getDate() && mDate.getMonth() === now.getMonth() && mDate.getFullYear() === now.getFullYear());
     });
-    const acceptedUpcoming = allUpcoming.filter(m => m.status === 'accepted');
-    const otherUpcoming = allUpcoming.filter(m => m.status !== 'accepted');
+    const acceptedUpcoming = allUpcoming.filter(m => m.status?.toLowerCase() === 'accepted');
+    const otherUpcoming = allUpcoming.filter(m => m.status?.toLowerCase() !== 'accepted');
     const pastMeetings = sortedMeetings.filter(m => {
         const mDate = new Date(m.meeting_date);
         return mDate < now && !(mDate.getDate() === now.getDate() && mDate.getMonth() === now.getMonth());
@@ -220,34 +220,44 @@ export default function ContributorStartupPage() {
     return (
         <div className="min-h-screen bg-gradient-to-br from-[#F0EADC] via-[#fff] to-[#FFD95D]/20">
             {/* Top Navigation Bar */}
-            <ContributorHeader
-                backLink="/contributor/dashboard"
-                title={startupName}
-                subtitle={
-                    <div className="flex flex-col gap-1">
-                        <p>
-                            {startupDetails?.idea_description || "Welcome to the contributor dashboard."}
-                        </p>
-                        <div className="flex gap-2 text-xs">
-                            {startupDetails?.field && (
-                                <span className="bg-[#576238]/10 text-[#576238] px-2 py-0.5 rounded-full">
-                                    {startupDetails.field}
-                                </span>
-                            )}
-                            {startupDetails?.startup_stage && (
-                                <span className="bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full">
-                                    {startupDetails.startup_stage}
-                                </span>
-                            )}
-                            {startupDetails?.region && (
-                                <span className="bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">
-                                    {startupDetails.region}
-                                </span>
-                            )}
+            <div className="border-b bg-white/80 sticky top-0 z-50 backdrop-blur-md shadow-sm">
+                <div className="flex w-full items-center justify-between px-6 md:px-12 py-4">
+                    <div className="flex items-center gap-4">
+                        <Link href="/contributor/dashboard">
+                            <Button variant="ghost" size="icon">
+                                <ArrowLeft className="h-5 w-5" />
+                            </Button>
+                        </Link>
+                        <div className="flex items-center gap-3">
+                            <div className="h-11 w-11 rounded-full bg-[#576238]/10 border-2 border-dashed border-[#576238]/30 flex items-center justify-center">
+                                <span className="text-[#576238] font-bold text-sm">{startupName?.[0]?.toUpperCase()}</span>
+                            </div>
+                            <div>
+                                <h1 className="text-xl font-bold text-[#576238] leading-tight">Hello {userName} 👋</h1>
+                                <p className="text-sm text-muted-foreground">{startupName}</p>
+                            </div>
                         </div>
                     </div>
-                }
-            />
+                    <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2">
+                            <Link href="/contributor/schedule">
+                                <Button variant="ghost" size="icon">
+                                    <CalendarIcon className="h-5 w-5" />
+                                </Button>
+                            </Link>
+                            <NotificationsDropdown />
+                            <Link href="/profile">
+                                <Button variant="ghost" size="icon">
+                                    <User className="h-5 w-5" />
+                                </Button>
+                            </Link>
+                        </div>
+                        <div className="px-3 py-1 bg-gray-100 rounded-md text-xs font-medium text-gray-500 border border-gray-200 ml-2">
+                            Contributor View
+                        </div>
+                    </div>
+                </div>
+            </div>
 
             <main className="container mx-auto px-4 py-8">
                 <div className="grid lg:grid-cols-5 gap-8">
@@ -398,7 +408,7 @@ export default function ContributorStartupPage() {
                                 Resources & Content
                             </h3>
                             <div className="grid md:grid-cols-2 gap-6">
-                                <Link href={`/contributor/startup/${cleanId}/documents`}>
+                                <Link href={`/contributor/startup/${cleanId}/documents-page`}>
                                     <Card className="p-8 hover:shadow-xl transition-all cursor-pointer border-2 hover:border-[#FFD95D] bg-[#F0EADC]/50 group">
                                         <div className="flex items-center gap-4">
                                             <div className="bg-[#576238] p-4 rounded-2xl group-hover:scale-110 transition-transform">
