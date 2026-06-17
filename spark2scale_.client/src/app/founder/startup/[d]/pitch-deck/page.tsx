@@ -256,13 +256,14 @@ export default function PitchDeckPage() {
                 // Upload to Supabase via C# backend → returns the new PitchDeck row
                 const deck = await pitchDeckService.uploadVideo(startupId, file);
 
-                // Update local state with the real row from Supabase
-                setUploadedFiles([{
+                // Accumulate files rather than replacing — multi-file support
+                const newEntry: UploadedFile = {
                     name: file.name,
                     size: file.size,
                     url: deck.video_url || URL.createObjectURL(file),
                     uploadedAt: new Date().toLocaleString(),
-                }]);
+                };
+                setUploadedFiles(prev => [...prev, newEntry]);
 
                 // Store the new pitchdeckid so Start button unlocks immediately
                 if (deck.pitchdeckid) {

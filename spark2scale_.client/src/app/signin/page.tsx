@@ -52,7 +52,7 @@ function extractCleanErrorMessage(inputMsg: string): string {
 
 export default function SigninPage() {
     const router = useRouter();
-    const { login } = useAuth();
+    const { login, user, loading: authLoading } = useAuth();
 
     // Safely create Supabase client
     const supabase = useMemo(() => {
@@ -86,6 +86,8 @@ export default function SigninPage() {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [showPassword, setShowPassword] = useState(false);
+
+    // The auto-redirect block has been removed for security reasons, so users must always explicitly sign in.
 
     // Read redirect parameter and invitation context from URL on mount
     useEffect(() => {

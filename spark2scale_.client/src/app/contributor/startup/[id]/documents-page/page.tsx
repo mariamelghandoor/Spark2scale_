@@ -325,7 +325,7 @@ export default function DocumentsHistoryPage() {
     const [generatingDocId, setGeneratingDocId] = useState<string | null>(null);
 
     const getCleanId = () => {
-        const raw = params?.id || params?.d;
+        const raw = params?.id;
         if (!raw) return "";
         return Array.isArray(raw) ? raw[0] : raw;
     };
@@ -595,49 +595,9 @@ export default function DocumentsHistoryPage() {
                             );
                         })}
 
-                        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-                            <Card onClick={() => setIsUploadOpen(true)} className="p-6 h-full flex flex-col items-center justify-center border-2 border-dashed border-[#576238]/30 bg-white/50 hover:bg-[#F0EADC]/30 cursor-pointer min-h-[150px]">
-                                <div className="text-5xl mb-4 opacity-50">+</div>
-                                <h3 className="font-bold text-[#576238]">Upload New Document</h3>
-                            </Card>
-                        </motion.div>
                     </div>
                 </div>
             </main>
-
-            <Dialog open={isUploadOpen} onOpenChange={setIsUploadOpen}>
-                <DialogContent aria-describedby={undefined}>
-                    <DialogHeader><DialogTitle>Upload Document</DialogTitle></DialogHeader>
-                    <div className="grid gap-4 py-4">
-                        <div className="grid gap-2">
-                            <Label>Document Name</Label>
-                            <Input value={uploadName} onChange={e => setUploadName(e.target.value)} />
-                        </div>
-                        <div className="grid gap-2">
-                            <Label>Type</Label>
-                            <Select onValueChange={setUploadType} value={uploadType}>
-                                <SelectTrigger><SelectValue placeholder="Select type" /></SelectTrigger>
-                                <SelectContent>
-                                    <SelectItem value="Pitch Deck">Pitch Deck</SelectItem>
-                                    <SelectItem value="Business Plan">Business Plan</SelectItem>
-                                    <SelectItem value="Financials">Financials</SelectItem>
-                                    <SelectItem value="Legal Docs">Legal Docs</SelectItem>
-                                    <SelectItem value="Cap Table">Cap Table</SelectItem>
-                                </SelectContent>
-                            </Select>
-                        </div>
-                        <div className="grid gap-2">
-                            <Label>File</Label>
-                            <Input type="file" onChange={e => setUploadFile(e.target.files?.[0] || null)} />
-                        </div>
-                    </div>
-                    <DialogFooter>
-                        <Button onClick={handleUploadSubmit} disabled={isUploading || !uploadFile} className="bg-[#576238] text-white">
-                            {isUploading ? "Uploading..." : "Upload"}
-                        </Button>
-                    </DialogFooter>
-                </DialogContent>
-            </Dialog>
         </div>
     );
 }

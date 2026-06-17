@@ -191,7 +191,26 @@ namespace Spark2Scale_.Server.Controllers
                     return StatusCode(403, "Forbidden");
                 }
 
+                // 1. Delete from auth.users using Service Role key
+                // This triggers ON DELETE CASCADE for public.users and other related records if properly configured.
+                var supabaseUrl = Environment.GetEnvironmentVariable("SUPABASE_URL") ?? "";
+                var supabaseKey = Environment.GetEnvironmentVariable("SUPABASE_KEY") ?? "";
+                
+                using (var httpClient = new System.Net.Http.HttpClient())
+                {
+                    httpClient.DefaultRequestHeaders.Add("Authorization", $"Bearer {supabaseKey}");
+                    httpClient.DefaultRequestHeaders.Add("apikey", supabaseKey);
+                    var response = await httpClient.DeleteAsync($"{supabaseUrl}/auth/v1/admin/users/{uid}");
+                    
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        Console.WriteLine($"Failed to delete auth user: {await response.Content.ReadAsStringAsync()}");
+                    }
+                }
+                
+                // 2. Fallback direct deletion if ON DELETE CASCADE is missing
                 await _supabase.From<User>().Where(u => u.uid == uid).Delete();
+                
                 return Ok(new { message = "User deleted successfully" });
             }
             catch (Exception ex)

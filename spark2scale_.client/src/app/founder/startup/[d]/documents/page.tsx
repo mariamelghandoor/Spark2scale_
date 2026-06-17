@@ -4,8 +4,8 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import {
-    Presentation, ArrowLeft, Upload, FileText, Plus, Eye, Send, Star, Users, Edit,
-    Trash2, Sparkles, RefreshCw, Bot, History, X, User, Maximize2, Minimize2,
+    Presentation, ArrowLeft, Upload, FileText, Plus, Eye, Send,
+    Trash2, Sparkles, Bot, History, X, User, Maximize2, Minimize2,
     TrendingUp, TrendingDown, Lightbulb, AlertTriangle, Download,
     CheckCircle2, XCircle, Info,
 } from "lucide-react";
@@ -29,6 +29,8 @@ import {
 } from "@/services/documentsService";
 import { generateSwotPDF } from "@/pdf-formats/swotPdf";
 import { clearStaleStage } from "@/lib/refinementState";
+import { MarketResearchViewer } from "@/components/market-research/MarketResearchViewer";
+import { InvestmentMemoView } from "@/components/recommendations/ReportView";
 
 // ---------------------------------------------------------------------------
 // Friendly error mapping
@@ -228,6 +230,7 @@ interface CompetitorData { name: string; company_website?: string | null; sw_pro
 function parseCompetitorMatrix(raw: unknown): CompetitorData[] | null {
     if (!raw) return null;
     try {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         let obj: any = raw;
         while (typeof obj === "string") obj = JSON.parse(obj);
         const out = obj?.competitor_analysis_document?.json_data || obj?.json_data || obj;
@@ -240,6 +243,7 @@ interface BmcData { value_proposition?: string[]; customer_segments?: string[]; 
 function parseBmc(raw: unknown): BmcData | null {
     if (!raw) return null;
     try {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         let obj: any = raw;
         while (typeof obj === "string") obj = JSON.parse(obj);
         const canvas = (obj?.business_model_canvas as Record<string, unknown>) || obj;
@@ -306,18 +310,60 @@ function renderBmcCanvas(bmc: BmcData, ideaName: string): HTMLCanvasElement {
     return canvas;
 }
 
-interface ViewerPayload { type: "swot" | "pdf" | "competitor_matrix" | "bmc"; data?: unknown; url?: string; name: string; }
+interface ViewerPayload { type: "swot" | "pdf" | "competitor_matrix" | "bmc" | "json" | "recommendation" | "market_research"; data?: unknown; url?: string; name: string; }
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const GenericJsonRenderer = ({ data }: { data: any }) => {
+    if (typeof data !== 'object' || data === null) {
+        return <p className="text-sm text-gray-700 whitespace-pre-wrap">{String(data)}</p>;
+    }
+    if (Array.isArray(data)) {
+        return (
+            <ul className="list-disc pl-5 space-y-2">
+                {data.map((item, i) => (
+                    <li key={i}><GenericJsonRenderer data={item} /></li>
+                ))}
+            </ul>
+        );
+    }
+    return (
+        <div className="space-y-4">
+            {Object.entries(data).map(([key, value]) => {
+                // Skip rendering empty objects or internal ids if desired, but we render all for safety
+                if (value === null || value === undefined) return null;
+                return (
+                    <div key={key} className="mb-2">
+                        <h4 className="font-bold text-[#576238] capitalize mb-1 text-sm border-b pb-1">
+                            {key.replace(/_/g, ' ')}
+                        </h4>
+                        <div className="pt-1">
+                            {typeof value === 'object' ? (
+                                <div className="pl-4 border-l-2 border-[#ffd95d] mt-2">
+                                    <GenericJsonRenderer data={value} />
+                                </div>
+                            ) : (
+                                <p className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">{String(value)}</p>
+                            )}
+                        </div>
+                    </div>
+                );
+            })}
+        </div>
+    );
+};
 
 function DocumentViewerModal({ payload, onClose }: { payload: ViewerPayload; onClose: () => void; }) {
     const swot = payload.type === "swot" ? parseSwot(payload.data) : null;
     const competitors = payload.type === "competitor_matrix" ? parseCompetitorMatrix(payload.data) : null;
     const bmc = payload.type === "bmc" ? parseBmc(payload.data) : null;
-    const isStructured = payload.type === "competitor_matrix" || payload.type === "swot" || payload.type === "bmc";
+    const isStructured = payload.type === "competitor_matrix" || payload.type === "swot" || payload.type === "bmc" || payload.type === "json" || payload.type === "recommendation" || payload.type === "market_research";
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const parsedPayloadData = (() => { try { let obj: any = payload.data; while (typeof obj === "string") obj = JSON.parse(obj); return obj || {}; } catch { return {}; } })();
 
     return (
         <Dialog open onOpenChange={onClose}>
             <DialogContent aria-describedby={undefined} style={isStructured ? { width: "95vw", maxWidth: "95vw", height: "94vh" } : undefined} className={isStructured ? "p-0 bg-[#F4F1EA] overflow-hidden flex flex-col [&>button]:hidden" : "max-w-[90vw] w-[90vw] h-[90vh] p-0 overflow-hidden flex flex-col [&>button]:hidden"}>
-                {isStructured && (competitors || swot || bmc) ? (
+                {isStructured && (competitors || swot || bmc || payload.type === "json" || payload.type === "recommendation" || payload.type === "market_research") ? (
                     <>
                         <DialogHeader className="sr-only"><DialogTitle>{payload.name}</DialogTitle></DialogHeader>
                         <div className="flex-1 overflow-y-auto p-4 md:p-8 relative">
@@ -325,7 +371,9 @@ function DocumentViewerModal({ payload, onClose }: { payload: ViewerPayload; onC
                             <div className="bg-white text-black w-full max-w-5xl mx-auto shadow-2xl rounded overflow-hidden relative">
                                 <div className="bg-[#576238] text-white px-10 py-6">
                                     <p className="text-xs uppercase tracking-widest opacity-70 mb-1 font-sans">Spark2Scale</p>
-                                    <h1 className="text-xl font-bold font-sans">{payload.type === "swot" ? "SWOT Analysis" : payload.type === "bmc" ? "Business Model Canvas" : "Competitor Matrix Analysis"}</h1>
+                                    <h1 className="text-xl font-bold font-sans">
+                                        {payload.type === "swot" ? "SWOT Analysis" : payload.type === "bmc" ? "Business Model Canvas" : payload.type === "competitor_matrix" ? "Competitor Matrix Analysis" : payload.type === "recommendation" ? "Recommendation (AI Analysis)" : payload.type === "market_research" ? "Market Research Analysis" : "Document Data View"}
+                                    </h1>
                                     <p className="text-sm opacity-75 mt-1">{payload.name}</p>
                                 </div>
                                 <div className="h-1.5 bg-[#ffd95d]" />
@@ -402,6 +450,17 @@ function DocumentViewerModal({ payload, onClose }: { payload: ViewerPayload; onC
                                             })}
                                         </div>
                                     )}
+                                    {payload.type === "json" && payload.data && (
+                                        <div className="pb-6">
+                                            <GenericJsonRenderer data={payload.data} />
+                                        </div>
+                                    )}
+                                    {payload.type === "recommendation" && parsedPayloadData && (
+                                        <div className="pb-6"><InvestmentMemoView data={parsedPayloadData} /></div>
+                                    )}
+                                    {payload.type === "market_research" && parsedPayloadData && (
+                                        <div className="pb-6 -mt-8"><MarketResearchViewer data={parsedPayloadData} /></div>
+                                    )}
                                 </div>
                                 <div className="bg-[#ffd95d] px-10 py-3 text-center text-xs font-medium text-[#2c3e50]">Generated by Spark2Scale AI</div>
                             </div>
@@ -419,7 +478,7 @@ function DocumentViewerModal({ payload, onClose }: { payload: ViewerPayload; onC
                         <div className="flex-1 overflow-hidden bg-white">
                             {payload.type === "pdf" && payload.url ? <iframe src={payload.url} className="w-full h-full border-0" title={payload.name} /> : (
                                 <div className="flex items-center justify-center h-full text-sm text-muted-foreground">
-                                    <div className="text-center space-y-2"><p>Could not parse document structure.</p><pre className="bg-gray-50 border rounded p-3 text-xs text-left max-w-lg overflow-auto max-h-64">{JSON.stringify(payload.data, null, 2)}</pre></div>
+                                    <div className="text-center space-y-2"><p>Could not load the document view.</p></div>
                                 </div>
                             )}
                         </div>
@@ -437,7 +496,8 @@ function DocumentViewerModal({ payload, onClose }: { payload: ViewerPayload; onC
 export default function DocumentsPage() {
     const params = useParams();
     const router = useRouter();
-    const auth = useAuth() as any;
+    const auth = useAuth();
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const userRole = auth?.user?.role;
 
     const fileInputRefs = useRef<{ [key: string]: HTMLInputElement | null }>({});
@@ -477,12 +537,11 @@ export default function DocumentsPage() {
     const getCleanId = () => {
         const rawParam = params?.d || params?.id;
         if (!rawParam) return null;
-        const rawId = Array.isArray(rawParam) ? rawParam[0] : rawParam;
+    const rawId = Array.isArray(rawParam) ? rawParam[0] : rawParam;
         return decodeURIComponent(rawId).replace(/\s/g, "");
     };
     const cleanId = getCleanId();
-    const isFounder = userRole === "Founder";
-
+    
     const primaryBtn = "bg-[#576238] hover:bg-[#464f2d] text-white shadow-sm";
     const outlineBtn = "border-gray-200 hover:bg-[#576238]/5 hover:border-[#576238]/40 hover:text-[#576238]";
 
@@ -498,14 +557,17 @@ export default function DocumentsPage() {
             const pptDoc = dbDocs.find((d) => d.type.toLowerCase() === "pitch deck (ppt)");
             if (pptDoc?.current_path) setPptUrl(pptDoc.current_path);
 
+            const matchedDocIds = new Set<string>();
+
             const mergedState: DocState[] = REQUIRED_DOCS.map((req) => {
                 const match = dbDocs.find((d) => d.type.toLowerCase() === req.name.toLowerCase());
                 if (match) {
+                    matchedDocIds.add(match.did);
                     return {
                         configId: req.id,
                         dbId: match.did,
                         isUploaded: true,
-                        name: match.document_name,
+                        name: match.document_name || match.type,
                         path: match.current_path,
                         version: match.current_version,
                         date: match.created_at,
@@ -671,7 +733,7 @@ export default function DocumentsPage() {
 
             setMessages((prev) => [...prev, { role: "assistant", content: finalAnswer }]);
             await documentsService.sendMessage(chatSessionId, finalAnswer, "assistant");
-        } catch (error) {
+        } catch {
             toast("error", "AI Assistant Error", "Could not connect to the AI Assistant. Please try again.");
             setMessages((prev) => [...prev, { role: "assistant", content: "Error: Could not connect to the AI Assistant or document is empty." }]);
         } finally {
@@ -842,7 +904,7 @@ export default function DocumentsPage() {
         }
     };
 
-    const handleEnhanceMessage = async (_messageContent: string) => {
+    const handleEnhanceMessage = async () => {
         if (!chatSessionId || isEnhancing) return;
         setIsEnhancing(true);
         try {
@@ -860,7 +922,9 @@ export default function DocumentsPage() {
             try {
                 const parsed = result.summarizedChat ? (typeof result.summarizedChat === "string" ? JSON.parse(result.summarizedChat) : result.summarizedChat) : null;
                 if (parsed && Array.isArray(parsed.document_changes)) changes = parsed.document_changes as string[];
-            } catch { }
+            } catch {
+                // Ignore parse errors if summarizedChat is not valid JSON
+            }
 
             if (changes.length === 0) {
                 // Empty document_changes is a normal outcome — the chat didn't include
@@ -951,7 +1015,20 @@ export default function DocumentsPage() {
                 setViewerPayload({ type: "bmc", data: state.jsonResponse, name: state.name });
                 return;
             }
-            setViewerPayload({ type: "swot", data: state.jsonResponse, name: state.name });
+            if (state.configId === "swot") {
+                setViewerPayload({ type: "swot", data: state.jsonResponse, name: state.name });
+                return;
+            }
+            if (state.configId === "market_research" || (state.name && state.name.toLowerCase().includes("market"))) {
+                setViewerPayload({ type: "market_research", data: state.jsonResponse, name: state.name });
+                return;
+            }
+            if (state.configId === "recommendation" || state.configId === "evaluation" || (state.name && (state.name.toLowerCase().includes("recommendation") || state.name.toLowerCase().includes("evaluation")))) {
+                setViewerPayload({ type: "recommendation", data: state.jsonResponse, name: state.name });
+                return;
+            }
+            // Fallback to generic JSON viewer for Idea Check, etc.
+            setViewerPayload({ type: "json", data: state.jsonResponse, name: state.name });
             return;
         }
         toast("warning", "Nothing to Preview", "This document has no file or data to view yet.");
@@ -979,9 +1056,6 @@ export default function DocumentsPage() {
         }
     };
 
-    const handleEvaluate = (dbId?: string) => { if (dbId) router.push(`/founder/startup/${cleanId}/documents/${dbId}/evaluate`); };
-    const handleRecommend = (dbId?: string) => { if (dbId) router.push(`/founder/startup/${cleanId}/documents/${dbId}/recommend`); };
-
     const handleDownload = (state: DocState) => {
         if (state.path && state.path.trim() !== "") {
             const a = document.createElement("a");
@@ -998,18 +1072,17 @@ export default function DocumentsPage() {
                 generateSwotPDF(state.jsonResponse);
                 return;
             }
-            if (state.configId === "competitor_matrix") {
-                const jsonString = `data:text/json;charset=utf-8,${encodeURIComponent(
-                    JSON.stringify(state.jsonResponse, null, 2)
-                )}`;
-                const a = document.createElement("a");
-                a.href = jsonString;
-                a.download = `${state.name.replace(/\s+/g, "_")}.json`;
-                document.body.appendChild(a);
-                a.click();
-                a.remove();
-                return;
-            }
+            // Download as raw JSON file for Competitor Matrix, Idea Check, Market Research, etc.
+            const jsonString = `data:text/json;charset=utf-8,${encodeURIComponent(
+                JSON.stringify(state.jsonResponse, null, 2)
+            )}`;
+            const a = document.createElement("a");
+            a.href = jsonString;
+            a.download = `${state.name.replace(/\s+/g, "_")}.json`;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            return;
         }
         alert("Nothing to download yet.");
     };
@@ -1050,7 +1123,7 @@ export default function DocumentsPage() {
             } else {
                 toast("error", "Update Failed", "Could not mark the stage as complete. Please try again.");
             }
-        } catch (error) {
+        } catch {
             toast("error", "Error", "An unexpected error occurred.");
         } finally {
             setIsCompleting(false);
@@ -1164,13 +1237,20 @@ export default function DocumentsPage() {
                             <div className="text-center py-20"><LegoSpinner className="h-10 w-10 animate-spin mx-auto text-[#576238] opacity-50" /></div>
                         ) : (
                             <div className="space-y-4">
-                                {REQUIRED_DOCS.filter((doc) => doc.id !== "pitch_deck").map((config, index) => {
-                                    const state = docStates.find((d) => d.configId === config.id);
+                                {docStates.filter((d) => d.configId !== "pitch_deck").map((state, index) => {
+                                    const config = REQUIRED_DOCS.find(r => r.id === state.configId) || {
+                                        id: state.configId,
+                                        name: state.name || "Unknown Document",
+                                        icon: FileText,
+                                        desc: "",
+                                        accept: "*/*",
+                                        aiPrompt: ""
+                                    };
                                     const isUploaded = state?.isUploaded || false;
                                     const isJsonOnly = isUploaded && (!state?.path || state.path.trim() === "") && !!state?.jsonResponse;
 
                                     return (
-                                        <motion.div key={config.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.1 }}>
+                                        <motion.div key={state.dbId || config.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.1 }}>
                                             <Card className={`group overflow-hidden border transition-all duration-200 ${isUploaded ? "bg-white border-green-100 shadow-sm" : "bg-white border-gray-200 hover:border-[#576238]/50 hover:shadow-md"}`}>
                                                 <div className="p-5 flex flex-col sm:flex-row gap-5">
                                                     <div className={`flex-shrink-0 w-12 h-12 rounded-xl flex items-center justify-center ${isUploaded ? "bg-green-50 text-green-700" : "bg-gray-100 text-gray-400"}`}>
@@ -1361,7 +1441,7 @@ export default function DocumentsPage() {
                                                                 )}
                                                                 {m.role === "assistant" && (
                                                                     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.6 }}>
-                                                                        <Button size="sm" variant="outline" disabled={isChatLoading || isTyping || isEnhancing || !chatSessionId} className="h-7 text-[10px] border-[#576238] text-[#576238] hover:bg-[#576238] hover:text-white transition-colors" onClick={() => handleEnhanceMessage(m.content)}>
+                                                                        <Button size="sm" variant="outline" disabled={isChatLoading || isTyping || isEnhancing || !chatSessionId} className="h-7 text-[10px] border-[#576238] text-[#576238] hover:bg-[#576238] hover:text-white transition-colors" onClick={() => handleEnhanceMessage()}>
                                                                             {isEnhancing ? <LegoSpinner className="h-3 w-3 mr-1.5 animate-spin" /> : <Sparkles className="h-3 w-3 mr-1.5" />}
                                                                             {isEnhancing ? "Enhancing…" : "Enhance"}
                                                                         </Button>

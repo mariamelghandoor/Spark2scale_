@@ -54,7 +54,7 @@ export default function StartupDashboard() {
 
     // Invite State
     const [inviteDialogOpen, setInviteDialogOpen] = useState(false);
-    const [inviteEmail, setInviteEmail] = useState("");
+    const [inviteEmails, setInviteEmails] = useState<string[]>([""]);
     const [isInviting, setIsInviting] = useState(false);
 
     // Success Dialog State
@@ -73,7 +73,8 @@ export default function StartupDashboard() {
             if (!cleanId || loading || !user?.id) return;
 
             const cacheKey = `startup_data_${cleanId}_${user.id}`;
-            const cachedDataStr = sessionStorage.getItem(cacheKey);
+            // SWR pattern: use localStorage for persistence across page reloads
+            const cachedDataStr = localStorage.getItem(cacheKey);
 
             if (cachedDataStr) {
                 try {
@@ -85,7 +86,7 @@ export default function StartupDashboard() {
                     setDocCount(cachedData.docCount);
                     setVideoCount(cachedData.videoCount);
                     setMeetings(cachedData.meetings);
-                    setIsLoading(false);
+                    setIsLoading(false); // Show stale data immediately
                 } catch (e) {
                     console.error("Cache parsing error", e);
                 }
@@ -103,8 +104,8 @@ export default function StartupDashboard() {
                 setVideoCount(data.videoCount);
                 setMeetings(data.meetings);
 
-                // Save to Cache
-                sessionStorage.setItem(cacheKey, JSON.stringify({
+                // Persist fresh data to localStorage for next visit (SWR)
+                localStorage.setItem(cacheKey, JSON.stringify({
                     workflow: data.workflow,
                     startupName: data.startupName,
                     logoPath: data.logoPath,
@@ -204,8 +205,8 @@ export default function StartupDashboard() {
         const mDate = new Date(m.meeting_date);
         return mDate >= now || (mDate.getDate() === now.getDate() && mDate.getMonth() === now.getMonth() && mDate.getFullYear() === now.getFullYear());
     });
-    const acceptedUpcoming = allUpcoming.filter(m => m.status === 'accepted');
-    const otherUpcoming = allUpcoming.filter(m => m.status !== 'accepted');
+    const acceptedUpcoming = allUpcoming.filter(m => m.status?.toLowerCase() === 'accepted');
+    const otherUpcoming = allUpcoming.filter(m => m.status?.toLowerCase() !== 'accepted');
     const pastMeetings = sortedMeetings.filter(m => {
         const mDate = new Date(m.meeting_date);
         return mDate < now && !(mDate.getDate() === now.getDate() && mDate.getMonth() === now.getMonth());
@@ -229,18 +230,30 @@ export default function StartupDashboard() {
         }
     };
     const handleSendInvite = async () => {
-        if (!inviteEmail || !user?.id) return;
+        const validEmails = inviteEmails.filter(e => e.trim().length > 0);
+        if (validEmails.length === 0 || !user?.id) return;
         setIsInviting(true);
-        const result = await startupDashboardService.inviteTeamMember(inviteEmail, cleanId, user.id);
+        const result = await startupDashboardService.inviteTeamMember(validEmails, cleanId, user.id);
         if (result.success) {
-            setLastInvitedEmail(inviteEmail);
-            setInviteEmail("");
+            setLastInvitedEmail(validEmails.join(", "));
+            setInviteEmails([""]);
             setInviteDialogOpen(false);
             setInviteSuccessOpen(true);
         } else {
             alert(`Failed to invite: ${result.message}`);
         }
         setIsInviting(false);
+    };
+    const handleAddEmail = () => setInviteEmails([...inviteEmails, ""]);
+    const handleRemoveEmail = (index: number) => {
+        const newEmails = [...inviteEmails];
+        newEmails.splice(index, 1);
+        setInviteEmails(newEmails.length ? newEmails : [""]);
+    };
+    const handleEmailChange = (index: number, val: string) => {
+        const newEmails = [...inviteEmails];
+        newEmails[index] = val;
+        setInviteEmails(newEmails);
     };
     const handleEventClick = () => router.push('/founder/schedule');
 
@@ -768,17 +781,28 @@ export default function StartupDashboard() {
                         <DialogDescription>Send an invitation to collaborate on {startupName}.</DialogDescription>
                     </DialogHeader>
 
-                    <div className="grid gap-4 py-4">
+                    <div className="grid gap-4 py-4 max-h-[60vh] overflow-y-auto pr-2">
                         <div className="grid gap-2">
-                            <Label htmlFor="email" className="text-[#576238]">Email Address</Label>
-                            <Input
-                                id="email"
-                                type="email"
-                                placeholder="colleague@example.com"
-                                value={inviteEmail}
-                                onChange={(e) => setInviteEmail(e.target.value)}
-                                className="border-[#576238]/30 focus:border-[#576238]"
-                            />
+                            <Label className="text-[#576238]">Email Addresses</Label>
+                            {inviteEmails.map((email, index) => (
+                                <div key={index} className="flex items-center gap-2 mb-2">
+                                    <Input
+                                        type="email"
+                                        placeholder="colleague@example.com"
+                                        value={email}
+                                        onChange={(e) => handleEmailChange(index, e.target.value)}
+                                        className="border-[#576238]/30 focus:border-[#576238]"
+                                    />
+                                    {inviteEmails.length > 1 && (
+                                        <Button variant="ghost" size="icon" onClick={() => handleRemoveEmail(index)} className="text-red-500 hover:text-red-700 hover:bg-red-50">
+                                            <AlertOctagon className="h-4 w-4" />
+                                        </Button>
+                                    )}
+                                </div>
+                            ))}
+                            <Button variant="outline" size="sm" onClick={handleAddEmail} className="w-full mt-2 text-[#576238] border-[#576238]/30 hover:bg-[#576238]/10">
+                                + Add another contributor
+                            </Button>
                         </div>
 
                         <div className="grid gap-2">
@@ -808,7 +832,7 @@ export default function StartupDashboard() {
                         <Button variant="outline" onClick={() => setInviteDialogOpen(false)}>Cancel</Button>
                         <Button
                             onClick={handleSendInvite}
-                            disabled={!inviteEmail || isInviting}
+                            disabled={!inviteEmails.some(e => e.trim().length > 0) || isInviting}
                             className="bg-[#576238] hover:bg-[#6b7c3f] text-white"
                         >
                             {isInviting ? (

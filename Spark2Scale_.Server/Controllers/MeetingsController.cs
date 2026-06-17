@@ -1,4 +1,4 @@
-﻿using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc;
 using Supabase;
 using Spark2Scale_.Server.Models;
 using Spark2Scale_.Server.Services;
@@ -31,6 +31,9 @@ namespace Spark2Scale_.Server.Controllers
             var isInvestor = await _supabase.From<Investor>().Filter("user_id", Supabase.Postgrest.Constants.Operator.Equals, userId.ToString()).Get();
             if (isInvestor.Models.Any()) return "investor";
 
+            var isContributor = await _supabase.From<StartupContributor>().Filter("user_id", Supabase.Postgrest.Constants.Operator.Equals, userId.ToString()).Get();
+            if (isContributor.Models.Any()) return "contributor";
+
             return "unknown";
         }
 
@@ -40,8 +43,8 @@ namespace Spark2Scale_.Server.Controllers
             if (input == null || input.meeting_date == default)
                 return BadRequest("Invalid data.");
 
-            // Use Date comparison only
-            if (input.meeting_date.Date < DateTime.UtcNow.Date)
+            // Allow a 1-day tolerance to account for timezone differences
+            if (input.meeting_date.Date < DateTime.UtcNow.Date.AddDays(-1))
                 return BadRequest("You cannot schedule a meeting in the past.");
 
             // 1. IDENTIFY SENDER
@@ -66,14 +69,17 @@ namespace Spark2Scale_.Server.Controllers
             if (input.sender_id == receiverId)
                 return BadRequest("You cannot schedule a meeting with yourself.");
 
-            if (senderRole == "founder" && receiverRole != "investor")
-                return BadRequest($"As a Founder, you can only invite Investors. '{input.invitee_email}' is a {receiverRole}.");
+            if (senderRole == "founder" && receiverRole != "investor" && receiverRole != "contributor")
+                return BadRequest($"As a Founder, you can only invite Investors or Contributors. '{input.invitee_email}' is a {receiverRole}.");
 
             if (senderRole == "investor" && receiverRole != "founder")
                 return BadRequest($"As an Investor, you can only invite Founders. '{input.invitee_email}' is a {receiverRole}.");
 
+            if (senderRole == "contributor" && receiverRole != "founder" && receiverRole != "contributor")
+                return BadRequest($"As a Contributor, you can only invite Founders or Contributors. '{input.invitee_email}' is a {receiverRole}.");
+
             if (receiverRole == "unknown")
-                return BadRequest("The invitee does not have a valid role (Founder or Investor).");
+                return BadRequest("The invitee does not have a valid role (Founder, Investor, or Contributor).");
 
             // 4. CREATE MEETING
             var newMeeting = new Meeting
@@ -190,33 +196,45 @@ namespace Spark2Scale_.Server.Controllers
         }
 
         [HttpGet]
-        public async Task<IActionResult> GetMeetings([FromQuery] Guid? userId)
+        public async Task<IActionResult> GetMeetings([FromQuery] Guid? userId, [FromQuery] Guid? startupId)
         {
-            if (!userId.HasValue) return Ok(new List<MeetingResponseDto>());
+            var allMeetings = new List<Meeting>();
 
-            var sentTask = _supabase.From<Meeting>().Filter("sender_id", Supabase.Postgrest.Constants.Operator.Equals, userId.Value.ToString()).Get();
-            var receivedTask = _supabase.From<Meeting>().Filter("receiver_id", Supabase.Postgrest.Constants.Operator.Equals, userId.Value.ToString()).Get();
-
-            // Fetch meetings associated with the user's startups (for contributors)
-            var startupLinks = await _supabase.From<StartupContributor>()
-                .Filter("user_id", Supabase.Postgrest.Constants.Operator.Equals, userId.Value.ToString())
-                .Get();
-            
-            var startupIds = startupLinks.Models.Select(l => l.StartupId.ToString()).Distinct().ToList();
-            var startupMeetings = new List<Meeting>();
-            if (startupIds.Any())
+            // 1. Fetch by Startup ID
+            if (startupId.HasValue)
             {
                 var sMeetingsRes = await _supabase.From<Meeting>()
-                    .Filter("startup_id", Supabase.Postgrest.Constants.Operator.In, startupIds)
+                    .Filter("startup_id", Supabase.Postgrest.Constants.Operator.Equals, startupId.Value.ToString())
                     .Get();
-                startupMeetings = sMeetingsRes.Models;
+                allMeetings.AddRange(sMeetingsRes.Models);
             }
 
-            await Task.WhenAll(sentTask, receivedTask);
+            // 2. Fetch by User ID
+            if (userId.HasValue)
+            {
+                var sentTask = await _supabase.From<Meeting>().Filter("sender_id", Supabase.Postgrest.Constants.Operator.Equals, userId.Value.ToString()).Get();
+                var receivedTask = await _supabase.From<Meeting>().Filter("receiver_id", Supabase.Postgrest.Constants.Operator.Equals, userId.Value.ToString()).Get();
 
-            var allMeetings = sentTask.Result.Models
-                .Concat(receivedTask.Result.Models)
-                .Concat(startupMeetings)
+                // Fetch meetings associated with the user's startups (for contributors)
+                var startupLinks = await _supabase.From<StartupContributor>()
+                    .Filter("user_id", Supabase.Postgrest.Constants.Operator.Equals, userId.Value.ToString())
+                    .Get();
+                
+                var startupIds = startupLinks.Models.Select(l => l.StartupId.ToString()).Distinct().ToList();
+                if (startupIds.Any())
+                {
+                    var sMeetingsRes = await _supabase.From<Meeting>()
+                        .Filter("startup_id", Supabase.Postgrest.Constants.Operator.In, startupIds)
+                        .Get();
+                    allMeetings.AddRange(sMeetingsRes.Models);
+                }
+
+                allMeetings.AddRange(sentTask.Models);
+                allMeetings.AddRange(receivedTask.Models);
+            }
+
+            // Combine and deduplicate
+            allMeetings = allMeetings
                 .GroupBy(m => m.MeetingId)
                 .Select(g => g.First())
                 .OrderBy(m => m.MeetingDate)
@@ -249,6 +267,7 @@ namespace Spark2Scale_.Server.Controllers
                     meeting_id = m.MeetingId,
                     sender_id = m.SenderId,
                     receiver_id = m.ReceiverId,
+                    startup_id = m.StartupId,
                     meeting_date = m.MeetingDate,
                     meeting_time = m.MeetingTime,
                     meeting_link = m.MeetingLink,
@@ -261,10 +280,15 @@ namespace Spark2Scale_.Server.Controllers
             return Ok(dtos);
         }
 
-        // --- UPDATED ACCEPT: Hides buttons on refresh ---
+        // --- UPDATED ACCEPT: Hides buttons on refresh and Sends Google Calendar Invites ---
         [HttpPost("accept/{id}")]
         public async Task<IActionResult> AcceptMeeting(Guid id)
         {
+            var meetingResult = await _supabase.From<Meeting>().Where(m => m.MeetingId == id).Get();
+            var meeting = meetingResult.Models.FirstOrDefault();
+
+            if (meeting == null) return NotFound("Meeting not found");
+
             // 1. Update Meeting Status
             await _supabase.From<Meeting>().Where(m => m.MeetingId == id).Set(m => m.Status, "accepted").Update();
 
@@ -274,6 +298,97 @@ namespace Spark2Scale_.Server.Controllers
                 .Set(n => n.Type, "info") // Changing type prevents buttons from showing
                 .Set(n => n.Description, "✅ You have accepted this meeting.")
                 .Update();
+
+            // 2.5 Notify Sender (Founder)
+            var notif = new Notification
+            {
+                Sender = meeting.ReceiverId,
+                Receiver = meeting.SenderId,
+                Topic = "✅ Meeting Accepted",
+                Description = "Your meeting request has been accepted.",
+                Type = "info",
+                RelatedEntityId = meeting.MeetingId,
+                CreatedAt = DateTime.UtcNow,
+                IsRead = false
+            };
+            await _supabase.From<Notification>().Insert(notif);
+
+            // 3. Google Calendar Sync
+            var senderUser = (await _supabase.From<User>().Where(u => u.uid == meeting.SenderId).Get()).Models.FirstOrDefault();
+            var receiverUser = (await _supabase.From<User>().Where(u => u.uid == meeting.ReceiverId).Get()).Models.FirstOrDefault();
+            
+            var emailsToInvite = new HashSet<string>();
+            if (senderUser != null) emailsToInvite.Add(senderUser.email);
+            if (receiverUser != null) emailsToInvite.Add(receiverUser.email);
+
+            string startupName = "Spark2Scale";
+            if (meeting.StartupId != Guid.Empty)
+            {
+                var startup = (await _supabase.From<Startup>().Where(s => s.Sid == meeting.StartupId).Get()).Models.FirstOrDefault();
+                if (startup != null) 
+                {
+                    startupName = startup.StartupName;
+                    var contributors = (await _supabase.From<StartupContributor>().Filter("startup_id", Supabase.Postgrest.Constants.Operator.Equals, meeting.StartupId.ToString()).Get()).Models;
+                    foreach(var contributor in contributors)
+                    {
+                        var cUser = (await _supabase.From<User>().Where(u => u.uid == contributor.ContributorId).Get()).Models.FirstOrDefault();
+                        if (cUser != null) emailsToInvite.Add(cUser.email);
+                    }
+                    if (startup.FounderId.HasValue)
+                    {
+                        var founder = (await _supabase.From<User>().Where(u => u.uid == startup.FounderId.Value).Get()).Models.FirstOrDefault();
+                        if (founder != null) emailsToInvite.Add(founder.email);
+                    }
+                }
+            }
+
+            // Generate Google Calendar Link
+            // MeetingDate is already UTC. MeetingTime is a TimeSpan
+            var startDateTime = meeting.MeetingDate.Date.Add(meeting.MeetingTime);
+            var endDateTime = startDateTime.AddHours(1); // Assume 1 hour meeting
+            
+            string startFormat = startDateTime.ToString("yyyyMMddTHHmmssZ");
+            string endFormat = endDateTime.ToString("yyyyMMddTHHmmssZ");
+            
+            string title = Uri.EscapeDataString($"Meeting: {startupName} (Spark2Scale)");
+            string details = Uri.EscapeDataString($"Meeting Link: {meeting.MeetingLink}");
+            string addEmails = Uri.EscapeDataString(string.Join(",", emailsToInvite));
+
+            string googleCalLink = $"https://calendar.google.com/calendar/render?action=TEMPLATE&text={title}&dates={startFormat}/{endFormat}&details={details}&add={addEmails}";
+
+            // Send email to all members
+            string subject = $"✅ Meeting Confirmed: {startupName}";
+            string body = $@"
+                <!DOCTYPE html>
+                <html>
+                <body style='font-family: Arial, sans-serif; background-color:#F0EADC; padding: 40px 0;'>
+                    <div style='background-color: white; max-width: 600px; margin: 0 auto; padding: 30px; border-radius: 8px; border-top: 5px solid #576238;'>
+                        <h2 style='color: #576238; margin-top: 0;'>Meeting Confirmed</h2>
+                        <p style='color: #555; font-size: 16px;'>
+                            A meeting for <strong>{startupName}</strong> has been accepted and scheduled.
+                        </p>
+                        
+                        <div style='background-color: #F9F9F9; padding: 15px; border-radius: 4px; border: 1px solid #FFD95D; margin: 20px 0;'>
+                            <p style='margin: 5px 0; color: #333;'><strong>📅 Date:</strong> {startDateTime:MMM dd, yyyy}</p>
+                            <p style='margin: 5px 0; color: #333;'><strong>⏰ Time:</strong> {meeting.MeetingTime}</p>
+                            <p style='margin: 5px 0; color: #333;'><strong>🔗 Link:</strong> <a href='{meeting.MeetingLink}'>Join Meeting</a></p>
+                        </div>
+
+                        <div style='text-align: center; margin-top: 30px;'>
+                            <a href='{googleCalLink}' style='background-color:#576238; color:#ffffff; padding: 14px 28px; text-decoration: none; font-weight: bold; border-radius: 8px; display: inline-block; font-size: 16px;'>
+                                Add to Google Calendar
+                            </a>
+                        </div>
+
+                        <p style='color: #aaa; font-size: 12px; margin-top: 30px;'>Spark2Scale Inc.</p>
+                    </div>
+                </body>
+                </html>";
+
+            foreach(var email in emailsToInvite)
+            {
+                _ = _emailService.SendEmailAsync(email, subject, body);
+            }
 
             return Ok();
         }

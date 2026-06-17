@@ -16,6 +16,7 @@ export interface MeetingDto {
 export interface MeetingInsertDto {
     sender_id: string; // CHANGED from founder_id
     invitee_email: string;
+    startup_id?: string | null;
     meeting_date: string;
     meeting_time: string;
     meeting_link: string;

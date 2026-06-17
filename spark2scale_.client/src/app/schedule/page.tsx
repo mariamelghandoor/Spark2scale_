@@ -12,6 +12,8 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { userService } from "@/services/userService";
+import { startupService, StartupResponse } from "@/services/startupService";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useAuth } from "@/context/AuthContext";
 
 // 1. HARDCODED USER ID PRESERVED
@@ -22,6 +24,8 @@ export default function SchedulePage() {
     const router = useRouter();
     const [userName, setUserName] = useState("User");
     const [meetings, setMeetings] = useState<MeetingDto[]>([]);
+    const [startups, setStartups] = useState<StartupResponse[]>([]);
+    const [userRole, setUserRole] = useState<string>("founder");
     const [isLoading, setIsLoading] = useState(true);
 
     const [backLink, setBackLink] = useState("/founder/dashboard");
@@ -42,7 +46,8 @@ export default function SchedulePage() {
         date: "",
         time: "",
         link: "",
-        investorEmail: ""
+        investorEmail: "",
+        startupId: "none"
     });
 
     const todayStr = new Date().toISOString().split('T')[0];
@@ -61,10 +66,17 @@ export default function SchedulePage() {
                 }
 
                 const roleData = await userService.getUserRole(user.id);
+                setUserRole(roleData.role);
                 if (roleData.role === "investor") {
                     setBackLink("/investor/feed");
                 } else if (roleData.role === "founder") {
                     setBackLink("/founder/dashboard");
+                    try {
+                        const userStartups = await startupService.getByFounder(user.id);
+                        setStartups(userStartups);
+                    } catch (err) {
+                        console.error("Failed to load startups", err);
+                    }
                 }
                 await fetchMeetings(user.id);
             } catch (error) {
@@ -118,12 +130,13 @@ export default function SchedulePage() {
             await meetingService.createMeeting({
                 sender_id: user.id,
                 invitee_email: newMeeting.investorEmail,
+                startup_id: newMeeting.startupId && newMeeting.startupId !== "none" ? newMeeting.startupId : null,
                 meeting_date: newMeeting.date,
                 meeting_time: newMeeting.time + ":00",
                 meeting_link: newMeeting.link
             });
             await fetchMeetings();
-            setNewMeeting({ date: "", time: "", link: "", investorEmail: "" });
+            setNewMeeting({ date: "", time: "", link: "", investorEmail: "", startupId: "none" });
             setErrorMessage("");
             setIsDialogOpen(false);
         } catch (error: any) {
@@ -184,10 +197,12 @@ export default function SchedulePage() {
 
     const formatDate = (dateString: string) => {
         if (!dateString) return "Invalid Date";
-        const cleanDate = dateString.split('T')[0];
-        const [year, month, day] = cleanDate.split('-').map(Number);
-        const date = new Date(year, month - 1, day);
-        return date.toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
+        try {
+            const date = new Date(dateString);
+            return date.toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
+        } catch {
+            return "Invalid Date";
+        }
     };
 
     const formatTime = (timeString: string) => {
@@ -199,8 +214,12 @@ export default function SchedulePage() {
     };
 
     const getMeetingDateTime = (m: MeetingDto) => {
-        const datePart = m.meeting_date.split('T')[0];
-        return new Date(`${datePart}T${m.meeting_time}`);
+        try {
+            const datePart = m.meeting_date.split('T')[0];
+            return new Date(`${datePart}T${m.meeting_time}`);
+        } catch {
+            return new Date(m.meeting_date);
+        }
     };
 
     const today = new Date();
@@ -208,15 +227,17 @@ export default function SchedulePage() {
 
     const upcomingMeetings = meetings
         .filter(m => {
-            const mDate = new Date(m.meeting_date.split('T')[0] + "T00:00:00");
-            return mDate >= today && m.status !== 'canceled' && m.status !== 'rejected';
+            const mDate = new Date(m.meeting_date);
+            mDate.setHours(0, 0, 0, 0);
+            return mDate >= today && m.status?.toLowerCase() !== 'canceled' && m.status?.toLowerCase() !== 'rejected';
         })
         .sort((a, b) => getMeetingDateTime(a).getTime() - getMeetingDateTime(b).getTime());
 
     const pastMeetings = meetings
         .filter(m => {
-            const mDate = new Date(m.meeting_date.split('T')[0] + "T00:00:00");
-            return mDate < today || m.status === 'canceled' || m.status === 'rejected';
+            const mDate = new Date(m.meeting_date);
+            mDate.setHours(0, 0, 0, 0);
+            return mDate < today || m.status?.toLowerCase() === 'canceled' || m.status?.toLowerCase() === 'rejected';
         })
         .sort((a, b) => getMeetingDateTime(b).getTime() - getMeetingDateTime(a).getTime());
 
@@ -349,6 +370,24 @@ export default function SchedulePage() {
                                             <Input id="time" type="time" value={newMeeting.time} onChange={(e) => setNewMeeting({ ...newMeeting, time: e.target.value })} />
                                         </div>
                                     </div>
+                                    {userRole === "founder" && startups.length > 0 && (
+                                        <div className="space-y-2">
+                                            <Label htmlFor="startup">Related Startup (Optional)</Label>
+                                            <Select value={newMeeting.startupId} onValueChange={(val) => setNewMeeting({ ...newMeeting, startupId: val })}>
+                                                <SelectTrigger id="startup" className="w-full bg-white border-gray-200 focus:ring-[#576238]">
+                                                    <SelectValue placeholder="Select a startup" />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    <SelectItem value="none">None (General Meeting)</SelectItem>
+                                                    {startups.map((startup) => (
+                                                        <SelectItem key={startup.sid} value={startup.sid}>
+                                                            {startup.startupname}
+                                                        </SelectItem>
+                                                    ))}
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
+                                    )}
                                     <div className="space-y-2">
                                         <Label htmlFor="link">Meeting Link</Label>
                                         <div className="flex gap-2">

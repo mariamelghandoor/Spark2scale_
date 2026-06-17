@@ -79,7 +79,7 @@ export const documentService = {
         if (!startupId || startupId === "undefined") return [];
 
         const cleanUrl = API_BASE_URL.replace(/\/$/, "").replace(/\/api$/, "");
-        const response = await fetch(`${cleanUrl}/api/Documents/all?startupId=${startupId}`, {
+        const response = await fetch(`${cleanUrl}/api/Documents?startupId=${startupId}`, {
             method: "GET",
         });
 

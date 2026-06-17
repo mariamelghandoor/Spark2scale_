@@ -114,10 +114,10 @@ export const startupDashboardService = {
     },
 
     // 2. Invite Team Member Action
-    async inviteTeamMember(email: string, startupId: string, userId: string): Promise<{ success: boolean; message?: string }> {
+    async inviteTeamMember(emails: string[], startupId: string, userId: string): Promise<{ success: boolean; message?: string }> {
         try {
             await apiClient.post(`/api/Invitation/send`, {
-                email: email,
+                emails: emails,
                 startupId: startupId,
                 role: "Contributor",
                 InvitedBy: userId
@@ -128,8 +128,12 @@ export const startupDashboardService = {
             console.error("Invite error:", error);
             let message = "Network error occurred.";
             if (error && typeof error === 'object' && 'response' in error) {
-                const errResponse = (error as { response?: { data?: string } }).response?.data;
-                if (errResponse) message = errResponse;
+                const errResponse = (error as { response?: { data?: any } }).response?.data;
+                if (errResponse && errResponse.Message) {
+                   message = errResponse.Message;
+                } else if (errResponse) {
+                   message = JSON.stringify(errResponse);
+                }
             }
             else if (error instanceof Error) {
                 message = error.message;

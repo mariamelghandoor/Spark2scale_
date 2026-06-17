@@ -82,7 +82,7 @@ namespace Spark2Scale_.Server.Controllers
                     string accessStatus = "public";
                     string? path = d.CurrentPath;
 
-                    if (isRestricted)
+                    if (isRestricted && !string.IsNullOrEmpty(investorId))
                     {
                         var record = accessRecords.FirstOrDefault(r => r.DocumentId == d.Did);
                         if (record != null && record.Granted == true) { accessStatus = "granted"; }
@@ -490,7 +490,7 @@ namespace Spark2Scale_.Server.Controllers
                 string jsonContent = "";
                 using (var client = new HttpClient())
                 {
-                    client.Timeout = TimeSpan.FromMinutes(3);
+                    client.Timeout = TimeSpan.FromMinutes(10);
                     // Forward the caller's Supabase Bearer token — the AI route is auth-protected.
                     client.DefaultRequestHeaders.Add("Authorization", $"Bearer {GetToken()}");
 
@@ -694,7 +694,7 @@ namespace Spark2Scale_.Server.Controllers
                 string jsonContent = "";
                 using (var client = new HttpClient())
                 {
-                    client.Timeout = TimeSpan.FromMinutes(3);
+                    client.Timeout = TimeSpan.FromMinutes(10);
                     // Forward the caller's Supabase Bearer token — the AI route is auth-protected.
                     client.DefaultRequestHeaders.Add("Authorization", $"Bearer {GetToken()}");
 
@@ -917,7 +917,7 @@ namespace Spark2Scale_.Server.Controllers
                 string jsonContent = "";
                 using (var client = new HttpClient())
                 {
-                    client.Timeout = TimeSpan.FromMinutes(3);
+                    client.Timeout = TimeSpan.FromMinutes(10);
                     // Forward the caller's Supabase Bearer token — the AI route is auth-protected.
                     client.DefaultRequestHeaders.Add("Authorization", $"Bearer {GetToken()}");
 
@@ -1121,7 +1121,7 @@ namespace Spark2Scale_.Server.Controllers
                 string jsonContent;
                 using (var client = new HttpClient())
                 {
-                    client.Timeout = TimeSpan.FromMinutes(3);
+                    client.Timeout = TimeSpan.FromMinutes(10);
                     // Forward the caller's Supabase Bearer token — the AI route is auth-protected.
                     client.DefaultRequestHeaders.Add("Authorization", $"Bearer {GetToken()}");
 

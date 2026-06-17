@@ -213,7 +213,7 @@ export const documentsService = {
 
     async getGroupedDocuments(startupId: string): Promise<DocumentData[]> {
         try {
-            const res = await apiClient.get<DocumentData[]>(`/api/documents/all?startupId=${startupId}`);
+            const res = await apiClient.get<DocumentData[]>(`/api/documents?startupId=${startupId}`);
             const docs = res.data;
 
             const docsWithHistory = await Promise.all(

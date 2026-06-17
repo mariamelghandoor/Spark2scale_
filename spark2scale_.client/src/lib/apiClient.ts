@@ -49,18 +49,27 @@ const apiClient = {
   async post<T = unknown>(
     path: string,
     body?: unknown,
-    options?: { headers?: Record<string, string> }
+    options?: { headers?: Record<string, string>, timeout?: number }
   ): Promise<ApiResponse<T>> {
     const isFormData = body instanceof FormData;
     const headers = getAuthHeaders(
       isFormData ? options?.headers : { "Content-Type": "application/json", ...options?.headers }
     );
+    let signal: AbortSignal | undefined;
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    if (options?.timeout) {
+      const controller = new AbortController();
+      signal = controller.signal;
+      timeoutId = setTimeout(() => controller.abort(), options.timeout);
+    }
     const res = await fetch(`${API_BASE}${path}`, {
       method: "POST",
       credentials: "include",
       headers,
       body: isFormData ? body : body !== undefined ? JSON.stringify(body) : undefined,
+      signal
     });
+    if (timeoutId) clearTimeout(timeoutId);
     return handleResponse<T>(res);
   },
 

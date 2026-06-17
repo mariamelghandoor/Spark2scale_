@@ -82,9 +82,9 @@ namespace Spark2Scale_.Server.Controllers
         }
 
         [HttpPost("send")]
-        public async Task<IActionResult> SendInvitation([FromBody] CreateInvitationRequest request)
+        public async Task<IActionResult> SendInvitations([FromBody] CreateInvitationRequest request)
         {
-            if (request == null || string.IsNullOrEmpty(request.Email))
+            if (request == null || request.Emails == null || !request.Emails.Any())
                 return BadRequest("Invalid request.");
 
             // AUTH CHECK
@@ -93,8 +93,6 @@ namespace Spark2Scale_.Server.Controllers
 
             try
             {
-                _logger.LogInformation("Sending invitation to {Email} for Startup {StartupId}", request.Email, request.StartupId);
-
                 // 1. Check if Startup Exists
                 var startupRes = await _supabase.From<Startup>()
                     .Where(s => s.Sid == request.StartupId)
@@ -107,51 +105,76 @@ namespace Spark2Scale_.Server.Controllers
                     return NotFound("Startup not found.");
                 }
 
-                // 2. Check if already invited (Pending)
-                var existing = await _supabase.From<Invitation>()
-                    .Match(new Dictionary<string, string> {
-                        { "email", request.Email },
-                        { "startup_id", request.StartupId.ToString() },
-                        { "status", "Pending" }
-                    })
-                    .Get();
+                var successList = new List<string>();
+                var errorList = new List<string>();
 
-                if (existing.Models.Any())
+                foreach (var email in request.Emails)
                 {
-                    return Conflict(new { message = "User already has a pending invitation." });
+                    try
+                    {
+                        if (string.IsNullOrWhiteSpace(email)) continue;
+
+                        _logger.LogInformation("Sending invitation to {Email} for Startup {StartupId}", email, request.StartupId);
+
+                        // 2. Check if already invited (Pending)
+                        var existing = await _supabase.From<Invitation>()
+                            .Match(new Dictionary<string, string> {
+                                { "email", email.Trim() },
+                                { "startup_id", request.StartupId.ToString() },
+                                { "status", "Pending" }
+                            })
+                            .Get();
+
+                        if (existing.Models.Any())
+                        {
+                            errorList.Add($"{email}: User already has a pending invitation.");
+                            continue;
+                        }
+
+                        // 3. Create Invitation
+                        var token = Guid.NewGuid().ToString(); // Secure token
+                        var invitation = new Invitation
+                        {
+                            StartupId = request.StartupId,
+                            Email = email.Trim(),
+                            Role = request.Role ?? "Contributor",
+                            Token = token,
+                            Status = "Pending",
+                            InvitedBy = request.InvitedBy,
+                            InvitedAt = DateTime.UtcNow,
+                            ExpiresAt = DateTime.UtcNow.AddDays(7)
+                        };
+
+                        await _supabase.From<Invitation>().Insert(invitation);
+                        _logger.LogInformation("Invitation created in DB with token {Token}", token);
+
+                        // 4. Send Email
+                        // FIX: Load CLIENT_URL from Environment (Azure) or default to Localhost
+                        var clientBaseUrl = Environment.GetEnvironmentVariable("CLIENT_URL") ?? "http://localhost:3000";
+                        var inviteLink = $"{clientBaseUrl}/invite/accept?token={token}";
+
+                        await _emailService.SendInvitationEmailAsync(email.Trim(), startup.StartupName, inviteLink);
+                        _logger.LogInformation("Invitation email sent to {Email} with link {Link}", email, inviteLink);
+                        
+                        successList.Add(email);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Error sending invitation to {Email}", email);
+                        errorList.Add($"{email}: {ex.Message}");
+                    }
                 }
 
-                // 3. Create Invitation
-                var token = Guid.NewGuid().ToString(); // Secure token
-                var invitation = new Invitation
-                {
-                    StartupId = request.StartupId,
-                    Email = request.Email,
-                    Role = request.Role ?? "Contributor",
-                    Token = token,
-                    Status = "Pending",
-                    InvitedBy = request.InvitedBy,
-                    InvitedAt = DateTime.UtcNow,
-                    ExpiresAt = DateTime.UtcNow.AddDays(7)
-                };
-
-                await _supabase.From<Invitation>().Insert(invitation);
-                _logger.LogInformation("Invitation created in DB with token {Token}", token);
-
-                // 4. Send Email
-                // FIX: Load CLIENT_URL from Environment (Azure) or default to Localhost
-                var clientBaseUrl = Environment.GetEnvironmentVariable("CLIENT_URL") ?? "http://localhost:3000";
-                var inviteLink = $"{clientBaseUrl}/invite/accept?token={token}";
-
-                await _emailService.SendInvitationEmailAsync(request.Email, startup.StartupName, inviteLink);
-                _logger.LogInformation("Invitation email sent to {Email} with link {Link}", request.Email, inviteLink);
-
-                return Ok(new { Message = "Invitation sent successfully.", Token = token });
+                return Ok(new { 
+                    Message = "Invitation process completed.", 
+                    Successful = successList,
+                    Failed = errorList
+                });
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error sending invitation to {Email}", request.Email);
-                return StatusCode(500, $"Error sending invitation: {ex.Message}");
+                _logger.LogError(ex, "Error processing invitations request.");
+                return StatusCode(500, $"Error processing invitations: {ex.Message}");
             }
         }
 
@@ -331,7 +354,7 @@ namespace Spark2Scale_.Server.Controllers
     public class CreateInvitationRequest
     {
         public Guid StartupId { get; set; }
-        public string Email { get; set; }
+        public List<string> Emails { get; set; } = new List<string>();
         public string? Role { get; set; }
         public Guid? InvitedBy { get; set; }
     }

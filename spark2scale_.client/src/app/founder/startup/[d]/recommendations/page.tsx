@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, RefreshCw, Sparkles, Bot, CheckCircle2 } from "lucide-react";
+import { ArrowLeft, RefreshCw, Sparkles, CheckCircle2 } from "lucide-react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { recommendationService, DBRecommendation } from "@/services/recommendationService";
@@ -188,8 +188,10 @@ export default function RecommendationsPage() {
                         </Button>
                     </Link>
                     <div>
-                        <h1 className="text-xl font-bold text-[#576238]">Recommendation Agent</h1>
-                        <p className="text-sm text-muted-foreground">AI-Powered Strategic Analysis</p>
+                        <h1 className="text-xl font-bold text-[#576238] flex items-center gap-2">
+                            <span>📊</span> Recommendation Agent
+                        </h1>
+                        <p className="text-sm text-muted-foreground">✨ AI-Powered Strategic Analysis &amp; Refinement</p>
                     </div>
                     {/* Stage-complete badge in top bar */}
                     {stageIsComplete && (
@@ -212,42 +214,51 @@ export default function RecommendationsPage() {
 
                 {/* ── Hero / Generate card (shown once history is loaded) ── */}
                 {!isLoadingHistory && (
-                    <div className="bg-white rounded-xl border shadow-sm p-8 text-center">
-                        <div className="bg-[#576238]/10 w-16 h-16 mx-auto rounded-full flex items-center justify-center mb-4">
-                            {isGenerating
-                                ? <Sparkles className="h-8 w-8 text-[#576238] animate-spin" />
-                                : stageIsComplete
-                                    ? <CheckCircle2 className="h-8 w-8 text-green-600" />
-                                    : <Bot className="h-8 w-8 text-[#576238]" />}
+                    <div className="relative overflow-hidden rounded-2xl border border-[#576238]/15 shadow-lg p-8 text-center text-white
+                                    bg-gradient-to-br from-[#576238] via-[#6b7943] to-[#8a9a4f]">
+                        {/* decorative colour blobs */}
+                        <div className="pointer-events-none absolute -top-12 -right-12 h-44 w-44 rounded-full bg-[#ffd95d]/25 blur-3xl" />
+                        <div className="pointer-events-none absolute -bottom-14 -left-10 h-44 w-44 rounded-full bg-white/10 blur-3xl" />
+
+                        <div className="relative">
+                            <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl
+                                            bg-white/15 backdrop-blur-sm ring-1 ring-white/30 text-3xl shadow-inner">
+                                {isGenerating
+                                    ? <Sparkles className="h-8 w-8 text-[#ffd95d] animate-spin" />
+                                    : stageIsComplete
+                                        ? <span>🎯</span>
+                                        : <span>📊</span>}
+                            </div>
+
+                            <h2 className="text-2xl font-bold mb-2 flex items-center justify-center gap-2">
+                                {stageIsComplete
+                                    ? "🎉 Recommendation Stage Complete"
+                                    : hasItems
+                                        ? "📊 Recommendation Analysis Complete"
+                                        : "🤖 Recommendation Agent Ready"}
+                            </h2>
+                            <p className="text-white/85 max-w-md mx-auto mb-6 leading-relaxed">
+                                {stageIsComplete
+                                    ? "✅ This stage has been marked as complete. You can still regenerate a new analysis and review or delete previous reports."
+                                    : hasItems
+                                        ? "The agent has analysed your startup. 📄 View, ⬇️ download, or 🔄 regenerate a report below. When satisfied, mark this stage as complete."
+                                        : "🚀 Activate the Recommendation Agent to generate a comprehensive strategy and scorecard for your startup."}
+                            </p>
+
+                            <Button
+                                className="bg-[#ffd95d] hover:bg-[#f0cc40] text-[#2c3e50] font-semibold px-6 shadow-md
+                                           transition-transform hover:scale-[1.03]"
+                                onClick={handleGenerate}
+                                disabled={isGenerating}
+                            >
+                                {isGenerating ? (
+                                    <><LegoSpinner className="mr-2 h-4 w-4 animate-spin" />✨ Analysing…</>
+                                ) : (
+                                    <><RefreshCw className="mr-2 h-4 w-4" />
+                                    {hasItems ? "🔄 Regenerate Analysis" : "✨ Generate Analysis"}</>
+                                )}
+                            </Button>
                         </div>
-
-                        <h2 className="text-xl font-bold text-gray-900 mb-2">
-                            {stageIsComplete
-                                ? "Recommendation Stage Complete"
-                                : hasItems
-                                    ? "Recommendation Agent Analysis Complete"
-                                    : "Recommendation Agent Ready"}
-                        </h2>
-                        <p className="text-gray-500 max-w-md mx-auto mb-6">
-                            {stageIsComplete
-                                ? "This stage has been marked as complete. You can still regenerate a new analysis and review or delete previous reports."
-                                : hasItems
-                                    ? "The agent has analysed your startup. View, download, or regenerate a new report below. When satisfied, mark this stage as complete."
-                                    : "Activate the Recommendation Agent to generate a comprehensive strategy and scorecard for your startup."}
-                        </p>
-
-                        <Button
-                            className="bg-[#576238] hover:bg-[#464f2d] text-white px-6"
-                            onClick={handleGenerate}
-                            disabled={isGenerating}
-                        >
-                            {isGenerating ? (
-                                <><LegoSpinner className="mr-2 h-4 w-4 animate-spin" />Analysing…</>
-                            ) : (
-                                <><RefreshCw className="mr-2 h-4 w-4" />
-                                {hasItems ? "Regenerate Analysis" : "Generate Analysis"}</>
-                            )}
-                        </Button>
                     </div>
                 )}
 
@@ -258,19 +269,24 @@ export default function RecommendationsPage() {
                         return null;
                     }
                     return (
-                        <RefinementStep
-                            key={items[0].rec.Id}
-                            startupId={cleanId}
-                            refinedStatements={latest}
-                        />
+                        <div className="space-y-2">
+                            <p className="px-1 text-xs font-semibold uppercase tracking-wide text-[#576238] flex items-center gap-1.5">
+                                <span>🔧</span> Refinement Agent · Suggested Upgrades
+                            </p>
+                            <RefinementStep
+                                key={items[0].rec.Id}
+                                startupId={cleanId}
+                                refinedStatements={latest}
+                            />
+                        </div>
                     );
                 })()}
 
                 {/* ── Recommendation history (newest first) ── */}
                 {!isLoadingHistory && hasItems && (
                     <div className="space-y-4">
-                        <p className="text-xs text-gray-400 font-medium uppercase tracking-wide px-1">
-                            {items.length} Report{items.length > 1 ? "s" : ""} · newest first
+                        <p className="text-xs text-[#576238] font-semibold uppercase tracking-wide px-1 flex items-center gap-1.5">
+                            <span>📄</span> {items.length} Report{items.length > 1 ? "s" : ""} · newest first
                         </p>
                         {items.map(item => (
                             <RecommendationCard

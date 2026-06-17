@@ -4,7 +4,7 @@ import React, { useRef } from "react";
 import { motion, useMotionTemplate, useMotionValue, useSpring } from "framer-motion";
 import { cn } from "@/lib/utils";
 
-interface TiltCardProps extends React.HTMLAttributes<HTMLDivElement> {
+interface TiltCardProps extends React.ComponentProps<typeof motion.div> {
     children: React.ReactNode;
     maxRotation?: number; // max rotation degrees
     perspective?: number; // 3D perspective depth
