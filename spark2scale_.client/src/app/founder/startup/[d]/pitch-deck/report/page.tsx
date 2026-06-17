@@ -19,6 +19,13 @@ const PYTHON_API_URL =
     (typeof process !== "undefined" && process.env?.NEXT_PUBLIC_PYTHON_API_URL) ||
     "https://spark2scale-ai-api-server.azurewebsites.net";
 
+// /get-report requires a Supabase Bearer JWT (Depends(get_current_user)) and is
+// cross-origin, so the auth_token cookie is not sent — attach it from localStorage.
+function pythonApiAuthHeaders(): Record<string, string> {
+    const token = typeof window !== "undefined" ? localStorage.getItem("auth_token") : null;
+    return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 // ── Report JSON shape from Python backend ────────────────────────────────────
 interface RubricEntry {
     score: number;
@@ -122,7 +129,7 @@ export default function PitchSessionReportPage() {
                 ? `${PYTHON_API_URL}/api/v1/pitch-analyzer/get-report?pitchdeckid=${deckId}`
                 : `${PYTHON_API_URL}/api/v1/pitch-analyzer/get-report`;
 
-            const res = await fetch(url);
+            const res = await fetch(url, { headers: pythonApiAuthHeaders() });
             if (res.ok) {
                 const data: SessionReport = await res.json();
                 setReport(data);

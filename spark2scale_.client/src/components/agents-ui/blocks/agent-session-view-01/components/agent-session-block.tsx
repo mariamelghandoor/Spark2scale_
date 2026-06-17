@@ -280,7 +280,13 @@ export function AgentSessionView_01({
               //    subprocess is fully killed so the next /start gets clean state.
               const apiUrl = process.env.NEXT_PUBLIC_PYTHON_API_URL
                 || 'https://spark2scale-ai-api-server.azurewebsites.net';
-              fetch(`${apiUrl}/api/v1/pitch-analyzer/stop`, { method: 'POST' })
+              // /stop requires a Supabase Bearer JWT and is cross-origin, so the
+              // auth_token cookie is not sent — attach it from localStorage.
+              const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
+              fetch(`${apiUrl}/api/v1/pitch-analyzer/stop`, {
+                method: 'POST',
+                headers: token ? { Authorization: `Bearer ${token}` } : {},
+              })
                 .catch(() => {}); // silent — component may unmount before response
             }}
             onIsChatOpenChange={setChatOpen}

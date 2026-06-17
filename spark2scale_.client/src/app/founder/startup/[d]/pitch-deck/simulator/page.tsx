@@ -67,6 +67,19 @@ const PYTHON_API_URL =
     (typeof process !== "undefined" && process.env?.NEXT_PUBLIC_PYTHON_API_URL) ||
     "https://spark2scale-ai-api-server.azurewebsites.net";
 
+// The Python pitch-analyzer endpoints require a Supabase Bearer JWT
+// (Depends(get_current_user)). These calls are cross-origin, so the auth_token
+// cookie is NOT sent automatically — attach it explicitly from localStorage.
+// Without it every call returns 401: /extract never writes the session context,
+// so the worker starts with "No startup_id" and runs on stale/empty data.
+function pythonApiHeaders(json = true): Record<string, string> {
+    const headers: Record<string, string> = {};
+    if (json) headers["Content-Type"] = "application/json";
+    const token = typeof window !== "undefined" ? localStorage.getItem("auth_token") : null;
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+    return headers;
+}
+
 // ── Grade → colour mapping ───────────────────────────────────────────────────
 function gradeColor(grade: string) {
     if (["A+", "A", "A-"].includes(grade)) return "text-emerald-600";
@@ -121,7 +134,7 @@ export default function PitchSimulator() {
             setIsExtracting(true);
             fetch(`${PYTHON_API_URL}/api/v1/pitch-analyzer/extract`, {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
+                headers: pythonApiHeaders(),
                 body: JSON.stringify({ pitchdeckid: pitchDeckId ?? null, startup_id: startupId ?? null }),
             })
                 .then(async (res) => {
@@ -186,7 +199,7 @@ export default function PitchSimulator() {
     // ─────────────────────────────────────────────────────────────────────────
     const handleEndCallOnly = async () => {
         // Fire-and-forget — we stay in the meeting phase
-        fetch(`${PYTHON_API_URL}/api/v1/pitch-analyzer/stop`, { method: "POST" }).catch(() => {});
+        fetch(`${PYTHON_API_URL}/api/v1/pitch-analyzer/stop`, { method: "POST", headers: pythonApiHeaders(false) }).catch(() => {});
     };
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -207,7 +220,7 @@ export default function PitchSimulator() {
         // 1. Stop the worker — this triggers on_participant_disconnected which
         //    synchronously saves session_state.json before the job process is killed
         try {
-            await fetch(`${apiUrl}/api/v1/pitch-analyzer/stop`, { method: "POST" });
+            await fetch(`${apiUrl}/api/v1/pitch-analyzer/stop`, { method: "POST", headers: pythonApiHeaders(false) });
         } catch (e) {
             console.warn("Stop call failed (worker may have already exited):", e);
         }
@@ -219,7 +232,7 @@ export default function PitchSimulator() {
         //    The backend saves the report to Supabase (pitchdecks.session_report)
         //    if a pitchdeckid was passed during /extract.
         try {
-            const res = await fetch(`${apiUrl}/api/v1/pitch-analyzer/generate-report`, { method: "POST" });
+            const res = await fetch(`${apiUrl}/api/v1/pitch-analyzer/generate-report`, { method: "POST", headers: pythonApiHeaders(false) });
             if (res.ok) {
                 // Always redirect to the dedicated report page
                 setPhase("evaluation"); // brief transition state

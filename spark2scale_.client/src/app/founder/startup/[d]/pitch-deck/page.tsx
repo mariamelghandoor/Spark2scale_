@@ -20,6 +20,16 @@ import LegoSpinner from "@/components/lego/LegoSpinner";
 
 const PYTHON_API_URL = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'https://spark2scale-ai-api-server.azurewebsites.net';
 
+// Python pitch-analyzer endpoints require a Supabase Bearer JWT and are cross-origin,
+// so the auth_token cookie is not sent — attach it explicitly from localStorage.
+function pythonApiHeaders(json = false): Record<string, string> {
+    const headers: Record<string, string> = {};
+    if (json) headers["Content-Type"] = "application/json";
+    const token = typeof window !== "undefined" ? localStorage.getItem("auth_token") : null;
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+    return headers;
+}
+
 // ─── Types ────────────────────────────────────────────────────────
 type PagePhase = "management" | "session" | "report" | "fetching_report";
 
@@ -144,7 +154,7 @@ export default function PitchDeckPage() {
             const url = pitchDeckId
                 ? `${PYTHON_API_URL}/api/v1/pitch-analyzer/get-report?pitchdeckid=${pitchDeckId}`
                 : `${PYTHON_API_URL}/api/v1/pitch-analyzer/get-report`;
-            const res = await fetch(url);
+            const res = await fetch(url, { headers: pythonApiHeaders() });
             if (res.ok) {
                 // Redirect to dedicated report page
                 if (pitchDeckId) {
@@ -168,7 +178,8 @@ export default function PitchDeckPage() {
         try {
             // Generate report from the synchronously saved state
             const res = await fetch(`${PYTHON_API_URL}/api/v1/pitch-analyzer/generate-report`, {
-                method: "POST"
+                method: "POST",
+                headers: pythonApiHeaders(),
             });
 
             if (res.ok) {
@@ -199,7 +210,7 @@ export default function PitchDeckPage() {
     // Stop the backend worker (kills subprocess so next /start is fresh)
     const stopWorker = useCallback(async () => {
         try {
-            await fetch(`${PYTHON_API_URL}/api/v1/pitch-analyzer/stop`, { method: 'POST' });
+            await fetch(`${PYTHON_API_URL}/api/v1/pitch-analyzer/stop`, { method: 'POST', headers: pythonApiHeaders() });
         } catch (e) {
             console.warn('stopWorker: fetch failed (non-critical)', e);
         }
