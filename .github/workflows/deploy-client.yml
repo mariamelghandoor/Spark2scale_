@@ -27,7 +27,7 @@ jobs:
           
           # --- SMART FIND DEPLOYMENT SCRIPT ---
           echo "🔍 Searching for server.js..."
-          SERVER_DIR=$(find .next/standalone -type f -name "server.js" -exec dirname {} \; | head -n 1)
+          SERVER_DIR=$(find .next/standalone -type f -name "server.js" -not -path "*/node_modules/*" -exec dirname {} \; | head -n 1)
           echo "✅ Found app in: $SERVER_DIR"
           
           mkdir -p ../deploy_out
