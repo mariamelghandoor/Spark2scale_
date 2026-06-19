@@ -298,7 +298,7 @@ export default function Home() {
             popular: false,
         },
         {
-            name: "Founder Pro",
+            name: "Pro",
             description: "Everything you need to get investor-ready.",
             monthly: { EGP: 850, USD: 19 },
             features: [
@@ -310,7 +310,7 @@ export default function Home() {
             popular: true,
         },
         {
-            name: "Investor",
+            name: "Max",
             description: "For screening and managing deal flow.",
             monthly: { EGP: 2500, USD: 49 },
             features: [
