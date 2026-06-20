@@ -148,21 +148,45 @@ export default function PitchSimulator() {
         }
     }, [phase, pitchDeckId, startupId]);
 
-    // ── Preparation timer ────────────────────────────────────────────────────
+    // ── Preparation phase: boot the Python LiveKit worker, then enter room ───
     useEffect(() => {
-        if (phase === "preparing") {
-            const interval = setInterval(() => {
-                setPrepProgress(prev => {
-                    if (prev >= 100) {
-                        clearInterval(interval);
-                        setTimeout(() => setPhase("meeting"), 500);
-                        return 100;
-                    }
-                    return prev + 2;
+        if (phase !== "preparing") return;
+
+        let cancelled = false;
+        setPrepProgress(10); // show immediate progress
+
+        const startWorker = async () => {
+            try {
+                // Simulate early progress while worker boots (~20s)
+                const tickInterval = setInterval(() => {
+                    if (cancelled) { clearInterval(tickInterval); return; }
+                    setPrepProgress(prev => (prev < 85 ? prev + 1.5 : prev));
+                }, 400);
+
+                // Actually call /start and WAIT for the worker to be ready
+                await fetch(`${PYTHON_API_URL}/api/v1/pitch-analyzer/start`, {
+                    method: "POST",
+                    headers: pythonApiHeaders(false),
                 });
-            }, 100);
-            return () => clearInterval(interval);
-        }
+
+                clearInterval(tickInterval);
+                if (cancelled) return;
+
+                // Worker is ready — complete the progress bar and enter room
+                setPrepProgress(100);
+                setTimeout(() => { if (!cancelled) setPhase("meeting"); }, 600);
+            } catch (e) {
+                console.error("Worker start failed:", e);
+                if (!cancelled) {
+                    // Still proceed even if /start failed (worker may already be running)
+                    setPrepProgress(100);
+                    setTimeout(() => { if (!cancelled) setPhase("meeting"); }, 600);
+                }
+            }
+        };
+
+        startWorker();
+        return () => { cancelled = true; };
     }, [phase]);
 
     // Latest-handler ref so the interval below always calls the freshest
