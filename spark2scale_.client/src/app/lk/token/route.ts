@@ -38,12 +38,15 @@ export async function POST(_req: Request) {
     if (!authToken) {
       console.warn('[Token Route] No auth_token cookie — Python worker /start will be skipped (would 401).');
     } else {
-      fetch(`${pythonApiUrl}/api/v1/pitch-analyzer/start`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${authToken}` },
-      })
-        .then((r) => console.log(`[Token Route] Python AI worker pinged (status ${r.status})`))
-        .catch((e) => console.error('[Token Route] Failed to ping Python AI worker:', e));
+      try {
+        const r = await fetch(`${pythonApiUrl}/api/v1/pitch-analyzer/start`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${authToken}` },
+        });
+        console.log(`[Token Route] Python AI worker started (status ${r.status})`);
+      } catch (e) {
+        console.error('[Token Route] Failed to start Python AI worker:', e);
+      }
     }
 
     // 2. Generate the LiveKit JWT directly (same approach as the working standalone UI)
