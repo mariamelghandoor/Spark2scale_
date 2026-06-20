@@ -32,7 +32,9 @@ export async function POST(_req: Request) {
     //    user's auth_token cookie (set at sign-in). Without it the call returns 401 and the
     //    worker never starts.
     const pythonApiUrl = process.env.PYTHON_API_URL || 'https://spark2scale-ai-api-server.azurewebsites.net';
-    const authToken = (await cookies()).get('auth_token')?.value;
+    const url = new URL(_req.url);
+    const authHeader = _req.headers.get('Authorization');
+    const authToken = url.searchParams.get('authToken') || (authHeader ? authHeader.replace('Bearer ', '') : null) || (await cookies()).get('auth_token')?.value;
     if (!authToken) {
       console.warn('[Token Route] No auth_token cookie — Python worker /start will be skipped (would 401).');
     } else {

@@ -28,9 +28,11 @@ interface AppProps {
 
 export function App({ appConfig }: AppProps) {
   const tokenSource = useMemo(() => {
+    const localAuthToken = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
+    const endpoint = localAuthToken ? `/lk/token?authToken=${encodeURIComponent(localAuthToken)}` : '/lk/token';
     return typeof process.env.NEXT_PUBLIC_CONN_DETAILS_ENDPOINT === 'string'
       ? getSandboxTokenSource(appConfig)
-      : TokenSource.endpoint('/lk/token');
+      : TokenSource.endpoint(endpoint);
   }, [appConfig]);
 
   const session = useSession(
